@@ -34,8 +34,8 @@
 │                │ │            │ │                │
 │ BYO: S3, R2,  │ │ BYO: Claude│ │  auto-commit   │
 │ GCS, local     │ │ GPT, Gemini│ │  auto-push     │
-│                │ │ Ollama     │ │  conflict =    │
-│ content-       │ │            │ │  branch        │
+│                │ │ Ollama     │ │  conflict       │
+│ content-       │ │            │ │  resolution TBD │
 │ addressed      │ │ media →    │ │                │
 │ key scheme     │ │ structured │ │                │
 │                │ │ metadata   │ │                │
@@ -225,7 +225,7 @@ Text content (notes, documents, bookmarks) syncs to a git remote.
 - Watch directory is itself a git repo (or a subdirectory of one)
 - On file change: auto-commit with a message template
 - Batch commits and push on a configurable interval (default: 5 minutes)
-- On conflict: create a branch, never lose data
+- Conflict resolution assumed solved (CRDTs, last-write-wins, or similar)
 
 **Why git:**
 - Already handles text merge well
