@@ -1,8 +1,8 @@
 # System Interfaces
 
-This document defines the concrete data structures, configuration format,
-and API surface for sitemgr. These are the contracts that components
-talk through.
+This document defines the concrete data structures, provider interfaces,
+configuration format, and API surface for sitemgr. These are the contracts
+that components talk through.
 
 ---
 
@@ -19,7 +19,7 @@ Every action in the system produces an event. Events are the atoms.
   "timestamp": "2024-01-15T14:32:07.123Z",
 
   // What happened.
-  "type": "create",  // "create" | "update" | "delete" | "sync" | "publish"
+  "type": "create",  // "create" | "update" | "delete" | "sync" | "enrich" | "publish"
 
   // What kind of content this event concerns.
   "content_type": "photo",  // see Content Types below
@@ -29,40 +29,109 @@ Every action in the system produces an event. Events are the atoms.
   "content_hash": "sha256:a1b2c3d4e5f6...",
 
   // Where the content lives locally. Null for remote-only events.
-  "local_path": "/Users/me/Screenshots/screen-2024-01-15.png",
+  "local_path": "/storage/emulated/0/DCIM/Camera/IMG_20240115_143207.jpg",
 
   // Where the content lives remotely. Null until synced.
-  // Format depends on sync target:
+  // Format depends on storage provider:
   //   S3:  "s3://{bucket}/{key}"
   //   Git: "git://{repo}/{path}"
   "remote_path": null,
 
-  // Arbitrary metadata. Schema varies by content_type (see below).
+  // Arbitrary metadata. Schema varies by content_type and event type.
   "metadata": {
     "title": null,
     "description": null,
     "tags": [],
-    "mime_type": "image/png",
-    "size_bytes": 245032,
-    "source": "fs-watcher",
-    "dimensions": { "width": 1920, "height": 1080 }
+    "mime_type": "image/jpeg",
+    "size_bytes": 2450320,
+    "source": "android-mediastore",
+    "dimensions": { "width": 4032, "height": 3024 }
   },
 
-  // For update/delete: the event ID of the original create event.
+  // For update/delete/sync/enrich: the event ID of the original create event.
   // Null for create events.
   "parent_id": null
 }
 ```
 
+### Event Types
+
+| Type      | Description                                     | When                          |
+|-----------|-------------------------------------------------|-------------------------------|
+| `create`  | New content detected                            | Observer fires on new media   |
+| `update`  | Existing content modified                       | Observer fires on file change |
+| `delete`  | Content removed from local filesystem           | Observer fires on file delete |
+| `sync`    | Content uploaded/synced to remote storage        | After blob/doc sync completes |
+| `enrich`  | LLM-generated metadata attached to content      | After enrichment completes    |
+| `publish` | Content rendered and published to a public URL  | After publish pipeline        |
+
+### Enrich Events
+
+An `enrich` event is appended when the enrichment provider returns metadata
+for a piece of media. It references the original `create` event via `parent_id`.
+
+```jsonc
+{
+  "id": "01HQ3K7R9Z...",
+  "timestamp": "2024-01-15T14:32:12.456Z",
+  "type": "enrich",
+  "content_type": "photo",
+  "content_hash": "sha256:a1b2c3d4e5f6...",
+  "local_path": null,       // enrichment doesn't change the file
+  "remote_path": null,
+  "metadata": {
+    "source": "enrichment",
+    "enrichment": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514",
+      "description": "Broken wooden bed frame, split along the side rail near the center support. The crack runs along the grain of the wood, approximately 18 inches long. Visible screws and wood glue from a previous repair attempt.",
+      "objects": ["bed frame", "wood", "crack", "screws", "wood glue"],
+      "context": "furniture repair",
+      "suggested_tags": ["bed-repair", "woodworking", "damage-assessment"],
+      "raw_response": "..."  // full LLM output for future re-processing
+    }
+  },
+  "parent_id": "01HQ3K5P7Y..."  // the original create event
+}
+```
+
+**Batched enrichment:** When multiple photos are enriched in one call (e.g.,
+rapid-fire captures at a job site), each photo still gets its own `enrich`
+event. The batch context is reflected in the `enrichment.context` field —
+the LLM can see all the photos together and infer relationships.
+
+```jsonc
+// Enrich event for photo 3 of 5 in a batch
+{
+  "id": "01HQ3K9T1B...",
+  "timestamp": "2024-01-15T14:35:00.000Z",
+  "type": "enrich",
+  "content_type": "photo",
+  "content_hash": "sha256:c3d4e5f6a7b8...",
+  "metadata": {
+    "source": "enrichment",
+    "enrichment": {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-20250514",
+      "description": "Close-up of wood glue being applied to the cracked section of the bed frame side rail. The crack has been cleaned and the surfaces are being clamped together.",
+      "objects": ["wood glue", "clamp", "bed frame", "crack"],
+      "context": "furniture repair — bed frame glue-up, photo 3 of 5 in repair session",
+      "suggested_tags": ["bed-repair", "woodworking", "glue-up", "repair-in-progress"],
+      "batch_id": "batch_01HQ3K9S...",
+      "batch_position": 3,
+      "batch_size": 5,
+      "raw_response": "..."
+    }
+  },
+  "parent_id": "01HQ3K8M2A..."
+}
+```
+
 ### Delete Events
 
-A `delete` event is emitted by the FS watcher when a file is removed from
+A `delete` event is emitted by the observer when a file is removed from
 the filesystem. It references the original `create` event via `parent_id`
-and carries the same `content_hash`. Delete events are never triggered
-manually — users delete files normally, and the daemon observes the change.
-
-The sync layer propagates the deletion to the remote target (S3 or git),
-using the content hash to decide whether to delete the remote blob:
+and carries the same `content_hash`.
 
 ```jsonc
 {
@@ -72,9 +141,9 @@ using the content hash to decide whether to delete the remote blob:
   "content_type": "photo",
   "content_hash": "sha256:a1b2c3d4e5f6...",
   "local_path": null,         // file is gone
-  "remote_path": null,        // filled after sync deletes remote copy (or left null if blob is still referenced)
+  "remote_path": null,
   "metadata": {
-    "source": "fs-watcher"
+    "source": "android-mediastore"
   },
   "parent_id": "01HQ3K5P7Y..."  // the original create event
 }
@@ -82,10 +151,7 @@ using the content hash to decide whether to delete the remote blob:
 
 **Remote blob deletion rule:** The sync layer queries the index for any
 other event that shares the same `content_hash`. If none exist, the
-remote blob is deleted. If the hash is still referenced (e.g. the same
-photo was captured from two sources), the blob stays. This is the only
-safe behavior for content-addressed storage — delete the pointer, only
-delete the data when no pointers remain.
+remote blob is deleted. If the hash is still referenced, the blob stays.
 
 ### Content Types
 
@@ -100,7 +166,8 @@ delete the data when no pointers remain.
 | `bookmark`   | A URL with optional description    | Git         | url, title, description, tags            |
 | `gallery`    | A published collection (output)    | S3          | title, item_hashes, template             |
 
-**Blob types** (photo, video, audio) sync to S3.
+**Blob types** (photo, video, audio) sync to the storage provider and are
+candidates for auto-enrichment.
 **Document types** (note, document, quote, bookmark) sync to Git as `.md` files.
 
 ### Content-Addressable URI Scheme
@@ -113,240 +180,329 @@ smgr://sha256:a1b2c3d4e5f6...
 ```
 
 Renderers resolve this to:
-- **Local context:** `/Users/me/.sitemgr/blobs/a1/a1b2c3d4e5f6...jpg`
+- **Local context:** `~/.sitemgr/blobs/a1/a1b2c3d4e5f6...jpg`
 - **Web context:** `https://bucket.s3.amazonaws.com/sync/a1/a1b2c3d4e5f6...jpg`
-
-This means a markdown note like:
-
-```markdown
-# Paris Trip
-
-![Eiffel Tower](smgr://sha256:a1b2c3d4...)
-
-Great day in Paris. See also [full album](smgr://sha256:f7e8d9c0...).
-```
-
-...works on your laptop AND on the published web page without editing.
 
 ---
 
-## 2. Sync Daemon Configuration
+## 2. Provider Interfaces
 
-Configuration lives at `~/.sitemgr/config.toml`.
+The three BYO contracts. Each is a trait/interface that can be swapped by
+changing configuration.
+
+### 2.1 Storage Provider
+
+Stores and retrieves blobs by content hash.
+
+```
+trait StorageProvider {
+    /// Upload a blob. Returns the remote path/URL.
+    fn put(hash: ContentHash, bytes: &[u8], ext: &str) -> RemotePath;
+
+    /// Download a blob by hash.
+    fn get(hash: ContentHash) -> Vec<u8>;
+
+    /// Check if a blob exists in remote storage.
+    fn exists(hash: ContentHash) -> bool;
+
+    /// Delete a blob from remote storage.
+    fn delete(hash: ContentHash) -> void;
+
+    /// Get the public URL for a blob (for rendering/publishing).
+    fn url(hash: ContentHash, ext: &str) -> Url;
+}
+```
+
+**Implementations:**
+
+| Provider  | Config key   | Notes                                    |
+|-----------|-------------|------------------------------------------|
+| S3        | `"s3"`      | Any S3-compatible: AWS, MinIO, etc.      |
+| R2        | `"r2"`      | Cloudflare R2 (S3-compatible, no egress) |
+| GCS       | `"gcs"`     | Google Cloud Storage                     |
+| Local     | `"local"`   | `./blobs/` directory, works offline      |
+
+### 2.2 Enrichment Provider
+
+Sends media to an LLM. Gets structured metadata back.
+
+```
+trait EnrichmentProvider {
+    /// Enrich a single media item.
+    fn enrich(
+        media: &[u8],
+        mime_type: &str,
+    ) -> EnrichmentResult;
+
+    /// Enrich a batch of media items (optional — falls back to
+    /// sequential single calls if not implemented).
+    fn enrich_batch(
+        items: Vec<(ContentHash, &[u8], &str)>,
+    ) -> Vec<EnrichmentResult>;
+}
+
+struct EnrichmentResult {
+    /// Human-readable description of the media content.
+    description: String,
+
+    /// Objects, subjects, or elements detected in the media.
+    objects: Vec<String>,
+
+    /// Inferred context or activity (e.g., "furniture repair",
+    /// "cooking", "hiking").
+    context: String,
+
+    /// Tags suggested by the LLM for categorization.
+    suggested_tags: Vec<String>,
+
+    /// The full raw LLM response. Preserved for future re-processing
+    /// if the structured extraction schema changes.
+    raw_response: String,
+
+    /// Provider and model that produced this result.
+    provider: String,
+    model: String,
+}
+```
+
+**Implementations:**
+
+| Provider   | Config key     | Notes                                |
+|------------|---------------|--------------------------------------|
+| Anthropic  | `"anthropic"` | Claude with vision                   |
+| OpenAI     | `"openai"`    | GPT-4o with vision                   |
+| Google     | `"google"`    | Gemini with vision                   |
+| Ollama     | `"ollama"`    | Local models (LLaVA, etc.)           |
+
+**Prompt structure:** The enrichment provider sends a system prompt that
+asks for structured JSON output:
+
+```
+Analyze this image and return a JSON object with:
+- description: A detailed description of what you see (2-3 sentences)
+- objects: A list of notable objects, subjects, or elements
+- context: The likely activity or context (e.g., "furniture repair", "travel")
+- suggested_tags: 3-5 short tags for categorization
+
+Be specific and concrete. Describe what you actually see, not what you
+think the user might want to hear.
+```
+
+### 2.3 Query Provider
+
+Abstracts the index backend. All consumers (agent, CLI, future UI) go
+through this interface.
+
+```
+trait QueryProvider {
+    /// Query events matching a filter. Returns matching events with
+    /// their enrichment data (if any) joined in.
+    fn query(filter: QueryFilter) -> QueryResult;
+
+    /// Get a single event by ID, with related events (sync, enrich)
+    /// joined in.
+    fn get(event_id: EventId) -> Option<EventWithRelated>;
+
+    /// Get events related to a content hash (all events that reference
+    /// this content).
+    fn by_hash(hash: ContentHash) -> Vec<Event>;
+
+    /// Resolve a content hash to local and remote paths.
+    fn resolve(hash: ContentHash) -> Option<ResolvedPaths>;
+
+    /// Rebuild the index from the event log.
+    fn rebuild(event_log: &Path) -> void;
+}
+
+struct QueryFilter {
+    content_type: Option<String>,    // "photo", "video", "note", etc.
+    tags: Vec<String>,               // match any of these tags
+    search: Option<String>,          // full-text search query
+    since: Option<DateTime>,         // events after this time
+    until: Option<DateTime>,         // events before this time
+    event_type: Option<String>,      // "create", "enrich", "sync", etc.
+    limit: u32,                      // max results (default 20)
+    offset: u32,                     // pagination offset
+}
+
+struct QueryResult {
+    events: Vec<EventWithRelated>,
+    total: u64,
+    limit: u32,
+    offset: u32,
+}
+
+/// An event with its related events (sync status, enrichment data)
+/// joined in for convenience. This is what consumers actually work with.
+struct EventWithRelated {
+    event: Event,                            // the create event
+    sync: Option<Event>,                     // the sync event (if synced)
+    enrichment: Option<EnrichmentResult>,    // the enrichment data (if enriched)
+    remote_url: Option<Url>,                 // resolved remote URL
+}
+```
+
+**Implementations:**
+
+| Provider | Config key   | Notes                                    |
+|----------|-------------|------------------------------------------|
+| SQLite   | `"sqlite"`  | Default. FTS5 for full-text search.      |
+| Postgres | `"postgres"`| For heavier workloads, shared access.    |
+| Tantivy  | `"tantivy"` | Rust search engine. Better ranking.      |
+
+**Key design point:** The `EventWithRelated` struct joins across event types.
+When you query for photos, you don't get raw `create` events — you get
+events enriched with their sync status and LLM-generated metadata. This is
+what the agent and CLI consume. They never need to manually join `create`
+and `enrich` events.
+
+---
+
+## 3. Sync Daemon / Android App Configuration
+
+### Desktop: `~/.sitemgr/config.toml`
 
 ```toml
-# Where the event log is stored
 event_log = "~/.sitemgr/events.ndjson"
-
-# Where the local index (SQLite) is stored
 index_db = "~/.sitemgr/index.db"
-
-# Where synced blobs are cached locally (content-addressed)
 blob_store = "~/.sitemgr/blobs"
 
-# --- Watchers ---
-# Each watcher monitors a directory and emits events for matching files.
+[storage]
+provider = "s3"
+bucket = "my-site-assets"
+prefix = "sync/"
+region = "us-east-1"
+
+[enrichment]
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+auto_enrich = true
+media_types = ["image/*", "video/*"]
+batch_window = "30s"
+max_batch_size = 10
 
 [[watcher]]
 path = "~/Screenshots"
 content_type = "photo"
 patterns = ["*.png", "*.jpg", "*.jpeg", "*.webp"]
-sync_target = "s3"
-# Only watch for new files (don't re-process existing on startup)
-watch_mode = "new"  # "new" | "all"
-
-[[watcher]]
-path = "~/Pictures/Camera Roll"
-content_type = "photo"
-patterns = ["*.jpg", "*.jpeg", "*.heic", "*.png"]
-sync_target = "s3"
-watch_mode = "new"
-# Optional: disable this watcher without removing it
-enabled = true
+auto_enrich = true
 
 [[watcher]]
 path = "~/notes"
 content_type = "note"
 patterns = ["*.md"]
-sync_target = "git"
-watch_mode = "all"
-# For git-synced dirs: parse front matter for title/tags
-parse_frontmatter = true
-
-[[watcher]]
-path = "~/documents"
-content_type = "document"
-patterns = ["*.md"]
-sync_target = "git"
-watch_mode = "all"
-parse_frontmatter = true
-
-# --- Sync Targets ---
-
-[targets.s3]
-endpoint = "https://s3.us-east-1.amazonaws.com"
-bucket = "my-sync-data"
-prefix = "sync/"
-region = "us-east-1"
-# Credentials come from env vars or AWS credential chain:
-#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
-#   or ~/.aws/credentials
+auto_enrich = false
 
 [targets.git]
-# The git remote for document sync
 remote = "git@github.com:user/notes.git"
 branch = "main"
-# How often to push (batches commits)
 push_interval = "5m"
-# Commit message template. {event_id} and {file} are interpolated.
 commit_message = "sync: {file} [{event_id}]"
 ```
 
-### Frontmatter Convention
+### Android
 
-Markdown files can include YAML frontmatter that the system parses into
-event metadata:
+The Android app stores equivalent config in SharedPreferences or a local
+config file. The UI exposes:
 
-```markdown
----
-title: Paris Trip Notes
-tags: [travel, paris, 2024]
-date: 2024-01-15
----
-
-# Paris Trip Notes
-
-Arrived at Gare du Nord at 10am...
-```
+- **Storage provider:** S3 bucket, region, credentials (or link to
+  credential manager)
+- **Enrichment provider:** API key, model selection, auto-enrich toggle
+- **Media types to watch:** Camera, screenshots, screen recordings, all
+- **Batch window:** How long to wait before grouping captures into a batch
 
 ---
 
-## 3. CLI Interface
+## 4. CLI Interface
 
-The CLI is the primary interface for v0, and the surface the agent calls.
-Binary name: `smgr`. All query commands support `--format json` for
-machine-readable output (which is what the agent uses).
+The CLI is the primary desktop interface and the surface the agent calls.
+Binary name: `smgr`. All query commands output JSON by default (agent-friendly).
 
-### Daemon Control
-
-The daemon is the background process that watches the filesystem and syncs
-content. It's bundled in the same `smgr` binary — not a separate install.
+### Query Operations (via Query Provider)
 
 ```
-smgr daemon start           # Start in background (forks, writes PID file)
-smgr daemon stop            # Stop the daemon
-smgr daemon status          # Show status, active watchers, sync queue
-smgr daemon install         # Install as system service (launchd on macOS, systemd on Linux)
-smgr daemon uninstall       # Remove the system service
+# Query events — goes through the query provider interface
+smgr query                                   # Recent events (default: last 20)
+smgr query --type photo                      # Filter by content type
+smgr query --tags bed-repair                 # Filter by tag (from enrichment)
+smgr query --tags bed-repair --type photo    # Combine filters
+smgr query --since 2024-01-01               # Filter by date
+smgr query --search "cracked bed frame"     # Full-text search (searches enrichment descriptions)
+smgr query --limit 50                        # Pagination
+smgr query --format table                    # Human-readable table output
 
-# On macOS, `smgr daemon install` creates a launchd plist at:
-#   ~/Library/LaunchAgents/com.smgr.daemon.plist
-# On Linux, it creates a systemd user unit at:
-#   ~/.config/systemd/user/smgr.service
-#
-# Either way, the daemon starts automatically on login.
+# Show details for a specific event (with related sync/enrich events)
+smgr show <event_id>
+
+# Get paths for content
+smgr resolve <content_hash>                  # Print local and remote paths
+smgr resolve --local <content_hash>          # Print only local path
+smgr resolve --remote <content_hash>         # Print only remote URL
 ```
 
 ### Content Operations
 
 ```
-# Add content explicitly (bypasses fs watcher)
-smgr add <file>                         # Auto-detect content type
-smgr add --type photo <file>            # Explicit type
-smgr add --type bookmark --url <url>    # Create a bookmark
+# Add content explicitly (bypasses observer)
+smgr add <file>                              # Auto-detect content type
+smgr add --type photo <file>                 # Explicit type
+smgr add --type bookmark --url <url>         # Create a bookmark
 smgr add --type quote --text "..." --author "..." --source <url>
 smgr add --type note --title "..." --tags tag1,tag2  # Opens $EDITOR for body
+smgr add --enrich <file>                     # Add and immediately enrich
+```
 
-# List / query events
-smgr ls                                 # Recent events (default: last 20)
-smgr ls --type photo                    # Filter by content type
-smgr ls --tag travel                    # Filter by tag
-smgr ls --since 2024-01-01             # Filter by date
-smgr ls --search "paris"               # Full-text search
-smgr ls --format json                   # Output as JSON
-smgr ls --format table                  # Output as table (default)
+### Enrichment Operations
 
-# Show details for a specific event or content hash
-smgr show <event_id>
-smgr show <content_hash>
+```
+# Manually trigger enrichment for a specific event/hash
+smgr enrich <event_id>
+smgr enrich <content_hash>
 
-# Get paths for content
-smgr resolve <content_hash>             # Print local and remote paths
-smgr resolve --local <content_hash>     # Print only local path
-smgr resolve --remote <content_hash>    # Print only remote URL
+# Re-enrich (e.g., after switching to a better model)
+smgr enrich --force <event_id>
+
+# Enrich all un-enriched media
+smgr enrich --pending
+
+# Show enrichment status
+smgr enrich --status
 ```
 
 ### Sync Operations
 
 ```
-smgr sync status                        # Show sync queue and status
-smgr sync push                          # Force push pending items now
-smgr sync push --content-hash <hash>    # Push a specific item
+smgr sync status                             # Show sync queue and status
+smgr sync push                               # Force push pending items now
+smgr sync push --content-hash <hash>         # Push a specific item
 ```
 
-### Render Operations
+### Render + Publish Operations
 
 ```
-# Render a markdown file (with typed frontmatter) to HTML
-smgr render <markdown-file>                     # Output to stdout
-smgr render <markdown-file> --output ./out.html # Output to file
-smgr render <markdown-file> --context web       # Resolve smgr:// → S3 URLs (default)
-smgr render <markdown-file> --context local     # Resolve smgr:// → local paths
-
-# The frontmatter `type` field determines the HTML template:
-#   type: gallery  → photo grid with lightbox
-#   type: note     → clean reading layout
-#   type: blog     → article layout with date/tags
-#   type: quote    → styled card with attribution
-#   type: bookmarks → categorized link list
-```
-
-### Publish Operations
-
-```
-# Render and upload in one step
-smgr publish <markdown-file>                    # Render → upload → return URL
-smgr publish <markdown-file> --private          # Generate a non-guessable URL
-smgr publish <markdown-file> --output ./out.html # Also save local copy
-
-# Publish a pre-rendered HTML file
-smgr publish --html <html-file>
-
-# Publish a feed (Atom/RSS) of recent notes
-smgr publish feed --type note --limit 20 --output ./feed.xml
-```
-
-### Export (SSG Integration)
-
-```
-# Export content for use with a static site generator (e.g., Zola, Hugo)
-smgr export --type note --format zola --output ./content/
-smgr export --type note,document --format hugo --output ./content/
-
-# This:
-# 1. Copies markdown files to the output directory
-# 2. Rewrites smgr:// URIs to relative paths
-# 3. Copies/links referenced blobs into a static/ directory
-# 4. Adjusts frontmatter to match the SSG's expected format
+smgr render <markdown-file>                  # Output HTML to stdout
+smgr render <markdown-file> --output ./out.html
+smgr publish <markdown-file>                 # Render → upload → return URL
+smgr publish <markdown-file> --private       # Non-guessable URL
 ```
 
 ### Index Operations
 
 ```
-smgr index rebuild                      # Rebuild index from event log
-smgr index stats                        # Show index statistics
+smgr index rebuild                           # Rebuild index from event log
+smgr index stats                             # Show index statistics
 ```
 
 ---
 
-## 4. Query API (HTTP)
+## 5. Query API (HTTP)
 
-A lightweight HTTP API served by the daemon for the web app and
-programmatic access. Runs on localhost by default.
+A lightweight HTTP API for programmatic access. Runs on localhost. Backed
+by the same query provider interface as the CLI.
 
 ### `GET /api/events`
 
-Query the event log / index.
+Query events. All parameters map to `QueryFilter` fields.
 
 **Query Parameters:**
 
@@ -367,14 +523,25 @@ Query the event log / index.
 {
   "events": [
     {
-      "id": "01HQ3K5P7Y...",
-      "timestamp": "2024-01-15T14:32:07.123Z",
-      "type": "create",
-      "content_type": "photo",
-      "content_hash": "sha256:a1b2c3d4...",
-      "local_path": "/Users/me/Screenshots/screen.png",
-      "remote_path": "s3://bucket/sync/a1/a1b2c3d4...png",
-      "metadata": { ... }
+      "event": {
+        "id": "01HQ3K5P7Y...",
+        "timestamp": "2024-01-15T14:32:07.123Z",
+        "type": "create",
+        "content_type": "photo",
+        "content_hash": "sha256:a1b2c3d4...",
+        "local_path": "/storage/emulated/0/DCIM/Camera/IMG_20240115.jpg",
+        "remote_path": "s3://bucket/sync/a1/a1b2c3d4...jpg",
+        "metadata": { ... }
+      },
+      "enrichment": {
+        "description": "Broken wooden bed frame, split along the side rail...",
+        "objects": ["bed frame", "wood", "crack", "screws"],
+        "context": "furniture repair",
+        "suggested_tags": ["bed-repair", "woodworking"],
+        "provider": "anthropic",
+        "model": "claude-sonnet-4-20250514"
+      },
+      "remote_url": "https://bucket.s3.amazonaws.com/sync/a1/a1b2c3d4...jpg"
     }
     // ...
   ],
@@ -384,61 +551,30 @@ Query the event log / index.
 }
 ```
 
+Note: responses return `EventWithRelated` — the create event joined with
+its enrichment data and resolved URLs. Consumers never need to manually
+correlate create and enrich events.
+
 ### `GET /api/events/:id`
 
-Get a single event by ID.
+Get a single event by ID (with related events joined).
 
 ### `POST /api/events`
 
-Create a new event (used by the web app to add notes, bookmarks, etc.)
-
-**Request Body:**
-
-```jsonc
-{
-  "content_type": "note",
-  "metadata": {
-    "title": "Quick thought",
-    "tags": ["idea"],
-  },
-  // For notes/documents: the markdown body
-  "body": "# Quick thought\n\nThis is an idea I had...",
-  // For bookmarks: the URL
-  "url": null,
-  // For blobs: multipart upload (separate endpoint, see below)
-}
-```
-
-**Response:** The created event.
+Create a new event (used by web app / mobile to add notes, bookmarks, etc.)
 
 ### `POST /api/blobs`
 
 Upload a binary blob (photo, video, audio). Multipart form data.
-
-**Response:**
-
-```jsonc
-{
-  "content_hash": "sha256:a1b2c3d4...",
-  "event": { ... }  // The created event
-}
-```
+Triggers enrichment if `auto_enrich` is enabled.
 
 ### `GET /api/resolve/:content_hash`
 
 Resolve a content hash to paths.
 
-**Response:**
+### `POST /api/enrich/:event_id`
 
-```jsonc
-{
-  "content_hash": "sha256:a1b2c3d4...",
-  "local_path": "/Users/me/.sitemgr/blobs/a1/a1b2c3d4...jpg",
-  "remote_url": "https://bucket.s3.amazonaws.com/sync/a1/a1b2c3d4...jpg",
-  "content_type": "photo",
-  "mime_type": "image/jpeg"
-}
-```
+Manually trigger enrichment for a specific event.
 
 ### `GET /api/stats`
 
@@ -447,6 +583,8 @@ Index statistics.
 ```jsonc
 {
   "total_events": 4521,
+  "enriched_events": 3100,
+  "pending_enrichment": 100,
   "by_content_type": {
     "photo": 3200,
     "note": 800,
@@ -456,6 +594,7 @@ Index statistics.
   },
   "by_type": {
     "create": 2500,
+    "enrich": 3100,
     "sync": 2000,
     "update": 15,
     "delete": 6
@@ -469,7 +608,7 @@ Index statistics.
 
 ---
 
-## 5. Renderer Interface
+## 6. Renderer Interface
 
 Renderers are pure functions: `(query_result, template, resolve_fn) → output`.
 
@@ -477,7 +616,7 @@ Renderers are pure functions: `(query_result, template, resolve_fn) → output`.
 trait Renderer {
     /// Render a set of events into an output format.
     fn render(
-        events: Vec<Event>,
+        events: Vec<EventWithRelated>,
         template: Template,
         resolver: impl Fn(ContentHash) -> ResolvedPaths,
     ) -> Output;
@@ -500,12 +639,16 @@ The `resolver` function is what makes the same template work locally and
 on the web. In a local context, it returns file:// paths. In a publish
 context, it returns S3 URLs.
 
+Note: renderers receive `EventWithRelated`, which includes enrichment data.
+Templates can use enrichment descriptions as alt text, captions, or
+narrative content in blog posts.
+
 ---
 
-## 6. Event Log Sync (Between Devices)
+## 7. Event Log Sync (Between Devices)
 
 For v0, the event log is local-only. But the design should accommodate
-future cross-device sync. Two options:
+future cross-device sync.
 
 ### Option A: Log as Git-Synced File
 
@@ -535,11 +678,11 @@ grows large or when more than 2 devices are in play.
 
 ---
 
-## 7. Directory Layout
+## 8. Directory Layout
 
 ```
 ~/.sitemgr/
-├── config.toml          # Daemon configuration
+├── config.toml          # Configuration (storage, enrichment, watchers)
 ├── events.ndjson        # The append-only event log
 ├── index.db             # SQLite index (derived, rebuildable)
 ├── blobs/               # Local blob cache (content-addressed)
@@ -553,4 +696,14 @@ grows large or when more than 2 devices are in play.
 │   ├── note.html
 │   └── feed.xml
 └── daemon.pid           # PID file when daemon is running
+```
+
+On Android, the equivalent structure lives in the app's internal storage:
+
+```
+/data/data/com.sitemgr.app/files/
+├── config.json          # Configuration (JSON on Android)
+├── events.ndjson        # Local event log
+├── index.db             # SQLite index
+└── blobs/               # Local blob cache
 ```
