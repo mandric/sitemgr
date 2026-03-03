@@ -14,11 +14,12 @@
           │               │             │            │
           ▼               ▼             ▼            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                      EVENT LOG                              │
+│                    EVENT STORE                               │
 │                                                             │
 │  Append-only, locally stored, content-addressed.            │
 │  Every action becomes an event. Events are immutable.       │
-│  Stored as newline-delimited JSON (ndjson).                 │
+│  Stored in a per-device SQLite database (WAL mode).         │
+│  Each event carries a device_id for provenance.             │
 │                                                             │
 │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐             │
 │  │evt 1 │→│evt 2 │→│evt 3 │→│evt 4 │→│evt 5 │→ ...        │
@@ -51,17 +52,17 @@
         └─────────────┼───────────────────┘
                       ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                         INDEX                               │
+│                    QUERY INTERFACE                           │
 │                      (Query Provider)                       │
 │                                                             │
-│  Derived from the event log. Deletable and rebuildable.     │
-│  Abstracts the index backend behind a query interface.      │
+│  Queries run against the SQLite event store directly.       │
+│  FTS5 indexes are maintained alongside event data.          │
 │                                                             │
 │  - Full-text search (FTS5)                                  │
 │  - Semantic search over enriched descriptions               │
-│  - Filter by content type, tags, date range                 │
+│  - Filter by content type, tags, date range, device_id      │
 │  - Hash → local path, remote URL                            │
-│  - Event log position (for replay)                          │
+│  - ATTACH multiple device DBs for cross-device queries      │
 └────────────────────────┬────────────────────────────────────┘
                          │
               ┌──────────┼──────────┐
@@ -110,7 +111,7 @@ Observers detect changes in the outside world and emit events.
 - Registers `ContentObserver` on `MediaStore.Images`, `MediaStore.Video`
 - Fires on every new photo, video, or screenshot
 - Computes content hash (SHA-256) for new files
-- Emits `create` event to the event log immediately
+- Emits `create` event to the event store immediately
 - Runs as a foreground service or WorkManager job
 
 **CLI:**
@@ -128,23 +129,36 @@ Observers detect changes in the outside world and emit events.
 - iOS: PhotoKit observers, file provider
 - Web app / PWA for quick notes and bookmarks
 
-### 2. Event Log
+### 2. Event Store (SQLite)
 
-The event log is the source of truth. It's an append-only file stored as
-newline-delimited JSON (ndjson). Each line is a self-contained event.
+The event store is the source of truth. It's a per-device SQLite database
+running in WAL mode. Each device maintains its own database — no concurrent
+writer conflicts, no file locking, no dual-write consistency problems.
 
 **Properties:**
 - Append-only (no edits, no deletes — delete is a new event)
 - Content-addressed (events reference content by hash)
-- Locally stored (sync between devices is a separate concern)
-- Human-readable (it's just JSON lines)
+- Per-device (each device owns its own database)
+- Every event carries a `device_id` for provenance
+- SQLite WAL mode handles concurrent reads safely
+- Single database for both event storage and querying — no separate index to keep in sync
 
-**Why ndjson:**
-- Easy to append (just write a line)
-- Easy to stream/tail
-- Easy to merge (line-oriented, like git)
-- Easy to parse in any language
-- Good enough for hundreds of thousands of events
+**Why SQLite (not ndjson):**
+- Writes and queries in one place — no separate log + index to keep in sync
+- Built-in concurrency (WAL mode) — no file locking needed
+- `INSERT` is as easy as appending a line to a file
+- FTS5 for full-text search lives alongside the data
+- Handles millions of events easily
+- Cross-device queries via `ATTACH DATABASE` — no merge logic needed
+- Still inspectable: `sqlite3 events.db "SELECT * FROM events"`
+
+**Multi-device model:**
+- Each device maintains its own `events.db`
+- A web dashboard or CLI can `ATTACH` multiple device databases and query
+  across them (e.g., "show me all photos from all devices last week")
+- No merge, no conflict resolution, no sync protocol needed for reads
+- Cross-device sync (replicating events between devices) is a future concern
+  with its own design — but the per-device model works now
 
 **Event schema:** See [interfaces.md](interfaces.md).
 
@@ -159,15 +173,15 @@ This is what turns dumb files into queryable knowledge.
 2. Enrichment picks up event (async, background)
 3. Sends media bytes + mime_type to enrichment provider
 4. Provider returns: description, objects, context, suggested_tags
-5. `enrich` event appended to log with the structured metadata
+5. `enrich` event inserted into events.db with the structured metadata
 6. Index updated with enriched data
 ```
 
 **Key design decisions:**
 
 - **Fully external, never blocking.** Enrichment is an external process that
-  watches the event log for new `create` events. It makes an API call, and
-  when (if) it finishes, appends an `enrich` event back to the log. That's it.
+  watches the event store for new `create` events. It makes an API call, and
+  when (if) it finishes, inserts an `enrich` event back into the store. That's it.
   Nothing waits on enrichment. Apps that produce media have no idea enrichment
   exists — they write files, an observer emits a `create` event, and the app
   is done. Enrichment output just shows up in the log later.
@@ -182,7 +196,7 @@ This is what turns dumb files into queryable knowledge.
 
 - **Offline-safe.** Enrichment is an external API call. If the device is
   offline (or the provider is unreachable), the call fails and an
-  `enrich_failed` event is appended to the log so it can be retried later.
+  `enrich_failed` event is inserted into the store so it can be retried later.
   Content is never lost — the `create` event and blob are unaffected.
 
 - **Online trigger.** When connectivity is restored, the enrichment process
@@ -241,11 +255,11 @@ Text content (notes, documents, bookmarks) syncs to a git remote.
 - Works with any git host (GitHub, Gitea, self-hosted)
 - Users already know it
 
-### 6. Index / Query Provider (BYO Index)
+### 6. Query Provider (BYO Query)
 
-The index is a derived, rebuildable view of the event log optimized for
-queries. It sits behind the **query provider** interface — the third BYO
-contract.
+The query provider sits in front of the event store and abstracts how
+queries are executed. All consumers go through this interface — the third
+BYO contract.
 
 **The abstraction:**
 ```
@@ -258,26 +272,32 @@ Where filter supports:
 - `search` — full-text search across descriptions, titles, tags
 - `since` / `until` — date range
 - `type` — event type (create, enrich, sync, etc.)
+- `device_id` — filter by originating device
 
 **Consumers of the query interface:**
 - **Agent** — translates natural language to structured queries
 - **CLI** — `smgr query --tags bed-repair --type photo`
-- **Future UI** — web dashboard, mobile browse
+- **Future UI** — web dashboard querying across device databases
 
 The agent does NOT know about SQLite. The CLI does NOT know about SQLite.
-They both call the query interface. The index backend is swappable.
+They both call the query interface. The query backend is swappable.
 
 **Default implementation: SQLite + FTS5**
 
-Tables:
-- `events` — all events, indexed by type, content_type, timestamp
+The event store and query index are the same database. Tables:
+- `events` — all events, indexed by type, content_type, timestamp, device_id
 - `tags` — tag → event_id mapping
 - `enrichments` — enrichment results linked to source events
 - `fts` — FTS5 virtual table for full-text search across descriptions,
   titles, tags
 - `hashes` — content_hash → local_path, remote_url mapping
 
-**Rebuild:** `smgr index rebuild` replays the event log from scratch.
+**Cross-device queries:** A web dashboard or desktop CLI can `ATTACH`
+multiple device databases and query across them using SQLite's built-in
+cross-database query support. No merge or replication needed for read access.
+
+**Rebuild:** `smgr index rebuild` rebuilds FTS and derived indexes from
+the events table.
 
 ### 7. Renderers
 
@@ -317,19 +337,20 @@ Publish = render + upload.
 1. User takes photo → camera app saves to MediaStore
 2. ContentObserver fires: new image detected
 3. App computes SHA-256 hash of the image
-4. CREATE event appended to events.ndjson:
-   { type: "create", content_type: "photo", content_hash: "sha256:...",
+4. CREATE event inserted into device's events.db:
+   { type: "create", content_type: "photo", device_id: "pixel-7a",
+     content_hash: "sha256:...",
      metadata: { mime_type: "image/jpeg", size_bytes: 2450320, ... } }
-5. Index updated with new event
+5. FTS index updated automatically (same database)
 6. Blob sync uploads image to S3 (background)
-7. SYNC event appended: { type: "sync", parent_id: "...", remote_path: "s3://..." }
+7. SYNC event inserted: { type: "sync", parent_id: "...", remote_path: "s3://..." }
 8. Enrichment sends image to Claude (background)
 9. Claude returns: { description: "Cracked wooden bed frame, split along
    side rail...", objects: ["bed frame", "wood", "crack"], context: "furniture
    repair", suggested_tags: ["bed-repair", "woodworking"] }
-10. ENRICH event appended: { type: "enrich", parent_id: "...", metadata:
+10. ENRICH event inserted: { type: "enrich", parent_id: "...", metadata:
     { enrichment: { ... } } }
-11. Index updated with enriched metadata — now searchable
+11. FTS index updated — now searchable
 ```
 
 Steps 4-5 are immediate. Steps 6-11 are async — the user can keep taking
@@ -363,11 +384,12 @@ is the source of truth.
 ```toml
 # ~/.sitemgr/config.toml
 
-# Where the event log is stored
-event_log = "~/.sitemgr/events.ndjson"
+# Device identity — unique per device, human-readable
+device_id = "pixel-7a"
+device_name = "Milan's Pixel 7a"
 
-# Where the local index (SQLite) is stored
-index_db = "~/.sitemgr/index.db"
+# Where the event store (SQLite) lives
+events_db = "~/.sitemgr/events.db"
 
 # Where synced blobs are cached locally (content-addressed)
 blob_store = "~/.sitemgr/blobs"
@@ -425,8 +447,8 @@ commit_message = "sync: {file} [{event_id}]"
 |-----------------|----------------|-----------------------------------------------|
 | Primary platform| Android (Kotlin)| Mobile-first — photos are taken on phones    |
 | CLI / Desktop   | Rust           | Single binary, fast, cross-platform           |
-| Event log       | ndjson file    | Simple, appendable, mergeable                 |
-| Index           | SQLite + FTS5  | Embedded, fast, full-text search built in     |
+| Event store     | SQLite (WAL)   | Writes + queries in one place, no dual-write  |
+| Full-text search| FTS5           | Built into SQLite, no separate engine needed  |
 | Blob storage    | S3-compatible  | BYO — any provider works                      |
 | Enrichment      | LLM API        | BYO — Claude, GPT, Gemini, Ollama             |
 | Doc storage     | Git            | Already handles text well, built-in history   |
@@ -441,7 +463,7 @@ commit_message = "sync: {file} [{event_id}]"
 ## What We're NOT Building
 
 - **Not a platform.** No accounts, no hosted service, no subscription. BYO everything.
-- **Not a database.** SQLite is a cache/index. The event log is the source of truth.
+- **Not a centralized database.** Each device owns its own SQLite event store. There is no central server.
 - **Not a CMS.** No admin panel, no user accounts, no WYSIWYG editor.
 - **Not a sync protocol.** We use S3 and git — commodity sync.
 - **Not a photo editor / note editor / etc.** We observe what other apps produce.
@@ -454,11 +476,11 @@ commit_message = "sync: {file} [{event_id}]"
 
 ### Phase 1: Android Core Loop (MVP)
 - Android app with ContentObserver on MediaStore
-- Event log (ndjson) — local on device
+- Per-device SQLite event store (WAL mode) with device_id on every event
 - Enrichment provider interface + Anthropic implementation
 - Async enrichment pipeline (capture → enrich → store)
 - Storage provider interface + S3 implementation
-- SQLite index with FTS5
+- FTS5 indexes maintained in the same database
 - Query provider interface
 - Basic on-device UI: browse events, see enrichment results
 
@@ -476,10 +498,11 @@ commit_message = "sync: {file} [{event_id}]"
 - `smgr render` and `smgr publish`
 - `smgr://` URI resolution
 
-### Phase 4: Cross-Device Sync
-- Event log sync between devices (phone ↔ desktop)
-- Conflict resolution
-- Multi-device index merge
+### Phase 4: Cross-Device Access + Sync
+- Web dashboard that ATTACHes multiple device databases for aggregate queries
+- Device database discovery (local network, shared storage, or manual path)
+- Event replication between devices (phone → desktop, desktop → phone)
+- Define concrete use cases that require merging vs. just cross-device reads
 
 ### Phase 5: Expand
 - iOS support

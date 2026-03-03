@@ -18,6 +18,10 @@ Every action in the system produces an event. Events are the atoms.
   // When the event occurred (ISO 8601, UTC).
   "timestamp": "2024-01-15T14:32:07.123Z",
 
+  // Which device created this event. Set from config at event creation time.
+  // Used for provenance tracking and cross-device queries.
+  "device_id": "pixel-7a",
+
   // What happened.
   "type": "create",  // "create" | "update" | "delete" | "sync" | "enrich" | "publish"
 
@@ -307,8 +311,8 @@ trait QueryProvider {
     /// Resolve a content hash to local and remote paths.
     fn resolve(hash: ContentHash) -> Option<ResolvedPaths>;
 
-    /// Rebuild the index from the event log.
-    fn rebuild(event_log: &Path) -> void;
+    /// Rebuild derived indexes (FTS, tags) from the events table.
+    fn rebuild() -> void;
 }
 
 struct QueryFilter {
@@ -318,6 +322,7 @@ struct QueryFilter {
     since: Option<DateTime>,         // events after this time
     until: Option<DateTime>,         // events before this time
     event_type: Option<String>,      // "create", "enrich", "sync", etc.
+    device_id: Option<String>,       // filter by originating device
     limit: u32,                      // max results (default 20)
     offset: u32,                     // pagination offset
 }
@@ -360,8 +365,10 @@ and `enrich` events.
 ### Desktop: `~/.sitemgr/config.toml`
 
 ```toml
-event_log = "~/.sitemgr/events.ndjson"
-index_db = "~/.sitemgr/index.db"
+device_id = "thinkpad-x1"
+device_name = "Milan's ThinkPad"
+
+events_db = "~/.sitemgr/events.db"
 blob_store = "~/.sitemgr/blobs"
 
 [storage]
@@ -425,6 +432,7 @@ smgr query --tags bed-repair                 # Filter by tag (from enrichment)
 smgr query --tags bed-repair --type photo    # Combine filters
 smgr query --since 2024-01-01               # Filter by date
 smgr query --search "cracked bed frame"     # Full-text search (searches enrichment descriptions)
+smgr query --device pixel-7a                 # Filter by device
 smgr query --limit 50                        # Pagination
 smgr query --format table                    # Human-readable table output
 
@@ -486,8 +494,8 @@ smgr publish <markdown-file> --private       # Non-guessable URL
 ### Index Operations
 
 ```
-smgr index rebuild                           # Rebuild index from event log
-smgr index stats                             # Show index statistics
+smgr index rebuild                           # Rebuild FTS and derived indexes from events table
+smgr index stats                             # Show event store statistics
 ```
 
 ---
@@ -511,6 +519,7 @@ Query events. All parameters map to `QueryFilter` fields.
 | `since`        | ISO 8601 | Events after this timestamp          |
 | `until`        | ISO 8601 | Events before this timestamp         |
 | `type`         | string   | Filter by event type                 |
+| `device_id`    | string   | Filter by originating device         |
 | `limit`        | int      | Max results (default 20, max 100)    |
 | `offset`       | int      | Pagination offset                    |
 
@@ -523,6 +532,7 @@ Query events. All parameters map to `QueryFilter` fields.
       "event": {
         "id": "01HQ3K5P7Y...",
         "timestamp": "2024-01-15T14:32:07.123Z",
+        "device_id": "pixel-7a",
         "type": "create",
         "content_type": "photo",
         "content_hash": "sha256:a1b2c3d4...",
@@ -598,8 +608,9 @@ Index statistics.
   },
   "storage": {
     "local_blobs_bytes": 5368709120,
-    "events_log_bytes": 2097152
-  }
+    "events_db_bytes": 2097152
+  },
+  "device_id": "pixel-7a"
 }
 ```
 
@@ -642,36 +653,60 @@ narrative content in blog posts.
 
 ---
 
-## 7. Event Log Sync (Between Devices)
+## 7. Multi-Device Access
 
-For v0, the event log is local-only. But the design should accommodate
-future cross-device sync.
+Each device maintains its own SQLite event store. There is no shared
+database. This eliminates all concurrent-write, locking, and merge
+problems for the core write path.
 
-### Option A: Log as Git-Synced File
-
-The event log itself is a file in the git repo. Each device appends to it
-and git merges are line-based (ndjson is line-oriented). Conflicts are
-unlikely since events have unique IDs and are append-only.
-
-**Pro:** No new infrastructure. **Con:** Git isn't great for high-frequency
-appends.
-
-### Option B: Log Segments on S3
-
-The log is split into segments (one file per day or per N events). Segments
-are uploaded to S3. Each device reads segments it hasn't seen.
+### Current Model: Per-Device Databases
 
 ```
-s3://bucket/log/2024-01-15.ndjson
-s3://bucket/log/2024-01-16.ndjson
+Phone:    ~/.sitemgr/events.db    (device_id: "pixel-7a")
+Laptop:   ~/.sitemgr/events.db    (device_id: "thinkpad-x1")
+Desktop:  ~/.sitemgr/events.db    (device_id: "desktop-ryzen")
 ```
 
-**Pro:** Scales better. **Con:** Need merge logic for concurrent writers.
+Every event carries a `device_id` field. You always know where an event
+came from.
 
-### Recommendation
+### Cross-Device Reads (No Sync Needed)
 
-Start with **Option A** for simplicity. Move to **Option B** when the log
-grows large or when more than 2 devices are in play.
+A web dashboard or CLI can query multiple device databases without
+merging them. SQLite's `ATTACH DATABASE` makes this trivial:
+
+```sql
+ATTACH 'phone-events.db' AS phone;
+ATTACH 'laptop-events.db' AS laptop;
+
+-- All photos from all devices last week
+SELECT * FROM phone.events
+UNION ALL
+SELECT * FROM laptop.events
+WHERE content_type = 'photo'
+  AND timestamp > datetime('now', '-7 days')
+ORDER BY timestamp DESC;
+```
+
+This gives you aggregate views across devices with zero sync
+infrastructure. The web dashboard renders data from multiple attached
+databases.
+
+### Future: Cross-Device Sync (TBD)
+
+Replicating events *between* devices (so each device has a complete
+picture) is a future concern. The per-device model with `device_id`
+provenance gives us a solid foundation — we'll define the concrete use
+cases that require replication before designing the sync protocol.
+
+Possible directions:
+- Export ndjson from SQLite for transport, import on the other side
+- Replicate via S3 (upload db snapshots or event batches)
+- Direct device-to-device sync over local network
+
+This is deliberately left open. The important thing is that the current
+design doesn't paint us into a corner — every event has a device_id,
+events are append-only, and IDs are globally unique (ULIDs).
 
 ---
 
@@ -679,9 +714,10 @@ grows large or when more than 2 devices are in play.
 
 ```
 ~/.sitemgr/
-├── config.toml          # Configuration (storage, enrichment, watchers)
-├── events.ndjson        # The append-only event log
-├── index.db             # SQLite index (derived, rebuildable)
+├── config.toml          # Configuration (device_id, storage, enrichment, watchers)
+├── events.db            # SQLite event store (WAL mode) — source of truth
+├── events.db-wal        # WAL file (managed by SQLite)
+├── events.db-shm        # Shared memory file (managed by SQLite)
 ├── blobs/               # Local blob cache (content-addressed)
 │   ├── a1/
 │   │   └── a1b2c3d4...jpg
@@ -699,8 +735,7 @@ On Android, the equivalent structure lives in the app's internal storage:
 
 ```
 /data/data/com.sitemgr.app/files/
-├── config.json          # Configuration (JSON on Android)
-├── events.ndjson        # Local event log
-├── index.db             # SQLite index
+├── config.json          # Configuration (JSON on Android, includes device_id)
+├── events.db            # SQLite event store (WAL mode)
 └── blobs/               # Local blob cache
 ```

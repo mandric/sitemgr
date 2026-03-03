@@ -37,7 +37,7 @@ We don't want more apps that each hoard their own data. We want a **shared
 data layer** — a mobile-first system that:
 
 1. **Captures** events from your devices (photos, videos, screenshots, notes, etc.)
-2. **Logs** every action into an append-only event log
+2. **Logs** every action into an append-only event store
 3. **Enriches** media with LLM-generated metadata at capture time — descriptions,
    tags, detected objects, context — turning dumb files into searchable knowledge
 4. **Syncs** blobs to your own storage (S3-compatible, BYO)
@@ -114,7 +114,7 @@ device. sitemgr is the orchestration layer, not the platform.
 
 Developers and power users who:
 - Take photos on Android and want them enriched, indexed, and queryable
-- Want their data in formats they control (ndjson events, standard image formats)
+- Want their data in formats they control (SQLite events, standard image formats)
 - Bring their own cloud storage (S3-compatible) and LLM API keys
 - Want to go from "I have 50 photos of a project" to "here's a blog post
   about it" without manual curation
