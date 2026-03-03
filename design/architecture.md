@@ -111,7 +111,6 @@ Observers detect changes in the outside world and emit events.
 - Fires on every new photo, video, or screenshot
 - Computes content hash (SHA-256) for new files
 - Emits `create` event to the event log immediately
-- Triggers async enrichment (does not block the user)
 - Runs as a foreground service or WorkManager job
 
 **CLI:**
@@ -122,7 +121,7 @@ Observers detect changes in the outside world and emit events.
 **FS Watcher (desktop):**
 - Uses `inotify` (Linux) / `FSEvents` (macOS) / `ReadDirectoryChangesW` (Windows)
 - Watches configured directories for file create/modify/delete
-- Same pipeline: event → enrich → sync → index
+- Same pipeline: detect → event → sync → index (enrichment runs separately)
 - Runs as a background daemon (launchd / systemd)
 
 **Future:**
@@ -166,22 +165,31 @@ This is what turns dumb files into queryable knowledge.
 
 **Key design decisions:**
 
-- **Async.** The `create` event is logged immediately. Enrichment happens in
-  the background. The user is never waiting on an API call to take their next
-  photo. The `enrich` event links back to the `create` event via `parent_id`.
+- **Fully external, never blocking.** Enrichment is an external process that
+  watches the event log for new `create` events. It makes an API call, and
+  when (if) it finishes, appends an `enrich` event back to the log. That's it.
+  Nothing waits on enrichment. Apps that produce media have no idea enrichment
+  exists — they write files, an observer emits a `create` event, and the app
+  is done. Enrichment output just shows up in the log later.
 
 - **Provider-agnostic.** The enrichment provider interface is:
   `enrich(media_bytes, mime_type) → EnrichmentResult`. Swap providers by
   changing config. Claude, GPT, Gemini, Ollama — same contract.
 
-- **Batching.** If the user takes 20 photos in quick succession (e.g., at a
-  job site), batch them into a single enrichment call with context: "these
-  are part of the same session." The LLM can infer project relationships
-  across photos. Batching is optional — single-photo enrichment works fine.
-
 - **Cost control.** Config controls which media types get auto-enriched.
   Default: camera photos and screenshots. Skip memes, downloads, app-generated
   images unless explicitly requested. Per-watcher `auto_enrich` flag.
+
+- **Offline-safe.** Enrichment is an external API call. If the device is
+  offline (or the provider is unreachable), the call fails and an
+  `enrich_failed` event is appended to the log so it can be retried later.
+  Content is never lost — the `create` event and blob are unaffected.
+
+- **Online trigger.** When connectivity is restored, the enrichment process
+  queries the index for `create` events that have no corresponding `enrich`
+  event. Any unenriched items are re-queued automatically. This means the
+  user can take photos all day on airplane mode and enrichment catches up
+  when they're back online.
 
 - **Raw response preserved.** The full LLM response is stored in the event.
   If we improve the structured extraction later, we can re-process from the
@@ -383,10 +391,6 @@ media_types = ["image/*", "video/*"]
 # For Ollama: endpoint = "http://localhost:11434"
 # API keys from env vars: ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
 
-# Batching: group rapid-fire captures into one enrichment call
-batch_window = "30s"        # group photos taken within 30s of each other
-max_batch_size = 10         # max photos per batch call
-
 # --- Watchers ---
 
 # Android watchers are configured in the Android app settings.
@@ -482,3 +486,12 @@ commit_message = "sync: {file} [{event_id}]"
 - Additional enrichment types (audio transcription, video keyframes)
 - Semantic search (vector embeddings from enrichment)
 - Web dashboard (read-only browse + quick add)
+
+---
+
+## Future Considerations
+
+- **Enrichment batching.** Group rapid-fire captures (e.g., 20 photos at a
+  job site) into a single enrichment call with session context so the LLM can
+  infer relationships across photos. Not needed for v1 — single-item
+  enrichment works fine — but could improve quality and reduce cost.

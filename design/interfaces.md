@@ -58,12 +58,13 @@ Every action in the system produces an event. Events are the atoms.
 
 | Type      | Description                                     | When                          |
 |-----------|-------------------------------------------------|-------------------------------|
-| `create`  | New content detected                            | Observer fires on new media   |
-| `update`  | Existing content modified                       | Observer fires on file change |
-| `delete`  | Content removed from local filesystem           | Observer fires on file delete |
-| `sync`    | Content uploaded/synced to remote storage        | After blob/doc sync completes |
-| `enrich`  | LLM-generated metadata attached to content      | After enrichment completes    |
-| `publish` | Content rendered and published to a public URL  | After publish pipeline        |
+| `create`         | New content detected                            | Observer fires on new media        |
+| `update`         | Existing content modified                       | Observer fires on file change      |
+| `delete`         | Content removed from local filesystem           | Observer fires on file delete      |
+| `sync`           | Content uploaded/synced to remote storage        | After blob/doc sync completes      |
+| `enrich`         | LLM-generated metadata attached to content      | After enrichment completes         |
+| `enrich_failed`  | Enrichment call failed (offline, error, etc.)   | Enrichment attempted but failed    |
+| `publish`        | Content rendered and published to a public URL  | After publish pipeline             |
 
 ### Enrich Events
 
@@ -95,37 +96,33 @@ for a piece of media. It references the original `create` event via `parent_id`.
 }
 ```
 
-**Batched enrichment:** When multiple photos are enriched in one call (e.g.,
-rapid-fire captures at a job site), each photo still gets its own `enrich`
-event. The batch context is reflected in the `enrichment.context` field —
-the LLM can see all the photos together and infer relationships.
+### Enrich Failed Events
+
+An `enrich_failed` event is appended when enrichment cannot complete — typically
+because the device is offline or the provider returns an error. This marks the
+item for retry when connectivity is restored.
 
 ```jsonc
-// Enrich event for photo 3 of 5 in a batch
 {
   "id": "01HQ3K9T1B...",
   "timestamp": "2024-01-15T14:35:00.000Z",
-  "type": "enrich",
+  "type": "enrich_failed",
   "content_type": "photo",
   "content_hash": "sha256:c3d4e5f6a7b8...",
+  "local_path": null,
+  "remote_path": null,
   "metadata": {
     "source": "enrichment",
-    "enrichment": {
-      "provider": "anthropic",
-      "model": "claude-sonnet-4-20250514",
-      "description": "Close-up of wood glue being applied to the cracked section of the bed frame side rail. The crack has been cleaned and the surfaces are being clamped together.",
-      "objects": ["wood glue", "clamp", "bed frame", "crack"],
-      "context": "furniture repair — bed frame glue-up, photo 3 of 5 in repair session",
-      "suggested_tags": ["bed-repair", "woodworking", "glue-up", "repair-in-progress"],
-      "batch_id": "batch_01HQ3K9S...",
-      "batch_position": 3,
-      "batch_size": 5,
-      "raw_response": "..."
-    }
+    "error": "network_unreachable",
+    "provider": "anthropic",
+    "attempts": 1
   },
-  "parent_id": "01HQ3K8M2A..."
+  "parent_id": "01HQ3K8M2A..."  // the original create event
 }
 ```
+
+On reconnect, the enrichment process queries the index for `create` events
+with no corresponding `enrich` event and re-queues them.
 
 ### Delete Events
 
