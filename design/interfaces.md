@@ -289,6 +289,16 @@ Be specific and concrete. Describe what you actually see, not what you
 think the user might want to hear.
 ```
 
+**Content-type-aware prompting (future).** The default prompt above works
+well for photos of physical scenes and objects. For other media types
+(screenshots, receipts, diagrams, documents), a specialized prompt may
+produce better metadata — e.g., extracting text content from screenshots,
+structured fields from receipts (vendor, amount, date), or conceptual
+descriptions from diagrams. The `EnrichmentResult` schema is intentionally
+flexible enough to accommodate this: `objects` can hold UI elements or line
+items, `context` can describe a transaction or a workflow. Prompt
+specialization by content type is an optimization, not a schema change.
+
 ### 2.3 Query Provider
 
 Abstracts the index backend. All consumers (agent, CLI, future UI) go
@@ -692,21 +702,32 @@ This gives you aggregate views across devices with zero sync
 infrastructure. The web dashboard renders data from multiple attached
 databases.
 
-### Future: Cross-Device Sync (TBD)
+### Cross-Device Access (v0): S3 Database Export
 
-Replicating events *between* devices (so each device has a complete
-picture) is a future concern. The per-device model with `device_id`
-provenance gives us a solid foundation — we'll define the concrete use
-cases that require replication before designing the sync protocol.
+The simplest path that validates the architecture: the phone periodically
+exports its `events.db` to the same S3 bucket it uses for blob storage.
 
-Possible directions:
-- Export ndjson from SQLite for transport, import on the other side
-- Replicate via S3 (upload db snapshots or event batches)
-- Direct device-to-device sync over local network
+```
+Phone:   smgr sync db-export   →  s3://bucket/sync/devices/pixel-7a/events.db
+Desktop: smgr sync db-import   ←  downloads to ~/.sitemgr/devices/pixel-7a/events.db
+```
 
-This is deliberately left open. The important thing is that the current
-design doesn't paint us into a corner — every event has a device_id,
-events are append-only, and IDs are globally unique (ULIDs).
+The desktop CLI then uses `ATTACH DATABASE` to query across its own events
+and the phone's snapshot. This is a read-only, eventually-consistent model —
+the phone is the sole writer of its database, the desktop gets a periodic
+snapshot. Good enough for "take photo on phone, query from laptop."
+
+Export frequency is configurable (default: on each S3 blob sync, or
+manually via `smgr sync db-export`). The snapshot is a SQLite backup — safe
+to copy while the database is in use (WAL mode handles this).
+
+### Future: Cross-Device Sync (Full Replication)
+
+Full bidirectional replication (so each device has a complete local copy of
+all events) is a future concern. The per-device model with `device_id`
+provenance gives us a solid foundation — every event has a device_id,
+events are append-only, and IDs are globally unique (ULIDs). The v0 export
+model validates the read path before we commit to a sync protocol.
 
 ---
 

@@ -67,14 +67,14 @@
                          │
               ┌──────────┼──────────┐
               ▼          ▼          ▼
-┌──────────────┐ ┌────────────┐ ┌──────────────┐
-│    AGENT     │ │    CLI     │ │   FUTURE UI  │
-│              │ │            │ │              │
-│  Translates  │ │  smgr query│ │  Web, mobile │
-│  natural     │ │  smgr show │ │  dashboard   │
-│  language →  │ │  smgr ls   │ │              │
-│  query calls │ │            │ │              │
-└──────────────┘ └────────────┘ └──────┬───────┘
+┌────────────┐ ┌──────────────┐ ┌──────────────┐
+│    CLI     │ │    AGENT     │ │   FUTURE UI  │
+│            │ │              │ │              │
+│  smgr query│ │  Translates  │ │  Web, mobile │
+│  smgr show │ │  natural     │ │  dashboard   │
+│  smgr enrich│ │  language →  │ │              │
+│  smgr sync │ │  CLI calls   │ │              │
+└────────────┘ └──────────────┘ └──────┬───────┘
                                        │
                                        ▼
                             ┌──────────────────────┐
@@ -112,7 +112,13 @@ Observers detect changes in the outside world and emit events.
 - Fires on every new photo, video, or screenshot
 - Computes content hash (SHA-256) for new files
 - Emits `create` event to the event store immediately
-- Runs as a foreground service or WorkManager job
+- **Runs as a foreground service** with a persistent notification ("sitemgr
+  is watching for new media"). This is the only way to guarantee timely
+  event detection on Android 12+. WorkManager cannot provide the "within
+  seconds" latency the core loop requires. The foreground service registers
+  the ContentObserver and handles event creation + hash computation. Heavier
+  work (enrichment API calls, S3 uploads) is dispatched to WorkManager jobs
+  so the foreground service stays lightweight.
 
 **CLI:**
 - `smgr add` commands create events directly
@@ -166,6 +172,21 @@ writer conflicts, no file locking, no dual-write consistency problems.
 
 The enrichment layer sends media to an LLM and gets structured metadata back.
 This is what turns dumb files into queryable knowledge.
+
+**Auto-enrichment is an optimization, not the whole story.** Each piece of
+media gets enriched independently at capture time — the LLM describes what
+it sees in the image and returns structured metadata (description, objects,
+context, tags). This pre-populates the event log with searchable content so
+that later, when a user or agent queries across events, the metadata is
+already there. The agent assembles project-level context at query time by
+reading across the collection of enriched events — it doesn't need each
+photo to know about the others.
+
+The agent can also trigger re-enrichment on demand: "re-enrich these 12
+photos as a group" or "regenerate enrichment for everything from last week."
+This is just another CLI call (`smgr enrich`). Auto-enrichment at capture
+handles the common case cheaply; agent-driven enrichment handles everything
+else.
 
 **Pipeline:**
 ```
@@ -239,6 +260,14 @@ delete(hash) → void
 
 Implementations: S3, Cloudflare R2, Google Cloud Storage, local filesystem.
 
+**Local blob cache lifecycle:** The blob cache (`~/.sitemgr/blobs/`) is a
+local copy of content that also exists remotely. Once a blob is confirmed
+synced to S3 (a `sync` event exists), the local cache copy is eligible for
+eviction. On storage-constrained devices (phones), `smgr cache evict` removes
+local copies of synced blobs, oldest first, to free space. The original file
+(e.g., in DCIM/Camera) is never touched — only the blob cache copy. Blobs
+can be re-downloaded from S3 on demand via `smgr resolve`.
+
 ### 5. Document Sync (Git)
 
 Text content (notes, documents, bookmarks) syncs to a git remote.
@@ -247,7 +276,14 @@ Text content (notes, documents, bookmarks) syncs to a git remote.
 - Watch directory is itself a git repo (or a subdirectory of one)
 - On file change: auto-commit with a message template
 - Batch commits and push on a configurable interval (default: 5 minutes)
-- Conflict resolution assumed solved (CRDTs, last-write-wins, or similar)
+
+**Conflict avoidance (v0): single-writer per device.** Each device writes
+to its own directory within the repo (e.g., `notes/pixel-7a/`, `notes/
+thinkpad-x1/`). No two devices write to the same path, so git push never
+conflicts. Cross-device reads work — the laptop can read the phone's notes
+directory. Multi-device editing of the same file is a future concern that
+may require CRDTs or an explicit merge UX; for now we avoid it by
+construction.
 
 **Why git:**
 - Already handles text merge well
@@ -275,12 +311,12 @@ Where filter supports:
 - `device_id` — filter by originating device
 
 **Consumers of the query interface:**
-- **Agent** — translates natural language to structured queries
-- **CLI** — `smgr query --tags bed-repair --type photo`
+- **CLI** — `smgr query --tags bed-repair --type photo` (foundational)
+- **Agent** — translates natural language to CLI calls
 - **Future UI** — web dashboard querying across device databases
 
-The agent does NOT know about SQLite. The CLI does NOT know about SQLite.
-They both call the query interface. The query backend is swappable.
+The CLI does NOT know about SQLite. The agent calls the CLI. They all go
+through the query interface. The query backend is swappable.
 
 **Default implementation: SQLite + FTS5**
 
@@ -327,6 +363,25 @@ Publish = render + upload.
 - Returns a shareable URL
 - Optional: private URLs (non-guessable path)
 
+### 9. Observability
+
+Multiple async pipelines (observer → event → sync → enrichment) need to be
+debuggable. The event log is itself the primary observability tool — every
+action produces an event, including failures (`enrich_failed`, sync errors).
+
+**Key queries:**
+- `smgr enrich --status` — how many items are pending enrichment, how many
+  failed, what errors occurred
+- `smgr sync status` — what's pending upload, what failed, queue depth
+- `smgr index stats` — event counts by type, storage usage, index health
+
+**Failure visibility:** Failed enrichments produce `enrich_failed` events
+with error details and attempt counts. Failed syncs produce equivalent
+events. The agent or CLI can query for these to surface problems:
+"are any of my photos stuck?" → `smgr query --type enrich_failed`.
+
+No separate logging infrastructure needed — the event store is the log.
+
 ---
 
 ## Data Flow: The Core Loop
@@ -359,23 +414,22 @@ photos without waiting.
 ### Agent Query + Content Generation
 
 ```
-1. User: "give me all photos from the bed repair project"
-2. Agent calls query interface: { tags: ["bed-repair"], content_type: "photo" }
-3. Query provider searches index, returns matching events with enrichment data
-4. Agent presents results to user with descriptions and thumbnails
-
-5. User: "write a blog post about the bed repair project"
-6. Agent calls query interface again for full event set
-7. Agent reads enriched descriptions in chronological order
-8. Agent generates markdown with smgr:// references to actual photos
-9. Agent calls: smgr publish blog.md
-10. HTML rendered, uploaded to S3, URL returned
-11. Agent: "Here's your blog post: https://..."
+1. User: "write a blog post about my bed repair project from the last few months"
+2. Agent calls CLI: smgr query --search "bed repair" --type photo --format json
+3. Query provider searches FTS index across enriched descriptions, returns
+   12 matching events spanning two months, each with pre-computed metadata
+4. Agent reads the enriched descriptions chronologically — it can see the
+   full arc of the project without re-analyzing any images
+5. Agent generates markdown with smgr:// references to actual photos
+6. Agent calls: smgr publish blog.md
+7. HTML rendered, uploaded to S3, URL returned
+8. Agent: "Here's your blog post: https://..."
 ```
 
 The blog post is grounded — every description came from the LLM looking at
-the actual photo. No hallucination about what happened; the enrichment data
-is the source of truth.
+the actual photo at capture time. The agent assembles the narrative from
+pre-existing metadata. No additional vision calls needed, no hallucination
+about what happened.
 
 ---
 
@@ -474,15 +528,27 @@ commit_message = "sync: {file} [{event_id}]"
 
 ## Phasing
 
-### Phase 1: Android Core Loop (MVP)
-- Android app with ContentObserver on MediaStore
+### Phase 1a: Android Capture + Sync
+- Android app with ContentObserver on MediaStore (foreground service)
 - Per-device SQLite event store (WAL mode) with device_id on every event
-- Enrichment provider interface + Anthropic implementation
-- Async enrichment pipeline (capture → enrich → store)
 - Storage provider interface + S3 implementation
+- Blob sync pipeline (capture → hash → store event → upload to S3)
+- Basic on-device UI: browse events, view sync status
+- Database export to S3 for cross-device reads
+
+This phase proves the hardest part: reliable background event detection on
+Android, content-addressed storage, and the S3 sync loop. No enrichment
+yet — get the capture pipeline right first.
+
+### Phase 1b: Enrichment
+- Enrichment provider interface + Anthropic implementation
+- Async enrichment pipeline (pick up create events → enrich → store)
 - FTS5 indexes maintained in the same database
-- Query provider interface
-- Basic on-device UI: browse events, see enrichment results
+- Query provider interface (filter by tags, search descriptions)
+- On-device UI: see enrichment results, search enriched content
+
+Layered on top of a working capture pipeline. Now the event log becomes
+searchable and queryable.
 
 ### Phase 2: CLI + Agent
 - Rust CLI (`smgr query`, `smgr show`, `smgr resolve`, `smgr add`)
@@ -516,5 +582,7 @@ commit_message = "sync: {file} [{event_id}]"
 
 - **Enrichment batching.** Group rapid-fire captures (e.g., 20 photos at a
   job site) into a single enrichment call with session context so the LLM can
-  infer relationships across photos. Not needed for v1 — single-item
-  enrichment works fine — but could improve quality and reduce cost.
+  infer relationships across photos. This is a cost and quality optimization —
+  not required for the core loop. Single-item auto-enrichment at capture
+  handles the common case. The agent can always re-enrich a set of photos
+  with shared context on demand at query time.
