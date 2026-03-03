@@ -260,14 +260,6 @@ delete(hash) → void
 
 Implementations: S3, Cloudflare R2, Google Cloud Storage, local filesystem.
 
-**Local blob cache lifecycle:** The blob cache (`~/.sitemgr/blobs/`) is a
-local copy of content that also exists remotely. Once a blob is confirmed
-synced to S3 (a `sync` event exists), the local cache copy is eligible for
-eviction. On storage-constrained devices (phones), `smgr cache evict` removes
-local copies of synced blobs, oldest first, to free space. The original file
-(e.g., in DCIM/Camera) is never touched — only the blob cache copy. Blobs
-can be re-downloaded from S3 on demand via `smgr resolve`.
-
 ### 5. Document Sync (Git)
 
 Text content (notes, documents, bookmarks) syncs to a git remote.
