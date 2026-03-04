@@ -28,9 +28,12 @@ Every action in the system produces an event. Events are the atoms.
   // What kind of content this event concerns.
   "content_type": "photo",  // see Content Types below
 
-  // SHA-256 hash of the content. This is the content-addressable ID.
-  // Format: "sha256:{hex}"
-  "content_hash": "sha256:a1b2c3d4e5f6...",
+  // SHA-256 hash of the content. Used as the content-addressable ID for
+  // blob types (photo, video, audio). Null for document types (note,
+  // document, quote, bookmark) — those are tracked by git, not by hash,
+  // because they change frequently.
+  // Format: "sha256:{hex}" | null
+  "content_hash": "sha256:a1b2c3d4e5f6...",  // null for document types
 
   // Where the content lives locally. Null for remote-only events.
   "local_path": "/storage/emulated/0/DCIM/Camera/IMG_20240115_143207.jpg",
@@ -169,8 +172,13 @@ remote blob is deleted. If the hash is still referenced, the blob stays.
 | `gallery`    | A published collection (output)    | S3          | title, item_hashes, template             |
 
 **Blob types** (photo, video, audio) sync to the storage provider and are
-candidates for auto-enrichment.
+candidates for auto-enrichment. Blobs are content-addressed by SHA-256 hash.
+
 **Document types** (note, document, quote, bookmark) sync to Git as `.md` files.
+Documents are **not** content-hashed — they change frequently and git already
+tracks their identity and history. The git repo mirrors the local filesystem.
+Documents are committed and pushed frequently (on every save / background event)
+and pulled on foreground / device switch, keeping all devices up to date.
 
 ### Content-Addressable URI Scheme
 
