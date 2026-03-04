@@ -4,11 +4,11 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        OBSERVERS                            │
+│                    CAPTURE & SYNC                            │
 │                                                             │
 │  ┌─────────────┐  ┌───────────┐  ┌──────────┐  ┌────────┐  │
 │  │  Android     │  │   CLI     │  │ FS Watch │  │ Future │  │
-│  │  ContentObs  │  │           │  │ (desktop)│  │ (iOS)  │  │
+│  │  WorkManager │  │ smgr add  │  │ (desktop)│  │ (iOS)  │  │
 │  └──────┬──────┘  └─────┬─────┘  └────┬─────┘  └───┬────┘  │
 └─────────┼───────────────┼─────────────┼────────────┼────────┘
           │               │             │            │
@@ -67,18 +67,18 @@
                          │
               ┌──────────┼──────────┐
               ▼          ▼          ▼
-┌──────────────┐ ┌────────────┐ ┌──────────────┐
-│    AGENT     │ │    CLI     │ │   FUTURE UI  │
-│              │ │            │ │              │
-│  Translates  │ │  smgr query│ │  Web, mobile │
-│  natural     │ │  smgr show │ │  dashboard   │
-│  language →  │ │  smgr ls   │ │              │
-│  query calls │ │            │ │              │
-└──────────────┘ └────────────┘ └──────┬───────┘
+┌────────────┐ ┌──────────────┐ ┌──────────────┐
+│    CLI     │ │   OPENCLAW   │ │   FUTURE UI  │
+│            │ │   (Agent)    │ │              │
+│  smgr query│ │  Translates  │ │  Web, mobile │
+│  smgr show │ │  natural     │ │  dashboard   │
+│  smgr enrich│ │  language →  │ │              │
+│  smgr sync │ │  CLI calls   │ │              │
+└────────────┘ └──────────────┘ └──────┬───────┘
                                        │
                                        ▼
                             ┌──────────────────────┐
-                            │     RENDERERS        │
+                            │  RENDERERS (future)  │
                             │                      │
                             │  Markdown → HTML     │
                             │  Templates per type  │
@@ -90,7 +90,7 @@
                                        │
                                        ▼
                             ┌──────────────────────┐
-                            │     PUBLISH          │
+                            │  PUBLISH (future)    │
                             │                      │
                             │  Upload rendered     │
                             │  HTML + assets to S3 │
@@ -103,30 +103,50 @@
 
 ## Component Details
 
-### 1. Observers
+### 1. Capture & Sync Triggers
 
-Observers detect changes in the outside world and emit events.
+Content enters the system through explicit user action or agent-driven
+workflows — not background observers. Modern Android is hostile to
+long-running background services (Doze, battery optimization, OEM kill),
+and the user can't generate media while sitemgr is foregrounded anyway.
+The agent (via OpenClaw) drives sync on demand — the user decides when to
+pull photos, what to enrich, and what to query, giving full control over
+API costs and processing.
 
-**Android ContentObserver (primary):**
-- Registers `ContentObserver` on `MediaStore.Images`, `MediaStore.Video`
-- Fires on every new photo, video, or screenshot
-- Computes content hash (SHA-256) for new files
-- Emits `create` event to the event store immediately
-- Runs as a foreground service or WorkManager job
-
-**CLI:**
-- `smgr add` commands create events directly
-- Useful for content types that aren't file-based (bookmarks, quotes)
+**CLI (primary):**
+- `smgr add <file>` creates a `create` event and imports the file
+- `smgr add --enrich <file>` adds and immediately enriches
+- `smgr enrich --pending` enriches all un-enriched items (batch catch-up)
+- `smgr sync push` uploads unsynced blobs to S3
 - Works on any platform with a terminal
+- The agent (via OpenClaw) composes these commands in conversational workflows
 
-**FS Watcher (desktop):**
+**Android app (future):**
+- **No background service.** Modern Android is hostile to long-running
+  background services (Doze, battery optimization, OEM kill). The user
+  can't generate media while sitemgr is foregrounded anyway.
+- **On-open batch detection.** When the app launches, scan MediaStore for
+  new photos since last run. Show the batch to the user for confirmation
+  before syncing.
+- **WorkManager for uploads.** Once the user confirms a sync batch,
+  uploads are enqueued via Android WorkManager. This survives app
+  backgrounding, process death, and device reboots. WorkManager respects
+  system constraints (network, battery) and retries failed uploads
+  automatically.
+- **Resumable by design.** Each synced item gets a `sync` event in the
+  local database. On resume, the app queries for items with a `create`
+  event but no `sync` event — no S3 round-trips needed to determine
+  what's left. A full camera roll sync may span multiple sessions; each
+  session picks up where the last one left off.
+
+**FS Watcher (desktop, future):**
 - Uses `inotify` (Linux) / `FSEvents` (macOS) / `ReadDirectoryChangesW` (Windows)
 - Watches configured directories for file create/modify/delete
 - Same pipeline: detect → event → sync → index (enrichment runs separately)
 - Runs as a background daemon (launchd / systemd)
 
 **Future:**
-- iOS: PhotoKit observers, file provider
+- iOS: PhotoKit + background task API
 - Web app / PWA for quick notes and bookmarks
 
 ### 2. Event Store (SQLite)
@@ -152,6 +172,13 @@ writer conflicts, no file locking, no dual-write consistency problems.
 - Cross-device queries via `ATTACH DATABASE` — no merge logic needed
 - Still inspectable: `sqlite3 events.db "SELECT * FROM events"`
 
+**Event provenance (hard rule):** Events are always created on the
+originating device. If you take a photo on your phone, the phone creates
+the `create` event. The desktop never re-creates events for content it
+receives — it pulls the event data from the originating device's database.
+The desktop CLI only creates events for content added locally (via
+`smgr add`).
+
 **Multi-device model:**
 - Each device maintains its own `events.db`
 - A web dashboard or CLI can `ATTACH` multiple device databases and query
@@ -167,12 +194,29 @@ writer conflicts, no file locking, no dual-write consistency problems.
 The enrichment layer sends media to an LLM and gets structured metadata back.
 This is what turns dumb files into queryable knowledge.
 
+**Auto-enrichment is an optimization, not the whole story.** Each piece of
+media gets enriched independently at capture time. The enrichment result
+varies by content type — a photo gets a visual description and object
+labels, a voice memo gets a transcript and topic summary, a PDF gets
+extracted text and key entities. The schema adapts to the content rather
+than forcing everything into a single structure. This pre-populates the
+event log with searchable content so that later, when a user or agent
+queries across events, the metadata is already there. The agent assembles
+project-level context at query time by reading across the collection of
+enriched events — it doesn't need each item to know about the others.
+
+The agent can also trigger re-enrichment on demand: "re-enrich these 12
+photos as a group" or "regenerate enrichment for everything from last week."
+This is just another CLI call (`smgr enrich`). Auto-enrichment at capture
+handles the common case cheaply; agent-driven enrichment handles everything
+else.
+
 **Pipeline:**
 ```
-1. Observer detects new media → emits `create` event (immediate)
-2. Enrichment picks up event (async, background)
+1. User triggers capture (CLI `smgr add` or future Android batch sync) → `create` event
+2. Enrichment picks up event (async, or immediately via `smgr add --enrich`)
 3. Sends media bytes + mime_type to enrichment provider
-4. Provider returns: description, objects, context, suggested_tags
+4. Provider returns structured metadata appropriate to the content type
 5. `enrich` event inserted into events.db with the structured metadata
 6. Index updated with enriched data
 ```
@@ -183,8 +227,8 @@ This is what turns dumb files into queryable knowledge.
   watches the event store for new `create` events. It makes an API call, and
   when (if) it finishes, inserts an `enrich` event back into the store. That's it.
   Nothing waits on enrichment. Apps that produce media have no idea enrichment
-  exists — they write files, an observer emits a `create` event, and the app
-  is done. Enrichment output just shows up in the log later.
+  exists — they write files, the user (or agent) runs a sync, a `create`
+  event is written, and that's it. Enrichment output shows up in the log later.
 
 - **Provider-agnostic.** The enrichment provider interface is:
   `enrich(media_bytes, mime_type) → EnrichmentResult`. Swap providers by
@@ -192,7 +236,10 @@ This is what turns dumb files into queryable knowledge.
 
 - **Cost control.** Config controls which media types get auto-enriched.
   Default: camera photos and screenshots. Skip memes, downloads, app-generated
-  images unless explicitly requested. Per-watcher `auto_enrich` flag.
+  images unless explicitly requested. Per-watcher `auto_enrich` flag. Show
+  estimated cost when processing a batch — Claude vision API charges per-token
+  regardless of subscription plan (~$0.01–0.05 per photo depending on
+  resolution).
 
 - **Offline-safe.** Enrichment is an external API call. If the device is
   offline (or the provider is unreachable), the call fails and an
@@ -239,7 +286,7 @@ delete(hash) → void
 
 Implementations: S3, Cloudflare R2, Google Cloud Storage, local filesystem.
 
-### 5. Document Sync (Git)
+### 5. Document Sync (Git) *(future)*
 
 Text content (notes, documents, bookmarks) syncs to a git remote.
 
@@ -247,7 +294,22 @@ Text content (notes, documents, bookmarks) syncs to a git remote.
 - Watch directory is itself a git repo (or a subdirectory of one)
 - On file change: auto-commit with a message template
 - Batch commits and push on a configurable interval (default: 5 minutes)
-- Conflict resolution assumed solved (CRDTs, last-write-wins, or similar)
+
+**Sync model: one editor at a time, small frequent commits.** The main
+use case is an individual switching between devices (mobile and laptop),
+not simultaneous editing. The sync cycle:
+
+1. When the app backgrounds, closes, or the user switches context, write
+   the file to disk immediately.
+2. The background service detects the file change and commits + pushes to
+   git.
+3. When the app foregrounds on another device, pull before opening the
+   file.
+
+Commits should be small and frequent so diffs stay readable. We do not
+need to support two editors writing the same file at the same time. Worst
+case, if a conflict does occur (e.g., both devices were offline), it is a
+normal git merge conflict and can be resolved manually.
 
 **Why git:**
 - Already handles text merge well
@@ -275,12 +337,12 @@ Where filter supports:
 - `device_id` — filter by originating device
 
 **Consumers of the query interface:**
-- **Agent** — translates natural language to structured queries
-- **CLI** — `smgr query --tags bed-repair --type photo`
+- **CLI** — `smgr query --tags bed-repair --type photo` (foundational)
+- **Agent (OpenClaw)** — translates natural language to CLI calls via chat
 - **Future UI** — web dashboard querying across device databases
 
-The agent does NOT know about SQLite. The CLI does NOT know about SQLite.
-They both call the query interface. The query backend is swappable.
+The CLI does NOT know about SQLite. The agent calls the CLI. They all go
+through the query interface. The query backend is swappable.
 
 **Default implementation: SQLite + FTS5**
 
@@ -299,7 +361,7 @@ cross-database query support. No merge or replication needed for read access.
 **Rebuild:** `smgr index rebuild` rebuilds FTS and derived indexes from
 the events table.
 
-### 7. Renderers
+### 7. Renderers *(future)*
 
 Renderers turn query results into output formats.
 
@@ -318,7 +380,7 @@ on context.
 - `bookmarks` — categorized link list
 - `feed` — Atom/RSS feed
 
-### 8. Publish
+### 8. Publish *(future)*
 
 Publish = render + upload.
 
@@ -327,55 +389,91 @@ Publish = render + upload.
 - Returns a shareable URL
 - Optional: private URLs (non-guessable path)
 
+### 9. Observability
+
+Multiple async pipelines (capture → event → sync → enrichment) need to be
+debuggable. The event log is itself the primary observability tool — every
+action produces an event, including failures (`enrich_failed`, sync errors).
+
+**Key queries:**
+- `smgr enrich --status` — how many items are pending enrichment, how many
+  failed, what errors occurred
+- `smgr sync status` — what's pending upload, what failed, queue depth
+- `smgr index stats` — event counts by type, storage usage, index health
+
+**Failure visibility:** Failed enrichments produce `enrich_failed` events
+with error details and attempt counts. Failed syncs produce equivalent
+events. The agent or CLI can query for these to surface problems:
+"are any of my photos stuck?" → `smgr query --type enrich_failed`.
+
+No separate logging infrastructure needed — the event store is the log.
+
 ---
 
 ## Data Flow: The Core Loop
 
-### Photo Capture + Enrichment (Android)
+### Photo Capture + Enrichment (CLI)
 
 ```
-1. User takes photo → camera app saves to MediaStore
-2. ContentObserver fires: new image detected
-3. App computes SHA-256 hash of the image
-4. CREATE event inserted into device's events.db:
-   { type: "create", content_type: "photo", device_id: "pixel-7a",
+1. User runs: smgr add --enrich ~/photos/bed-frame.jpg
+2. CLI computes SHA-256 hash
+3. CREATE event inserted into device's events.db:
+   { type: "create", content_type: "photo", device_id: "thinkpad-x1",
      content_hash: "sha256:...",
-     metadata: { mime_type: "image/jpeg", size_bytes: 2450320, ... } }
-5. FTS index updated automatically (same database)
-6. Blob sync uploads image to S3 (background)
-7. SYNC event inserted: { type: "sync", parent_id: "...", remote_path: "s3://..." }
-8. Enrichment sends image to Claude (background)
-9. Claude returns: { description: "Cracked wooden bed frame, split along
-   side rail...", objects: ["bed frame", "wood", "crack"], context: "furniture
-   repair", suggested_tags: ["bed-repair", "woodworking"] }
-10. ENRICH event inserted: { type: "enrich", parent_id: "...", metadata:
-    { enrichment: { ... } } }
-11. FTS index updated — now searchable
+     metadata: { mime_type: "image/jpeg", size_bytes: 2450320,
+       exif: { taken_at: "2025-03-15T14:32:07Z", lat: 45.523, lon: -122.676,
+               camera: "Pixel 7a", ... } } }
+4. FTS index updated automatically (same database)
+5. Enrichment sends image to Claude:
+   { description: "Cracked wooden bed frame, split along side rail...",
+     objects: ["bed frame", "wood", "crack"], context: "furniture repair",
+     suggested_tags: ["bed-repair", "woodworking"] }
+6. ENRICH event inserted: { type: "enrich", parent_id: "...", metadata:
+   { enrichment: { ... } } }
+7. FTS index updated — now searchable
+8. User runs: smgr sync push → blob uploaded to S3
+9. SYNC event inserted: { type: "sync", parent_id: "...", remote_path: "s3://..." }
 ```
 
-Steps 4-5 are immediate. Steps 6-11 are async — the user can keep taking
-photos without waiting.
+Or via the agent (OpenClaw):
+
+```
+User: "sync my photos from today"
+Agent: Found 8 new photos on your phone. Syncing...
+       ✓ 8/8 synced to S3. Enrich them?
+User: "yes"
+Agent: Enriching... ✓ 8/8 done.
+User: "what did I photograph?"
+Agent: [queries enriched metadata, returns summary]
+```
+
+A single capture produces multiple sitemgr events (CREATE, SYNC, ENRICH).
+Since the event store is append-only, these events can be processed in
+parallel. Items with CREATE but no SYNC event are still pending — sync is
+resumable by design.
 
 ### Agent Query + Content Generation
 
-```
-1. User: "give me all photos from the bed repair project"
-2. Agent calls query interface: { tags: ["bed-repair"], content_type: "photo" }
-3. Query provider searches index, returns matching events with enrichment data
-4. Agent presents results to user with descriptions and thumbnails
+The user interacts via OpenClaw — an open-source personal AI assistant
+framework that runs on the user's desktop and is accessible via messaging
+apps (WhatsApp, Telegram, Discord, iMessage). The smgr CLI commands are
+registered as OpenClaw skills.
 
-5. User: "write a blog post about the bed repair project"
-6. Agent calls query interface again for full event set
-7. Agent reads enriched descriptions in chronological order
-8. Agent generates markdown with smgr:// references to actual photos
-9. Agent calls: smgr publish blog.md
-10. HTML rendered, uploaded to S3, URL returned
-11. Agent: "Here's your blog post: https://..."
+```
+1. User (via chat): "write a blog post about my bed repair project"
+2. Agent calls CLI: smgr query --search "bed repair" --type photo --format json
+3. Query provider searches FTS index across enriched descriptions, returns
+   12 matching events spanning two months, each with pre-computed metadata
+4. Agent reads the enriched descriptions chronologically — it can see the
+   full arc of the project without re-analyzing any images
+5. Agent generates markdown with smgr:// references to actual photos
+6. (future) Agent calls: smgr publish blog.md → HTML rendered, uploaded, URL returned
 ```
 
 The blog post is grounded — every description came from the LLM looking at
-the actual photo. No hallucination about what happened; the enrichment data
-is the source of truth.
+the actual photo at capture time. The agent assembles the narrative from
+pre-existing metadata. No additional vision calls needed, no hallucination
+about what happened.
 
 ---
 
@@ -445,8 +543,7 @@ commit_message = "sync: {file} [{event_id}]"
 
 | Component       | Choice         | Rationale                                     |
 |-----------------|----------------|-----------------------------------------------|
-| Primary platform| Android (Kotlin)| Mobile-first — photos are taken on phones    |
-| CLI / Desktop   | Rust           | Single binary, fast, cross-platform           |
+| Language        | Rust           | Single binary, fast, cross-platform. Native APIs (Kotlin/Swift) only when required. |
 | Event store     | SQLite (WAL)   | Writes + queries in one place, no dual-write  |
 | Full-text search| FTS5           | Built into SQLite, no separate engine needed  |
 | Blob storage    | S3-compatible  | BYO — any provider works                      |
@@ -472,49 +569,13 @@ commit_message = "sync: {file} [{event_id}]"
 
 ---
 
-## Phasing
-
-### Phase 1: Android Core Loop (MVP)
-- Android app with ContentObserver on MediaStore
-- Per-device SQLite event store (WAL mode) with device_id on every event
-- Enrichment provider interface + Anthropic implementation
-- Async enrichment pipeline (capture → enrich → store)
-- Storage provider interface + S3 implementation
-- FTS5 indexes maintained in the same database
-- Query provider interface
-- Basic on-device UI: browse events, see enrichment results
-
-### Phase 2: CLI + Agent
-- Rust CLI (`smgr query`, `smgr show`, `smgr resolve`, `smgr add`)
-- Query interface exposed via CLI (same contract as Android)
-- MCP server or Claude Code skill wrapping CLI
-- Agent-driven query and content generation
-- `smgr publish` for static site output
-
-### Phase 3: Desktop + Render
-- FS watcher daemon (macOS/Linux)
-- Git document sync
-- Template engine + built-in templates
-- `smgr render` and `smgr publish`
-- `smgr://` URI resolution
-
-### Phase 4: Cross-Device Access + Sync
-- Web dashboard that ATTACHes multiple device databases for aggregate queries
-- Device database discovery (local network, shared storage, or manual path)
-- Event replication between devices (phone → desktop, desktop → phone)
-- Define concrete use cases that require merging vs. just cross-device reads
-
-### Phase 5: Expand
-- iOS support
-- Additional enrichment types (audio transcription, video keyframes)
-- Semantic search (vector embeddings from enrichment)
-- Web dashboard (read-only browse + quick add)
-
 ---
 
 ## Future Considerations
 
 - **Enrichment batching.** Group rapid-fire captures (e.g., 20 photos at a
   job site) into a single enrichment call with session context so the LLM can
-  infer relationships across photos. Not needed for v1 — single-item
-  enrichment works fine — but could improve quality and reduce cost.
+  infer relationships across photos. This is a cost and quality optimization —
+  not required for the core loop. Single-item auto-enrichment at capture
+  handles the common case. The agent can always re-enrich a set of photos
+  with shared context on demand at query time.

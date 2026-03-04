@@ -46,23 +46,30 @@ data layer** — a mobile-first system that:
    project summaries — grounded in real data, not hallucination
 
 Apps still do real work — you still need a camera, a photo editor, a text
-editor. We don't modify those apps or ask them to cooperate. On Android, a
-**ContentObserver watches MediaStore** for new photos and videos. When you
-take a photo, the system detects it, logs the event, sends the media to an
-LLM for enrichment, and stores the result. The data layer **unifies app
-outputs after the fact** — you can combine, search, and publish across
-everything without import/export gymnastics, and the apps never know we're
-there.
+editor. We don't modify those apps or ask them to cooperate. Content enters
+the system through explicit user action — `smgr add` on the CLI, or the
+agent triggering sync on demand via chat. When you add a photo, the system
+logs the event, sends the media to an LLM for enrichment, and stores the
+result. The data layer **unifies app outputs after the fact** — you can
+combine, search, and publish across everything without import/export
+gymnastics.
 
-The primary interface to this data layer is an **agent**. Rather than
-learning a CLI or building a custom UI, you describe what you want in
-natural language — "give me all my photos from the bed repair project" — and
-the agent queries the enriched index and returns results. Then: "write a blog
-post about it" — and the agent pulls those events in chronological order,
-reads the LLM-generated descriptions, and produces a grounded narrative with
-embedded images. The agent is the app layer for most interactions. The CLI
-and query API exist so the agent (and power users) have something solid to
-call.
+The foundation is a **CLI** — a composable, scriptable interface that
+exposes every operation in the system. `smgr query`, `smgr enrich`,
+`smgr sync`, `smgr publish`. This is the primitive layer: explicit, debuggable,
+pipeable. Power users and developers interact here directly. More importantly,
+the CLI is the **skill layer that agents learn**. An AI agent doesn't need a
+custom integration — it calls the same CLI commands a human would, reads the
+same JSON output, and composes the same operations.
+
+For most users, the primary interface is an **agent** that has access to
+these CLI tools. You describe what you want in natural language — "give me all
+my photos from the bed repair project" — and the agent queries the enriched
+index and returns results. Then: "write a blog post about it" — and the agent
+pulls those events in chronological order, reads the LLM-generated
+descriptions, and produces a grounded narrative with embedded images. The
+agent is the app layer for most interactions, but it's built on top of the
+CLI — not instead of it.
 
 At the end of the day, this is a **capture → enrich → index → query → generate
 pipeline** where you bring your own storage, your own LLM, and your own
@@ -72,9 +79,10 @@ device. sitemgr is the orchestration layer, not the platform.
 
 ## Principles
 
-1. **Mobile-first.** Photos get taken on phones, not desktops. The primary
-   capture device is Android. Desktop and CLI support follow, but the core
-   loop must work on a phone.
+1. **CLI-first, mobile eventually.** Photos get taken on phones, but the
+   core pipeline (capture → enrich → sync → query) is validated on the
+   desktop CLI first. The same Rust core library can later be called from
+   Android via JNI/NDK.
 
 2. **Events, not files.** The atomic unit is an event — a timestamped,
    content-addressed record of something that happened. Files are payloads
@@ -94,11 +102,13 @@ device. sitemgr is the orchestration layer, not the platform.
    sitemgr is the orchestration layer — no accounts, no hosted service, no
    vendor lock-in. You own your data, your keys, your infra.
 
-6. **Agent-first.** The primary way people interact with the data layer is
-   through an AI agent that has access to the query interface. The query
-   interface must be designed for agent consumption: consistent, well-typed,
-   discoverable. Power users can use the CLI directly; everyone else talks
-   to the agent.
+6. **CLI as skill layer, agent as interface.** The CLI is the foundational
+   capability — every operation is a composable, scriptable command with
+   structured output. The CLI is also the skill layer that agents learn:
+   an AI agent calls the same commands a human would. The query interface
+   must be designed for both human and agent consumption: consistent,
+   well-typed, JSON by default. Most users will interact through an agent;
+   the CLI ensures they don't have to.
 
 7. **Composable content types.** Notes, photos, bookmarks, calendar entries —
    they all go through the same pipeline. New types are cheap to add because
@@ -130,18 +140,24 @@ Developers and power users who:
    damage-assessment."
 
 2. I take 10 more photos over the next week — buying lumber, cutting joints,
-   gluing, clamping, sanding, finishing. Each one gets enriched automatically.
-   The LLM recognizes the ongoing project context across photos.
+   gluing, clamping, sanding, finishing. Each one gets enriched independently
+   at capture time. Photo 3 gets: "Close-up of a freshly cut mortise-and-tenon
+   joint in pine." Photo 7 gets: "Wood clamp holding a glued rail to a bed
+   frame." Each enrichment stands alone — no cross-photo context needed yet.
 
-3. I ask the agent: "give me all my photos related to the bed repair project."
-   The agent queries the enriched index and returns a chronological set of
-   events with descriptions, tags, and blob URIs. Fast — it's an index lookup,
-   not a full re-analysis.
+3. I ask the agent: "write a blog post about my bed repair that I've been
+   working on the last few months." The agent queries the enriched index —
+   searching descriptions, tags, and context fields — and finds 12 photos
+   spanning two months. Because each photo already has a detailed description,
+   the agent can see the full arc of the project without re-analyzing any
+   images. It assembles the project context from the collection of enriched
+   events at query time.
 
-4. I ask the agent: "write a blog post about the bed repair project." The agent
-   pulls those events in order, reads the enriched descriptions, and generates
-   a narrative with embedded images. The content is grounded in real data — it
-   knows what each photo shows because the LLM described it at capture time.
+4. The agent generates a narrative with embedded images, ordered
+   chronologically, grounded in the enrichment data. It knows what each photo
+   shows because the LLM described it at capture time. The blog post writes
+   itself from pre-existing metadata — fast and cheap, no additional LLM
+   vision calls needed.
 
 5. I publish the blog post. A static page is generated with links to
    S3-hosted images. I share the URL.
@@ -202,33 +218,48 @@ both call the query interface.
 
 ---
 
-## The Agent as Primary Interface
+## The CLI as Skill Layer
 
-The most important "app" is not a GUI — it's an AI agent with access to
-the query interface. The workflow:
+The CLI (`smgr`) is the foundational interface. Every operation in the system
+is a composable, scriptable command with structured JSON output. A developer
+can pipe `smgr query` into `jq`, script a publishing workflow in bash, or
+inspect enrichment results by hand. The CLI must be excellent on its own —
+predictable, fast, well-documented.
+
+The CLI is also the **skill layer that agents learn**. An AI agent doesn't
+need a custom API integration — it calls `smgr query`, `smgr show`,
+`smgr publish`, `smgr resolve`, and reads the same JSON a human would. The
+agent composes the same operations. This is the key architectural insight:
+build the CLI right, and agent access comes for free.
+
+## The Agent as User Interface
+
+For most users, the agent is the primary way they interact with sitemgr.
+The workflow:
 
 1. **User describes intent** in natural language ("give me all my bed repair
    photos", "write a blog post about the deck project", "find all screenshots
    from last week")
-2. **Agent translates to a structured query** and calls the query interface
+2. **Agent translates to CLI calls** — `smgr query --search "bed repair"
+   --type photo --format json`
 3. **Agent receives enriched events** — each with LLM-generated descriptions,
    tags, and blob URIs
 4. **Agent generates content** — blog posts, galleries, summaries — grounded
    in the enriched metadata, not hallucination
-5. **Agent calls the publish pipeline** if needed — render HTML, upload to S3,
-   return a shareable URL
+5. **Agent calls the publish pipeline** — `smgr publish` renders HTML, uploads
+   to S3, returns a shareable URL
 
-This means the query interface must be designed as an **agent tool**:
-- Consistent, predictable output (JSON)
-- Rich enough that an agent can complete tasks without ambiguity
-- Composable operations (query → generate → render → publish)
+The agent can also drive operations that go beyond simple queries: "regenerate
+the enrichment data for all my photos from last week" or "re-enrich these
+photos as a group with shared context." The agent calls `smgr enrich` with
+the right flags — the CLI does the work.
 
-For Claude specifically, this looks like an MCP server or a Claude Code
-skill that exposes the query interface as tool calls. The agent gets access
-to `smgr query`, `smgr show`, `smgr publish`, `smgr resolve` — and that's
-enough to build galleries, blogs, feeds, and anything else from natural
-language.
+The primary agent interface is **OpenClaw** — an open-source personal AI
+assistant framework that runs on the user's desktop and is accessible via
+messaging apps (WhatsApp, Telegram, Discord, iMessage). The smgr CLI
+commands are registered as OpenClaw skills. The agent gets the full `smgr`
+command set and composes it into workflows.
 
-The key insight: the agent is a **consumer** of the query interface, not the
-query interface itself. The agent's job is to translate natural language into
-the right query calls. The index does the retrieval. Clean separation.
+The key insight: the agent is a **consumer** of the CLI, not a replacement
+for it. The CLI is the contract. The agent is one client. Power users are
+another. Both use the same interface.
