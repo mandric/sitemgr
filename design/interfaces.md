@@ -62,9 +62,9 @@ Every action in the system produces an event. Events are the atoms.
 
 | Type      | Description                                     | When                          |
 |-----------|-------------------------------------------------|-------------------------------|
-| `create`         | New content detected                            | Observer fires on new media        |
-| `update`         | Existing content modified                       | Observer fires on file change      |
-| `delete`         | Content removed from local filesystem           | Observer fires on file delete      |
+| `create`         | New content detected                            | User adds content (`smgr add` or app sync) |
+| `update`         | Existing content modified                       | Content re-added or modified       |
+| `delete`         | Content removed from local filesystem           | User deletes content or FS watcher detects removal |
 | `sync`           | Content uploaded/synced to remote storage        | After blob/doc sync completes      |
 | `enrich`         | LLM-generated metadata attached to content      | After enrichment completes         |
 | `enrich_failed`  | Enrichment call failed (offline, error, etc.)   | Enrichment attempted but failed    |
@@ -130,9 +130,10 @@ with no corresponding `enrich` event and re-queues them.
 
 ### Delete Events
 
-A `delete` event is emitted by the observer when a file is removed from
-the filesystem. It references the original `create` event via `parent_id`
-and carries the same `content_hash`.
+A `delete` event is emitted when content is removed — either explicitly
+via the CLI or detected by a file system watcher. It references the
+original `create` event via `parent_id` and carries the same
+`content_hash`.
 
 ```jsonc
 {
@@ -458,7 +459,7 @@ smgr resolve --remote <content_hash>         # Print only remote URL
 ### Content Operations
 
 ```
-# Add content explicitly (bypasses observer)
+# Add content
 smgr add <file>                              # Auto-detect content type
 smgr add --type photo <file>                 # Explicit type
 smgr add --type bookmark --url <url>         # Create a bookmark

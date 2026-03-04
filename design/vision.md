@@ -46,13 +46,13 @@ data layer** — a mobile-first system that:
    project summaries — grounded in real data, not hallucination
 
 Apps still do real work — you still need a camera, a photo editor, a text
-editor. We don't modify those apps or ask them to cooperate. On Android, a
-**ContentObserver watches MediaStore** for new photos and videos. When you
-take a photo, the system detects it, logs the event, sends the media to an
-LLM for enrichment, and stores the result. The data layer **unifies app
-outputs after the fact** — you can combine, search, and publish across
-everything without import/export gymnastics, and the apps never know we're
-there.
+editor. We don't modify those apps or ask them to cooperate. Content enters
+the system through explicit user action — `smgr add` on the CLI, or the
+agent triggering sync on demand via chat. When you add a photo, the system
+logs the event, sends the media to an LLM for enrichment, and stores the
+result. The data layer **unifies app outputs after the fact** — you can
+combine, search, and publish across everything without import/export
+gymnastics.
 
 The foundation is a **CLI** — a composable, scriptable interface that
 exposes every operation in the system. `smgr query`, `smgr enrich`,
@@ -79,9 +79,10 @@ device. sitemgr is the orchestration layer, not the platform.
 
 ## Principles
 
-1. **Mobile-first.** Photos get taken on phones, not desktops. The primary
-   capture device is Android. Desktop and CLI support follow, but the core
-   loop must work on a phone.
+1. **CLI-first, mobile eventually.** Photos get taken on phones, but the
+   core pipeline (capture → enrich → sync → query) is validated on the
+   desktop CLI first. The same Rust core library can later be called from
+   Android via JNI/NDK.
 
 2. **Events, not files.** The atomic unit is an event — a timestamped,
    content-addressed record of something that happened. Files are payloads
@@ -253,8 +254,10 @@ the enrichment data for all my photos from last week" or "re-enrich these
 photos as a group with shared context." The agent calls `smgr enrich` with
 the right flags — the CLI does the work.
 
-For Claude specifically, this looks like an MCP server or a Claude Code
-skill that exposes the CLI as tool calls. The agent gets the full `smgr`
+The primary agent interface is **OpenClaw** — an open-source personal AI
+assistant framework that runs on the user's desktop and is accessible via
+messaging apps (WhatsApp, Telegram, Discord, iMessage). The smgr CLI
+commands are registered as OpenClaw skills. The agent gets the full `smgr`
 command set and composes it into workflows.
 
 The key insight: the agent is a **consumer** of the CLI, not a replacement
