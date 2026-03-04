@@ -396,7 +396,9 @@ No separate logging infrastructure needed — the event store is the log.
 4. CREATE event inserted into device's events.db:
    { type: "create", content_type: "photo", device_id: "pixel-7a",
      content_hash: "sha256:...",
-     metadata: { mime_type: "image/jpeg", size_bytes: 2450320, ... } }
+     metadata: { mime_type: "image/jpeg", size_bytes: 2450320,
+       exif: { taken_at: "2025-03-15T14:32:07Z", lat: 45.523, lon: -122.676,
+               camera: "Pixel 7a", ... } } }
 5. FTS index updated automatically (same database)
 6. Blob sync uploads image to S3 (background)
 7. SYNC event inserted: { type: "sync", parent_id: "...", remote_path: "s3://..." }
@@ -409,8 +411,11 @@ No separate logging infrastructure needed — the event store is the log.
 11. FTS index updated — now searchable
 ```
 
-Steps 4-5 are immediate. Steps 6-11 are async — the user can keep taking
-photos without waiting.
+Everything here is async and non-blocking — sitemgr is an observer, not
+part of the camera app. The ContentObserver fires, and from there all
+processing happens in the background. A single ContentObserver event
+produces multiple sitemgr events (CREATE, SYNC, ENRICH). Since the event
+store is append-only, these events can be processed in parallel.
 
 ### Agent Query + Content Generation
 
