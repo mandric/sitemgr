@@ -178,7 +178,8 @@ candidates for auto-enrichment. Blobs are content-addressed by SHA-256 hash.
 Documents are **not** content-hashed — they change frequently and git already
 tracks their identity and history. The git repo mirrors the local filesystem.
 Documents are committed and pushed frequently (on every save / background event)
-and pulled on foreground / device switch, keeping all devices up to date.
+and pulled on foreground / device switch. Sync requires an internet connection;
+offline edits are committed locally and pushed when connectivity resumes.
 
 ### Content-Addressable URI Scheme
 
