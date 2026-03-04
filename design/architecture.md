@@ -201,7 +201,7 @@ else.
 
 **Pipeline:**
 ```
-1. Observer detects new media → emits `create` event (immediate)
+1. User triggers capture (CLI `smgr add` or Android batch sync) → `create` event
 2. Enrichment picks up event (async, background)
 3. Sends media bytes + mime_type to enrichment provider
 4. Provider returns structured metadata appropriate to the content type
@@ -215,8 +215,8 @@ else.
   watches the event store for new `create` events. It makes an API call, and
   when (if) it finishes, inserts an `enrich` event back into the store. That's it.
   Nothing waits on enrichment. Apps that produce media have no idea enrichment
-  exists — they write files, an observer emits a `create` event, and the app
-  is done. Enrichment output just shows up in the log later.
+  exists — they write files, the user (or agent) runs a sync, a `create`
+  event is written, and that's it. Enrichment output shows up in the log later.
 
 - **Provider-agnostic.** The enrichment provider interface is:
   `enrich(media_bytes, mime_type) → EnrichmentResult`. Swap providers by
@@ -376,7 +376,7 @@ Publish = render + upload.
 
 ### 9. Observability
 
-Multiple async pipelines (observer → event → sync → enrichment) need to be
+Multiple async pipelines (capture → event → sync → enrichment) need to be
 debuggable. The event log is itself the primary observability tool — every
 action produces an event, including failures (`enrich_failed`, sync errors).
 
@@ -401,32 +401,34 @@ No separate logging infrastructure needed — the event store is the log.
 
 ```
 1. User takes photo → camera app saves to MediaStore
-2. ContentObserver fires: new image detected
-3. App computes SHA-256 hash of the image
-4. CREATE event inserted into device's events.db:
-   { type: "create", content_type: "photo", device_id: "pixel-7a",
-     content_hash: "sha256:...",
-     metadata: { mime_type: "image/jpeg", size_bytes: 2450320,
-       exif: { taken_at: "2025-03-15T14:32:07Z", lat: 45.523, lon: -122.676,
-               camera: "Pixel 7a", ... } } }
-5. FTS index updated automatically (same database)
-6. Blob sync uploads image to S3 (background)
-7. SYNC event inserted: { type: "sync", parent_id: "...", remote_path: "s3://..." }
-8. Enrichment sends image to Claude (background)
-9. Claude returns (schema adapts to content type, this is a photo):
+2. User opens sitemgr → app scans MediaStore for new images since last run
+3. User confirms sync batch → for each image:
+   a. App computes SHA-256 hash
+   b. CREATE event inserted into device's events.db:
+      { type: "create", content_type: "photo", device_id: "pixel-7a",
+        content_hash: "sha256:...",
+        metadata: { mime_type: "image/jpeg", size_bytes: 2450320,
+          exif: { taken_at: "2025-03-15T14:32:07Z", lat: 45.523, lon: -122.676,
+                  camera: "Pixel 7a", ... } } }
+   c. FTS index updated automatically (same database)
+4. WorkManager enqueues blob uploads to S3 (survives backgrounding)
+5. SYNC event inserted per item: { type: "sync", parent_id: "...", remote_path: "s3://..." }
+6. Enrichment sends image to Claude (background)
+7. Claude returns (schema adapts to content type, this is a photo):
    { description: "Cracked wooden bed frame, split along side rail...",
      objects: ["bed frame", "wood", "crack"], context: "furniture repair",
      suggested_tags: ["bed-repair", "woodworking"] }
-10. ENRICH event inserted: { type: "enrich", parent_id: "...", metadata:
-    { enrichment: { ... } } }
-11. FTS index updated — now searchable
+8. ENRICH event inserted: { type: "enrich", parent_id: "...", metadata:
+   { enrichment: { ... } } }
+9. FTS index updated — now searchable
 ```
 
-Everything here is async and non-blocking — sitemgr is an observer, not
-part of the camera app. The ContentObserver fires, and from there all
-processing happens in the background. A single ContentObserver event
-produces multiple sitemgr events (CREATE, SYNC, ENRICH). Since the event
-store is append-only, these events can be processed in parallel.
+Everything here is user-initiated and async. The user opens the app, confirms
+what to sync, and WorkManager handles the rest in the background. A single
+capture produces multiple sitemgr events (CREATE, SYNC, ENRICH). Since the
+event store is append-only, these events can be processed in parallel.
+If the app is killed mid-sync, the next open picks up where it left off —
+items with CREATE but no SYNC event are still pending.
 
 ### Agent Query + Content Generation
 
@@ -545,17 +547,22 @@ commit_message = "sync: {file} [{event_id}]"
 
 ## Phasing
 
-### Phase 1a: Android Capture + Sync
-- Android app with ContentObserver on MediaStore (foreground service)
+### Phase 1a: CLI Capture + Sync
+- `smgr add` command for importing files and creating events
 - Per-device SQLite event store (WAL mode) with device_id on every event
 - Storage provider interface + S3 implementation
 - Blob sync pipeline (capture → hash → store event → upload to S3)
-- Basic on-device UI: browse events, view sync status
+- `smgr sync` for pushing/pulling blobs
 - Database export to S3 for cross-device reads
 
-This phase proves the hardest part: reliable background event detection on
-Android, content-addressed storage, and the S3 sync loop. No enrichment
-yet — get the capture pipeline right first.
+This phase proves the core: content-addressed storage, the event model, and
+the S3 sync loop. CLI-first means no mobile platform complexity yet.
+
+### Phase 1c: Android Capture + Sync
+- On-open MediaStore scan for new photos since last run
+- User-confirmed batch sync with WorkManager for uploads
+- Resumable sync (query for CREATE events without matching SYNC events)
+- Basic on-device UI: browse events, view sync status
 
 ### Phase 1b: Enrichment
 - Enrichment provider interface + Anthropic implementation
