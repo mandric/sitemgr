@@ -113,13 +113,13 @@ Observers detect changes in the outside world and emit events.
 - Computes content hash (SHA-256) for new files
 - Emits `create` event to the event store immediately
 - **Runs as a background service** with a persistent notification ("sitemgr
-  is watching for new media"). This is the only way to guarantee timely
-  event detection on Android 12+. WorkManager cannot provide the "within
-  seconds" latency the core loop requires. The background service runs the
-  full pipeline — event detection, hash computation, blob sync, enrichment,
-  and indexing — so data is always fresh and ready when the UI opens. No
-  work is deferred to app launch. This is a core service that must always
-  be running.
+  is watching for new media"). The background service runs the full
+  pipeline — event detection, hash computation, blob sync, enrichment,
+  and indexing — so data is always fresh and ready when the UI opens.
+  Speed is not the priority; consistency is. The service must never drop
+  events silently, and must recover gracefully from crashes during event
+  processing. No work is deferred to app launch. This is a core service
+  that must always be running.
 
 **CLI:**
 - `smgr add` commands create events directly
