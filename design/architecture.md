@@ -270,13 +270,21 @@ Text content (notes, documents, bookmarks) syncs to a git remote.
 - On file change: auto-commit with a message template
 - Batch commits and push on a configurable interval (default: 5 minutes)
 
-**Conflict avoidance (v0): single-writer per device.** Each device writes
-to its own directory within the repo (e.g., `notes/pixel-7a/`, `notes/
-thinkpad-x1/`). No two devices write to the same path, so git push never
-conflicts. Cross-device reads work — the laptop can read the phone's notes
-directory. Multi-device editing of the same file is a future concern that
-may require CRDTs or an explicit merge UX; for now we avoid it by
-construction.
+**Sync model: one editor at a time, small frequent commits.** The main
+use case is an individual switching between devices (mobile and laptop),
+not simultaneous editing. The sync cycle:
+
+1. When the app backgrounds, closes, or the user switches context, write
+   the file to disk immediately.
+2. The background service detects the file change and commits + pushes to
+   git.
+3. When the app foregrounds on another device, pull before opening the
+   file.
+
+Commits should be small and frequent so diffs stay readable. We do not
+need to support two editors writing the same file at the same time. Worst
+case, if a conflict does occur (e.g., both devices were offline), it is a
+normal git merge conflict and can be resolved manually.
 
 **Why git:**
 - Already handles text merge well
