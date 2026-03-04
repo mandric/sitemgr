@@ -175,13 +175,15 @@ The enrichment layer sends media to an LLM and gets structured metadata back.
 This is what turns dumb files into queryable knowledge.
 
 **Auto-enrichment is an optimization, not the whole story.** Each piece of
-media gets enriched independently at capture time — the LLM describes what
-it sees in the image and returns structured metadata (description, objects,
-context, tags). This pre-populates the event log with searchable content so
-that later, when a user or agent queries across events, the metadata is
-already there. The agent assembles project-level context at query time by
-reading across the collection of enriched events — it doesn't need each
-photo to know about the others.
+media gets enriched independently at capture time. The enrichment result
+varies by content type — a photo gets a visual description and object
+labels, a voice memo gets a transcript and topic summary, a PDF gets
+extracted text and key entities. The schema adapts to the content rather
+than forcing everything into a single structure. This pre-populates the
+event log with searchable content so that later, when a user or agent
+queries across events, the metadata is already there. The agent assembles
+project-level context at query time by reading across the collection of
+enriched events — it doesn't need each item to know about the others.
 
 The agent can also trigger re-enrichment on demand: "re-enrich these 12
 photos as a group" or "regenerate enrichment for everything from last week."
@@ -194,7 +196,7 @@ else.
 1. Observer detects new media → emits `create` event (immediate)
 2. Enrichment picks up event (async, background)
 3. Sends media bytes + mime_type to enrichment provider
-4. Provider returns: description, objects, context, suggested_tags
+4. Provider returns structured metadata appropriate to the content type
 5. `enrich` event inserted into events.db with the structured metadata
 6. Index updated with enriched data
 ```
@@ -403,9 +405,10 @@ No separate logging infrastructure needed — the event store is the log.
 6. Blob sync uploads image to S3 (background)
 7. SYNC event inserted: { type: "sync", parent_id: "...", remote_path: "s3://..." }
 8. Enrichment sends image to Claude (background)
-9. Claude returns: { description: "Cracked wooden bed frame, split along
-   side rail...", objects: ["bed frame", "wood", "crack"], context: "furniture
-   repair", suggested_tags: ["bed-repair", "woodworking"] }
+9. Claude returns (schema adapts to content type, this is a photo):
+   { description: "Cracked wooden bed frame, split along side rail...",
+     objects: ["bed frame", "wood", "crack"], context: "furniture repair",
+     suggested_tags: ["bed-repair", "woodworking"] }
 10. ENRICH event inserted: { type: "enrich", parent_id: "...", metadata:
     { enrichment: { ... } } }
 11. FTS index updated — now searchable
