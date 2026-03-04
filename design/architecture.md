@@ -4,11 +4,11 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        OBSERVERS                            │
+│                    CAPTURE & SYNC                            │
 │                                                             │
 │  ┌─────────────┐  ┌───────────┐  ┌──────────┐  ┌────────┐  │
 │  │  Android     │  │   CLI     │  │ FS Watch │  │ Future │  │
-│  │  ContentObs  │  │           │  │ (desktop)│  │ (iOS)  │  │
+│  │  WorkManager │  │ smgr add  │  │ (desktop)│  │ (iOS)  │  │
 │  └──────┬──────┘  └─────┬─────┘  └────┬─────┘  └───┬────┘  │
 └─────────┼───────────────┼─────────────┼────────────┼────────┘
           │               │             │            │
@@ -103,37 +103,45 @@
 
 ## Component Details
 
-### 1. Observers
+### 1. Capture & Sync Triggers
 
-Observers detect changes in the outside world and emit events.
+Content enters the system through explicit user action or agent-driven
+workflows — not background observers. See [decisions.md](decisions.md) for
+rationale.
 
-**Android ContentObserver (primary):**
-- Registers `ContentObserver` on `MediaStore.Images`, `MediaStore.Video`
-- Fires on every new photo, video, or screenshot
-- Computes content hash (SHA-256) for new files
-- Emits `create` event to the event store immediately
-- **Runs as a background service** with a persistent notification ("sitemgr
-  is watching for new media"). The background service runs the full
-  pipeline — event detection, hash computation, blob sync, enrichment,
-  and indexing — so data is always fresh and ready when the UI opens.
-  Speed is not the priority; consistency is. The service must never drop
-  events silently, and must recover gracefully from crashes during event
-  processing. No work is deferred to app launch. This is a core service
-  that must always be running.
-
-**CLI:**
-- `smgr add` commands create events directly
-- Useful for content types that aren't file-based (bookmarks, quotes)
+**CLI (primary, v0):**
+- `smgr add <file>` creates a `create` event and imports the file
+- `smgr sync push` uploads unsynced blobs to S3
 - Works on any platform with a terminal
+- The agent (via OpenClaw) composes these commands in conversational workflows
 
-**FS Watcher (desktop):**
+**Android app (Phase 1c+):**
+- **No background service.** Modern Android is hostile to long-running
+  background services (Doze, battery optimization, OEM kill). The user
+  can't generate media while sitemgr is foregrounded anyway.
+- **On-open batch detection.** When the app launches, scan MediaStore for
+  new photos since last run. Show the batch to the user for confirmation
+  before syncing.
+- **WorkManager for uploads.** Once the user confirms a sync batch,
+  uploads are enqueued via Android WorkManager. This survives app
+  backgrounding, process death, and device reboots. WorkManager respects
+  system constraints (network, battery) and retries failed uploads
+  automatically.
+- **Resumable by design.** Each synced item gets a `sync` event in the
+  local database. On resume, the app queries for items with a `create`
+  event but no `sync` event — no S3 round-trips needed to determine
+  what's left. A full camera roll sync may span multiple sessions; each
+  session picks up where the last one left off.
+
+**FS Watcher (desktop, future):**
 - Uses `inotify` (Linux) / `FSEvents` (macOS) / `ReadDirectoryChangesW` (Windows)
 - Watches configured directories for file create/modify/delete
 - Same pipeline: detect → event → sync → index (enrichment runs separately)
 - Runs as a background daemon (launchd / systemd)
+- Deferred to Phase 2 — v0 uses manual `smgr add`
 
 **Future:**
-- iOS: PhotoKit observers, file provider
+- iOS: PhotoKit + background task API
 - Web app / PWA for quick notes and bookmarks
 
 ### 2. Event Store (SQLite)
