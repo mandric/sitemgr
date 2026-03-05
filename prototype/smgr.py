@@ -310,7 +310,7 @@ def enrich_image_anthropic(image_bytes: bytes, mime_type: str) -> dict:
         media_type = "image/jpeg"
 
     response = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-haiku-4-5-20251001",
         max_tokens=1024,
         messages=[{
             "role": "user",
@@ -341,7 +341,7 @@ def enrich_image_anthropic(image_bytes: bytes, mime_type: str) -> dict:
 
     result = json.loads(text)
     result["provider"] = "anthropic"
-    result["model"] = "claude-sonnet-4-20250514"
+    result["model"] = "claude-haiku-4-5-20251001"
     result["raw_response"] = raw_response
 
     return result
