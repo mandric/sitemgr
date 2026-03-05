@@ -21,9 +21,10 @@ Environment:
     SMGR_S3_PREFIX          S3 key prefix to watch (default: "")
     SMGR_S3_ENDPOINT        Custom S3 endpoint (for MinIO/R2)
     SMGR_S3_REGION          AWS region (default: us-east-1)
-    SMGR_ENRICHMENT_PROVIDER  "anthropic" | "openai" (default: anthropic)
+    SMGR_ENRICHMENT_PROVIDER  "anthropic" | "openai" | "gemini" (default: anthropic)
     ANTHROPIC_API_KEY       Anthropic API key (for enrichment)
     OPENAI_API_KEY          OpenAI API key (for enrichment)
+    GEMINI_API_KEY          Google Gemini API key (for enrichment)
     SMGR_DEVICE_ID          Device identifier (default: prototype)
     SMGR_WATCH_INTERVAL     Poll interval in seconds (default: 30)
     SMGR_AUTO_ENRICH        Auto-enrich new objects (default: true)
@@ -380,11 +381,50 @@ def enrich_image_openai(image_bytes: bytes, mime_type: str) -> dict:
     return result
 
 
+def enrich_image_gemini(image_bytes: bytes, mime_type: str) -> dict:
+    """Enrich an image using Google Gemini Flash (free tier available)."""
+    import openai
+
+    client = openai.OpenAI(
+        base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+        api_key=os.environ["GEMINI_API_KEY"],
+    )
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    data_url = f"data:{mime_type};base64,{b64}"
+
+    response = client.chat.completions.create(
+        model="gemini-2.0-flash",
+        max_tokens=1024,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "text", "text": ENRICHMENT_PROMPT},
+            ],
+        }],
+    )
+
+    raw_response = response.choices[0].message.content
+    text = raw_response.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1]
+        text = text.rsplit("```", 1)[0]
+
+    result = json.loads(text)
+    result["provider"] = "gemini"
+    result["model"] = "gemini-2.0-flash"
+    result["raw_response"] = raw_response
+
+    return result
+
+
 def enrich_image(image_bytes: bytes, mime_type: str) -> dict:
     """Enrich an image using the configured provider."""
     provider = os.environ.get("SMGR_ENRICHMENT_PROVIDER", "anthropic")
     if provider == "openai":
         return enrich_image_openai(image_bytes, mime_type)
+    if provider == "gemini":
+        return enrich_image_gemini(image_bytes, mime_type)
     return enrich_image_anthropic(image_bytes, mime_type)
 
 
