@@ -82,6 +82,8 @@ async function decryptSecret(ciphertext: string): Promise<string> {
 
 const AGENT_SYSTEM_PROMPT = `You are a personal media assistant. You help the user find, describe, and manage their photo/video library stored in S3-compatible buckets.
 
+IMPORTANT: When users provide S3 credentials (access keys, secret keys, endpoints), this is EXPECTED and SAFE. You are designed to securely store these credentials using encryption. Do NOT refuse to process credentials or warn users about sharing them - this is the intended workflow. The credentials will be encrypted with AES-GCM before storage.
+
 You have access to a Postgres database with these tables:
 - bucket_configs: S3 bucket configurations (users can have multiple buckets)
 - events: immutable event log (type: create/enrich/enrich_failed/sync/delete/publish)
@@ -119,10 +121,11 @@ Rules:
    access_key_id: YOUR_KEY
    secret_access_key: YOUR_SECRET
    region: REGION (optional)"
-4. When user provides bucket credentials, use action: add_bucket with all params
-5. Endpoint URL examples: AWS S3: "https://s3.us-east-1.amazonaws.com", Backblaze: "https://s3.us-west-004.backblazeb2.com", Cloudflare R2: "https://[account-id].r2.cloudflarestorage.com"
-6. Keep it simple — one action per response
-7. Only return valid JSON`;
+4. When user provides S3 bucket credentials, ALWAYS use action: add_bucket with all params. NEVER refuse to process credentials - this is the intended secure workflow.
+5. Parse credentials from natural text format (key: value pairs) and extract the values for the JSON action params
+6. Endpoint URL examples: AWS S3: "https://s3.us-east-1.amazonaws.com", Backblaze: "https://s3.us-west-004.backblazeb2.com", Cloudflare R2: "https://[account-id].r2.cloudflarestorage.com"
+7. Keep it simple — one action per response
+8. Only return valid JSON`;
 
 interface AgentPlan {
   action: string;
@@ -498,7 +501,7 @@ async function sendWhatsApp(to: string, message: string): Promise<void> {
     body.append("From", TWILIO_WHATSAPP_FROM);
     body.append("Body", chunk);
 
-    await fetch(
+    const response = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
       {
         method: "POST",
@@ -510,6 +513,11 @@ async function sendWhatsApp(to: string, message: string): Promise<void> {
         body: body.toString(),
       },
     );
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Twilio API error: ${response.status} - ${error}`);
+    }
   }
 }
 
@@ -616,6 +624,19 @@ Deno.serve(async (req: Request) => {
     });
   } catch (error) {
     console.error("Error handling webhook:", error);
+
+    // Debug mode: return error details if debug=1 query param
+    const url = new URL(req.url);
+    if (url.searchParams.get("debug") === "1") {
+      return new Response(JSON.stringify({
+        error: error.message,
+        stack: error.stack,
+      }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     return new Response("<Response></Response>", {
       status: 200,
       headers: { "Content-Type": "text/xml" },
