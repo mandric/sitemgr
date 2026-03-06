@@ -29,7 +29,7 @@ jobs:
       - name: Link to Supabase project
         run: |
           echo "🚀 Linking to Supabase project..."
-          supabase link --project-ref "${{ secrets.SUPABASE_PROJECT_REF }}"
+          supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
@@ -44,7 +44,7 @@ jobs:
       - name: Create storage bucket
         run: |
           echo "Creating media bucket..."
-          PROJECT_REF="${{ secrets.SUPABASE_PROJECT_REF }}"
+          PROJECT_REF="${{ vars.SUPABASE_PROJECT_REF }}"
           SUPABASE_URL="https://${PROJECT_REF}.supabase.co"
 
           curl -X POST "${SUPABASE_URL}/storage/v1/bucket" \
@@ -59,7 +59,7 @@ jobs:
           echo "Deploying Edge Function: whatsapp..."
           supabase functions deploy whatsapp --no-verify-jwt
 
-          PROJECT_REF="${{ secrets.SUPABASE_PROJECT_REF }}"
+          PROJECT_REF="${{ vars.SUPABASE_PROJECT_REF }}"
           FUNCTION_URL="https://${PROJECT_REF}.supabase.co/functions/v1/whatsapp"
           echo "function_url=$FUNCTION_URL" >> $GITHUB_OUTPUT
           echo "✅ Edge Function deployed to: $FUNCTION_URL"
@@ -82,7 +82,7 @@ jobs:
 
       - name: Deployment summary
         run: |
-          PROJECT_REF="${{ secrets.SUPABASE_PROJECT_REF }}"
+          PROJECT_REF="${{ vars.SUPABASE_PROJECT_REF }}"
 
           echo ""
           echo "================================================"
