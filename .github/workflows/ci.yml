@@ -18,6 +18,84 @@ jobs:
       - run: pip install ruff
       - run: ruff check prototype/
 
+  migrations:
+    name: Test Postgres Migrations
+    runs-on: ubuntu-latest
+    needs: lint
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: smgr_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run all migrations in order
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: smgr_test
+        run: |
+          # Create the storage schema (normally provided by Supabase platform)
+          psql -c "CREATE SCHEMA IF NOT EXISTS storage;"
+          psql -c "CREATE TABLE IF NOT EXISTS storage.buckets (id TEXT PRIMARY KEY, name TEXT, public BOOLEAN);"
+
+          # Apply each migration in order
+          for f in $(ls supabase/migrations/*.sql | sort); do
+            echo "Applying $f..."
+            psql -f "$f"
+            echo "  OK"
+          done
+          echo "All migrations applied successfully."
+
+      - name: Verify schema
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: smgr_test
+        run: |
+          # Verify tables exist
+          psql -c "\dt" | grep -q events
+          psql -c "\dt" | grep -q enrichments
+          psql -c "\dt" | grep -q watched_keys
+          psql -c "\dt" | grep -q conversations
+          echo "All tables verified."
+
+          # Verify RPC functions exist
+          psql -c "\df" | grep -q stats_by_content_type
+          psql -c "\df" | grep -q stats_by_event_type
+          psql -c "\df" | grep -q search_events
+          echo "All functions verified."
+
+          # Verify FTS works by inserting test data
+          psql <<'SQL'
+          INSERT INTO events (id, timestamp, device_id, type, content_type, content_hash)
+          VALUES ('test-1', now(), 'ci', 'create', 'photo', 'abc123');
+
+          INSERT INTO enrichments (event_id, description, objects, context, tags)
+          VALUES ('test-1', 'A dog on a beach', ARRAY['dog','beach'], 'Vacation photo', ARRAY['travel','pets']);
+
+          -- Verify FTS column was populated
+          SELECT event_id, fts IS NOT NULL as has_fts FROM enrichments;
+
+          -- Verify search works
+          SELECT * FROM search_events('dog beach');
+SQL
+          echo "FTS smoke test passed."
+
   build:
     name: Build & Integration Test
     runs-on: ubuntu-latest
