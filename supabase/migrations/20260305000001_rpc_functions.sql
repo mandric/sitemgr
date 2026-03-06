@@ -2,7 +2,7 @@
 
 -- Stats: count events by content_type
 CREATE OR REPLACE FUNCTION stats_by_content_type()
-RETURNS TABLE(content_type TEXT, count BIGINT)
+RETURNS TABLE(content_type TEXT, "count" BIGINT)
 LANGUAGE sql STABLE
 AS $$
     SELECT content_type, count(*)
@@ -14,7 +14,7 @@ $$;
 
 -- Stats: count events by event type
 CREATE OR REPLACE FUNCTION stats_by_event_type()
-RETURNS TABLE(type TEXT, count BIGINT)
+RETURNS TABLE("type" TEXT, "count" BIGINT)
 LANGUAGE sql STABLE
 AS $$
     SELECT type, count(*)
@@ -33,9 +33,9 @@ CREATE OR REPLACE FUNCTION search_events(
 )
 RETURNS TABLE(
     id TEXT,
-    timestamp TIMESTAMPTZ,
+    "timestamp" TIMESTAMPTZ,
     device_id TEXT,
-    type TEXT,
+    "type" TEXT,
     content_type TEXT,
     content_hash TEXT,
     local_path TEXT,
@@ -50,7 +50,7 @@ RETURNS TABLE(
 LANGUAGE sql STABLE
 AS $$
     SELECT
-        e.id, e.timestamp, e.device_id, e.type, e.content_type,
+        e.id, e."timestamp", e.device_id, e.type, e.content_type,
         e.content_hash, e.local_path, e.remote_path, e.metadata, e.parent_id,
         en.description, en.objects, en.context, en.tags
     FROM enrichments en
@@ -58,8 +58,8 @@ AS $$
     WHERE en.fts @@ plainto_tsquery('english', query_text)
       AND e.type = 'create'
       AND (content_type_filter IS NULL OR e.content_type = content_type_filter)
-      AND (since_filter IS NULL OR e.timestamp >= since_filter::timestamptz)
-      AND (until_filter IS NULL OR e.timestamp <= until_filter::timestamptz)
+      AND (since_filter IS NULL OR e."timestamp" >= since_filter::timestamptz)
+      AND (until_filter IS NULL OR e."timestamp" <= until_filter::timestamptz)
     ORDER BY ts_rank(en.fts, plainto_tsquery('english', query_text)) DESC
     LIMIT result_limit;
 $$;

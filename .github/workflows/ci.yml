@@ -29,17 +29,14 @@ jobs:
         with:
           version: latest
 
-      # --- Supabase migrations ---
+      # --- Supabase migrations (start auto-applies migrations) ---
 
       - name: Start local Supabase
         run: supabase start -x realtime,imgproxy,edge-runtime,logflare,vector,supavisor
 
-      - name: Apply migrations
-        run: supabase db push --local
-
       - name: FTS smoke test
         run: |
-          supabase db execute --local "INSERT INTO events (id, timestamp, device_id, type, content_type, content_hash) VALUES ('test-1', now(), 'ci', 'create', 'photo', 'abc123')"
+          supabase db execute --local "INSERT INTO events (id, \"timestamp\", device_id, type, content_type, content_hash) VALUES ('test-1', now(), 'ci', 'create', 'photo', 'abc123')"
           supabase db execute --local "INSERT INTO enrichments (event_id, description, objects, context, tags) VALUES ('test-1', 'A dog on a beach', ARRAY['dog','beach'], 'Vacation photo', ARRAY['travel','pets'])"
           supabase db execute --local "SELECT * FROM search_events('dog beach')" | grep -q test-1
           echo "FTS smoke test passed."
