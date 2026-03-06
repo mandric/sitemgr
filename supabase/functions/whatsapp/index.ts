@@ -601,8 +601,14 @@ Deno.serve(async (req: Request) => {
 
     // Send via Twilio
     console.log("Sending to Twilio:", fromNumber);
-    await sendWhatsApp(fromNumber, responseText);
-    console.log("Twilio send complete");
+    console.log("Response text:", responseText.substring(0, 100));
+    try {
+      await sendWhatsApp(fromNumber, responseText);
+      console.log("Twilio send complete");
+    } catch (error) {
+      console.error("Twilio send failed:", error);
+      throw error;
+    }
 
     // Return empty TwiML (we send via API for longer messages)
     return new Response("<Response></Response>", {
