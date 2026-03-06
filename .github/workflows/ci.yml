@@ -48,6 +48,29 @@ jobs:
         if: always()
         run: supabase stop
 
+      # --- Edge Function smoke test ---
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Edge Function health check
+        run: |
+          export SUPABASE_URL=http://localhost:54321
+          export SUPABASE_SERVICE_ROLE_KEY=test-key
+          export ANTHROPIC_API_KEY=test-key
+          export TWILIO_ACCOUNT_SID=test-sid
+          export TWILIO_AUTH_TOKEN=test-token
+          export TWILIO_WHATSAPP_FROM=whatsapp:+10000000000
+          deno run --allow-env --allow-net supabase/functions/whatsapp/index.ts &
+          DENO_PID=$!
+          sleep 5
+          response=$(curl -sf http://localhost:8000)
+          echo "$response"
+          echo "$response" | grep -q '"status":"ok"'
+          echo "Edge Function health check passed."
+          kill $DENO_PID
+
       # --- S3 watcher integration test ---
 
       - name: Build Docker image
