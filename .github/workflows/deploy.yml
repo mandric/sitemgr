@@ -1,0 +1,143 @@
+name: Deploy to Supabase
+
+on:
+  push:
+    branches:
+      - main  # Deploys to test environment automatically
+    paths:
+      - 'supabase/**'
+      - '.github/workflows/deploy.yml'
+
+  # Allow manual deployment to production
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        type: choice
+        options:
+          - test
+          - production
+        default: test
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment || 'test' }}
+    runs-on: ubuntu-latest
+
+    # Use GitHub Environments for deployment protection
+    environment:
+      name: ${{ inputs.environment || 'test' }}
+      url: ${{ steps.deploy.outputs.function_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Link to Supabase project
+        run: |
+          # Determine which environment to deploy to
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            PROJECT_REF="${{ secrets.SUPABASE_PROJECT_REF_PROD }}"
+            echo "🚀 Deploying to PRODUCTION"
+          else
+            PROJECT_REF="${{ secrets.SUPABASE_PROJECT_REF_TEST }}"
+            echo "🧪 Deploying to TEST"
+          fi
+
+          supabase link --project-ref "$PROJECT_REF"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Run database migrations
+        run: |
+          echo "Running migrations..."
+          supabase db push --dry-run
+          supabase db push
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Create storage bucket
+        run: |
+          # Create media bucket if it doesn't exist
+          # This uses the Supabase Management API
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            PROJECT_REF="${{ secrets.SUPABASE_PROJECT_REF_PROD }}"
+          else
+            PROJECT_REF="${{ secrets.SUPABASE_PROJECT_REF_TEST }}"
+          fi
+
+          SUPABASE_URL="https://${PROJECT_REF}.supabase.co"
+
+          curl -X POST "${SUPABASE_URL}/storage/v1/bucket" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"id":"media","name":"media","public":false}' \
+            || echo "Bucket may already exist"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy Edge Functions
+        id: deploy
+        run: |
+          echo "Deploying Edge Function: whatsapp"
+          supabase functions deploy whatsapp --no-verify-jwt
+
+          # Get project ref for output URL
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            PROJECT_REF="${{ secrets.SUPABASE_PROJECT_REF_PROD }}"
+          else
+            PROJECT_REF="${{ secrets.SUPABASE_PROJECT_REF_TEST }}"
+          fi
+
+          FUNCTION_URL="https://${PROJECT_REF}.supabase.co/functions/v1/whatsapp"
+          echo "function_url=$FUNCTION_URL" >> $GITHUB_OUTPUT
+          echo "✅ Edge Function deployed to: $FUNCTION_URL"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Set Edge Function secrets
+        run: |
+          echo "Setting Edge Function secrets..."
+          supabase secrets set \
+            ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
+            TWILIO_ACCOUNT_SID="${{ secrets.TWILIO_ACCOUNT_SID }}" \
+            TWILIO_AUTH_TOKEN="${{ secrets.TWILIO_AUTH_TOKEN }}" \
+            TWILIO_WHATSAPP_FROM="${{ secrets.TWILIO_WHATSAPP_FROM }}"
+
+          echo "✅ Secrets configured"
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deployment summary
+        run: |
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            ENV="Production"
+            PROJECT_REF="${{ secrets.SUPABASE_PROJECT_REF_PROD }}"
+          else
+            ENV="Test"
+            PROJECT_REF="${{ secrets.SUPABASE_PROJECT_REF_TEST }}"
+          fi
+
+          echo ""
+          echo "================================================"
+          echo "  ✅ Deployment Complete - $ENV Environment"
+          echo "================================================"
+          echo ""
+          echo "Edge Function URL:"
+          echo "  https://${PROJECT_REF}.supabase.co/functions/v1/whatsapp"
+          echo ""
+          echo "Supabase Dashboard:"
+          echo "  https://supabase.com/dashboard/project/${PROJECT_REF}"
+          echo ""
+          if [ "${{ inputs.environment }}" = "production" ]; then
+            echo "🎉 Production is live!"
+          else
+            echo "Next steps:"
+            echo "  1. Test the deployment in the test environment"
+            echo "  2. When ready, manually trigger production deploy from Actions tab"
+          fi
+          echo ""
