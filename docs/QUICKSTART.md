@@ -36,6 +36,7 @@ nano .env.production  # or use your favorite editor
 ```
 
 **Required variables** (deployment will fail if any are missing):
+- `SUPABASE_ACCESS_TOKEN` - From https://supabase.com/dashboard/account/tokens (create a new token)
 - `SUPABASE_PROJECT_REF` - Your project reference ID
 - `ANTHROPIC_API_KEY` - From https://console.anthropic.com/settings/keys
 - `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` - From https://console.twilio.com
@@ -46,10 +47,7 @@ nano .env.production  # or use your favorite editor
 ## Step 3: Deploy from Laptop (5 minutes)
 
 ```bash
-# Login to Supabase CLI (first time only)
-supabase login
-
-# Run deployment script
+# Run deployment script (SUPABASE_ACCESS_TOKEN from .env.production handles auth)
 ./scripts/deploy.sh
 ```
 

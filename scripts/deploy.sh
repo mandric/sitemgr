@@ -26,6 +26,7 @@ source .env.production
 
 # Validate required variables
 REQUIRED_VARS=(
+    "SUPABASE_ACCESS_TOKEN"
     "SUPABASE_PROJECT_REF"
     "ANTHROPIC_API_KEY"
     "TWILIO_ACCOUNT_SID"
@@ -56,6 +57,9 @@ fi
 echo "✓ All required variables set"
 echo ""
 
+# Export SUPABASE_ACCESS_TOKEN for CLI authentication
+export SUPABASE_ACCESS_TOKEN
+
 # Check if supabase CLI is installed
 if ! command -v supabase &> /dev/null; then
     echo "❌ Supabase CLI not found"
@@ -67,12 +71,12 @@ if ! command -v supabase &> /dev/null; then
     exit 1
 fi
 
-# Check if logged in
+# Verify access token works
 if ! supabase projects list &> /dev/null; then
-    echo "❌ Not logged in to Supabase"
+    echo "❌ Failed to authenticate with Supabase"
     echo ""
-    echo "Login with:"
-    echo "  supabase login"
+    echo "Check that SUPABASE_ACCESS_TOKEN in .env.production is valid."
+    echo "Get a new token from: https://supabase.com/dashboard/account/tokens"
     exit 1
 fi
 
