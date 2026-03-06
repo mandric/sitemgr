@@ -368,9 +368,9 @@ struct EventWithRelated {
 
 | Provider | Config key   | Notes                                    |
 |----------|-------------|------------------------------------------|
-| SQLite   | `"sqlite"`  | Default. FTS5 for full-text search.      |
-| Postgres | `"postgres"`| For heavier workloads, shared access.    |
-| Tantivy  | `"tantivy"` | Rust search engine. Better ranking.      |
+| Postgres | `"postgres"`| **v1 default.** tsvector + GIN for FTS.  |
+| SQLite   | `"sqlite"`  | Backlog. FTS5 for local-first.           |
+| Tantivy  | `"tantivy"` | Backlog. Rust search engine.             |
 
 **Key design point:** The `EventWithRelated` struct joins across event types.
 When you query for photos, you don't get raw `create` events — you get
@@ -380,60 +380,36 @@ and `enrich` events.
 
 ---
 
-## 3. Sync Daemon / Android App Configuration
+## 3. Configuration
 
-### Desktop: `~/.sitemgr/config.toml`
+### v1: Environment Variables
+
+All configuration via environment variables (12-factor). See
+`design/architecture.md` for the full list. Key variables:
+
+```bash
+SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY  # Postgres + Storage
+SMGR_S3_BUCKET, SMGR_S3_PREFIX          # Where media lives
+ANTHROPIC_API_KEY                         # Enrichment
+TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN    # WhatsApp bot
+```
+
+### Future: Desktop CLI config (backlog)
 
 ```toml
 device_id = "thinkpad-x1"
 device_name = "Milan's ThinkPad"
-
 events_db = "~/.sitemgr/events.db"
-blob_store = "~/.sitemgr/blobs"
 
 [storage]
 provider = "s3"
 bucket = "my-site-assets"
-prefix = "sync/"
-region = "us-east-1"
 
 [enrichment]
 provider = "anthropic"
 model = "claude-sonnet-4-20250514"
 auto_enrich = true
-media_types = ["image/*", "video/*"]
-batch_window = "30s"
-max_batch_size = 10
-
-[[watcher]]
-path = "~/Screenshots"
-content_type = "photo"
-patterns = ["*.png", "*.jpg", "*.jpeg", "*.webp"]
-auto_enrich = true
-
-[[watcher]]
-path = "~/notes"
-content_type = "note"
-patterns = ["*.md"]
-auto_enrich = false
-
-[targets.git]
-remote = "git@github.com:user/notes.git"
-branch = "main"
-push_interval = "5m"
-commit_message = "sync: {file} [{event_id}]"
 ```
-
-### Android
-
-The Android app stores equivalent config in SharedPreferences or a local
-config file. The UI exposes:
-
-- **Storage provider:** S3 bucket, region, credentials (or link to
-  credential manager)
-- **Enrichment provider:** API key, model selection, auto-enrich toggle
-- **Media types to watch:** Camera, screenshots, screen recordings, all
-- **Batch window:** How long to wait before grouping captures into a batch
 
 ---
 
@@ -673,100 +649,58 @@ narrative content in blog posts.
 
 ---
 
-## 7. Multi-Device Access
+## 7. Multi-Device Access (v1)
 
-Each device maintains its own SQLite event store. There is no shared
-database. This eliminates all concurrent-write, locking, and merge
-problems for the core write path.
+v1 uses a single shared Supabase Postgres database. All devices write to
+and read from the same instance — no sync protocol needed.
 
-### Current Model: Per-Device Databases
+Every event carries a `device_id` field for provenance. You always know
+where content originated.
 
-```
-Phone:    ~/.sitemgr/events.db    (device_id: "pixel-7a")
-Laptop:   ~/.sitemgr/events.db    (device_id: "thinkpad-x1")
-Desktop:  ~/.sitemgr/events.db    (device_id: "desktop-ryzen")
-```
-
-Every event carries a `device_id` field. You always know where an event
-came from.
-
-### Cross-Device Reads (No Sync Needed)
-
-A web dashboard or CLI can query multiple device databases without
-merging them. SQLite's `ATTACH DATABASE` makes this trivial:
-
-```sql
-ATTACH 'phone-events.db' AS phone;
-ATTACH 'laptop-events.db' AS laptop;
-
--- All photos from all devices last week
-SELECT * FROM phone.events
-UNION ALL
-SELECT * FROM laptop.events
-WHERE content_type = 'photo'
-  AND timestamp > datetime('now', '-7 days')
-ORDER BY timestamp DESC;
-```
-
-This gives you aggregate views across devices with zero sync
-infrastructure. The web dashboard renders data from multiple attached
-databases.
-
-### Cross-Device Access (v0): S3 Database Export
-
-The simplest path that validates the architecture: the phone periodically
-exports its `events.db` to the same S3 bucket it uses for blob storage.
+### v1 Model: Shared Postgres
 
 ```
-Phone:   smgr sync db-export   →  s3://bucket/sync/devices/pixel-7a/events.db
-Desktop: smgr sync db-import   ←  downloads to ~/.sitemgr/devices/pixel-7a/events.db
+Phone:    → writes to Supabase Postgres  (device_id: "pixel-7a")
+Laptop:   → writes to Supabase Postgres  (device_id: "thinkpad-x1")
+WhatsApp: → queries Supabase Postgres    (via Edge Function)
 ```
 
-The desktop CLI then uses `ATTACH DATABASE` to query across its own events
-and the phone's snapshot. This is a read-only, eventually-consistent model —
-the phone is the sole writer of its database, the desktop gets a periodic
-snapshot. Good enough for "take photo on phone, query from laptop."
+Cross-device queries are just regular `SELECT` statements with optional
+`WHERE device_id = ?` filtering.
 
-Export frequency is configurable (default: on each S3 blob sync, or
-manually via `smgr sync db-export`). The snapshot is a SQLite backup — safe
-to copy while the database is in use (WAL mode handles this).
+### Future: Local-First with SQLite (backlog)
 
-### Future: Cross-Device Sync (Full Replication)
-
-Full bidirectional replication (so each device has a complete local copy of
-all events) is a future concern. The per-device model with `device_id`
-provenance gives us a solid foundation — every event has a device_id,
-events are append-only, and IDs are globally unique (ULIDs). The v0 export
-model validates the read path before we commit to a sync protocol.
+The original per-device SQLite design is preserved in the event model.
+If we move to local-first in a future version, each device would maintain
+its own `events.db` with `ATTACH DATABASE` for cross-device reads, and
+S3 database export for sharing snapshots. The append-only event model
+and `device_id` provenance make this transition tractable.
 
 ---
 
 ## 8. Directory Layout
 
+### v1: Supabase-hosted
+
+```
+supabase/
+├── config.toml                          # Supabase project config
+├── migrations/
+│   └── 20260305000000_initial_schema.sql  # Postgres schema
+└── functions/
+    └── whatsapp/
+        └── index.ts                     # Edge Function entry point
+```
+
+Configuration is via environment variables (see architecture.md).
+
+### Future: Local CLI layout (backlog)
+
 ```
 ~/.sitemgr/
 ├── config.toml          # Configuration (device_id, storage, enrichment, watchers)
-├── events.db            # SQLite event store (WAL mode) — source of truth
-├── events.db-wal        # WAL file (managed by SQLite)
-├── events.db-shm        # Shared memory file (managed by SQLite)
-├── blobs/               # Local blob cache (content-addressed)
-│   ├── a1/
-│   │   └── a1b2c3d4...jpg
-│   ├── e5/
-│   │   └── e5f6a7b8...png
-│   └── ...
-├── templates/           # HTML templates for renderers
-│   ├── gallery.html
-│   ├── note.html
-│   └── feed.xml
-└── daemon.pid           # PID file when daemon is running
-```
-
-On Android, the equivalent structure lives in the app's internal storage:
-
-```
-/data/data/com.sitemgr.app/files/
-├── config.json          # Configuration (JSON on Android, includes device_id)
 ├── events.db            # SQLite event store (WAL mode)
-└── blobs/               # Local blob cache
+├── blobs/               # Local blob cache (content-addressed)
+├── templates/           # HTML templates for renderers
+└── daemon.pid           # PID file when daemon is running
 ```

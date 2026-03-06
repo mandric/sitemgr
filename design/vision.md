@@ -99,10 +99,12 @@ device. sitemgr is the orchestration layer, not the platform.
    you move things around. Document types (notes, documents, quotes, bookmarks)
    are **not** hashed — they change frequently and are tracked by git instead.
 
-5. **BYO everything.** Bring your own storage (S3, R2, GCS, local disk).
-   Bring your own LLM (Claude, GPT, Gemini, Ollama). Bring your own device.
-   sitemgr is the orchestration layer — no accounts, no hosted service, no
-   vendor lock-in. You own your data, your keys, your infra.
+5. **BYO enrichment, pragmatic hosting.** Bring your own LLM (Claude, GPT,
+   Gemini, Ollama). v1 uses Supabase as a managed backend (Postgres +
+   Storage + Edge Functions) — this is a pragmatic choice to get a working
+   prototype fast. BYO S3-compatible storage is on the backlog. The
+   provider interfaces are designed for swappability — no vendor lock-in
+   at the architecture level.
 
 6. **CLI as skill layer, agent as interface.** The CLI is the foundational
    capability — every operation is a composable, scriptable command with
@@ -122,18 +124,19 @@ device. sitemgr is the orchestration layer, not the platform.
 
 ---
 
-## Who Is This For (v0)
+## Who Is This For (v1)
 
 Developers and power users who:
-- Take photos on Android and want them enriched, indexed, and queryable
-- Want their data in formats they control (SQLite events, standard image formats)
-- Bring their own cloud storage (S3-compatible) and LLM API keys
+- Take photos on Android/iOS and want them enriched, indexed, and queryable
+- Already sync their camera roll to S3 (via rclone, Syncthing, etc.)
+- Bring their own LLM API keys
 - Want to go from "I have 50 photos of a project" to "here's a blog post
   about it" without manual curation
+- Are okay with a cloud-based setup (Supabase) for v1
 
 ---
 
-## What Success Looks Like (v0)
+## What Success Looks Like (v1)
 
 1. I take a photo of a cracked bed frame on my Android phone. Within seconds,
    an event is logged with the file metadata. In the background, the photo is
@@ -164,16 +167,16 @@ Developers and power users who:
 5. I publish the blog post. A static page is generated with links to
    S3-hosted images. I share the URL.
 
-6. All of this works with my S3 bucket, my Claude API key, my phone. No
-   accounts, no cloud service, no subscription. I swap Claude for Ollama
-   and it still works — same pipeline, local enrichment.
+6. All of this works with my Supabase project, my Claude API key, my phone.
+   I swap Claude for GPT-4o and it still works — same pipeline, different
+   enrichment provider. BYO S3 storage is on the roadmap.
 
 ---
 
-## The Three BYO Contracts
+## The Provider Contracts
 
-sitemgr is orchestration, not platform. Everything pluggable hangs off three
-provider interfaces:
+sitemgr is orchestration, not platform. Everything pluggable hangs off
+provider interfaces — even though v1 uses specific implementations:
 
 ### 1. Storage Provider
 Put and get blobs. Content-addressed.
@@ -185,10 +188,11 @@ exists(hash) → bool
 delete(hash) → void
 ```
 
-Implementations: S3, R2, GCS, local disk.
+**v1:** Supabase Storage (S3-compatible API).
+**Backlog:** Any S3-compatible provider (AWS S3, R2, GCS, MinIO).
 
 ### 2. Enrichment Provider
-Media in, structured metadata out.
+Media in, structured metadata out. **This is BYO from day one.**
 
 ```
 enrich(media_bytes, mime_type) → EnrichmentResult {
@@ -212,11 +216,11 @@ query(filter) → Event[]
 Where filter supports: tags, content_type, date range, full-text search,
 semantic search (if the backend supports it).
 
-Implementations: SQLite + FTS5, Postgres, Tantivy, etc.
+**v1:** Postgres (tsvector + GIN).
+**Backlog:** SQLite + FTS5 (for local-first), Tantivy, etc.
 
-The agent, CLI, and any future UI are all **consumers** of the query provider.
-The agent doesn't know about SQLite. The CLI doesn't know about SQLite. They
-both call the query interface.
+The agent, Edge Function, CLI, and any future UI are all **consumers**
+of the query provider.
 
 ---
 

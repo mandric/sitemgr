@@ -137,11 +137,16 @@ Bot:  Your library:
 
 ## Future Ideas
 
-- **Local + offline mode** — `smgr scan ~/Photos` to index a local
-  directory without S3 or internet. The CLI and SQLite backend already
-  support this, but the agent-first experience (WhatsApp bot, Supabase)
-  takes priority. Local mode is valuable for privacy-conscious users or
-  air-gapped setups.
+- **Local + offline mode (backlog)** — `smgr scan ~/Photos` to index a
+  local directory without S3 or internet using SQLite + FTS5. The
+  agent-first cloud experience (WhatsApp bot, Supabase) takes priority
+  for v1.
+
+- **BYO S3 storage (backlog)** — Support any S3-compatible provider,
+  not just Supabase Storage.
+
+- **Enrichment metadata in S3** — Store enrichment results as sidecar
+  JSON files alongside media in S3, making metadata portable.
 
 - **Gallery view** — `smgr view` serving a local HTML gallery with
   thumbnails. Useful for browsing without chat.
