@@ -125,23 +125,16 @@ rm -f "$TEST_IMAGE_PATH"
 # ============================================================
 test_start "S3 watcher detects new object"
 
-# Skip in CI - Supabase Storage doesn't support boto3 list_objects_v2
-if [ "${CI:-false}" = "true" ]; then
-    echo "⚠️  Skipped in CI (Supabase Storage has limited S3 API support)"
-    echo "   This test requires full S3-compatible storage (MinIO/AWS S3)"
+python3 prototype/smgr.py watch --once
+
+# Check if event was created
+STATS_AFTER=$(python3 prototype/smgr.py stats)
+echo "$STATS_AFTER"
+
+if echo "$STATS_AFTER" | grep -q '"total_events": 1'; then
     test_pass
 else
-    python3 prototype/smgr.py watch --once
-
-    # Check if event was created
-    STATS_AFTER=$(python3 prototype/smgr.py stats)
-    echo "$STATS_AFTER"
-
-    if echo "$STATS_AFTER" | grep -q '"total_events": 1'; then
-        test_pass
-    else
-        test_fail "Expected 1 event after watch"
-    fi
+    test_fail "Expected 1 event after watch"
 fi
 
 # ============================================================

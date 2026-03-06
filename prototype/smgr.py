@@ -260,18 +260,58 @@ def get_s3_client():
 
 
 def list_s3_objects(s3, bucket: str, prefix: str = "") -> list[dict]:
-    """List all objects in an S3 bucket/prefix. Handles pagination."""
-    objects = []
-    continuation_token = None
+    """List all objects in an S3 bucket/prefix. Handles pagination.
 
+    Tries list_objects_v2 first (standard S3), falls back to list_objects v1
+    if v2 is not supported (e.g., Supabase Storage, some S3-compatible providers).
+    """
+    objects = []
+
+    # Try v2 first (modern S3 API)
+    try:
+        continuation_token = None
+        while True:
+            kwargs = {"Bucket": bucket, "MaxKeys": 1000}
+            if prefix:
+                kwargs["Prefix"] = prefix
+            if continuation_token:
+                kwargs["ContinuationToken"] = continuation_token
+
+            response = s3.list_objects_v2(**kwargs)
+
+            for obj in response.get("Contents", []):
+                objects.append({
+                    "key": obj["Key"],
+                    "size": obj["Size"],
+                    "etag": obj["ETag"].strip('"'),
+                    "last_modified": obj["LastModified"].isoformat(),
+                })
+
+            if response.get("IsTruncated"):
+                continuation_token = response["NextContinuationToken"]
+            else:
+                break
+
+        return objects
+
+    except Exception as e:
+        # Fall back to v1 if v2 not supported (Supabase Storage, etc.)
+        if "not implemented" in str(e).lower() or "unsupported" in str(e).lower():
+            print(f"  Note: list_objects_v2 not supported, using v1 fallback", file=sys.stderr)
+        else:
+            # Re-raise if it's a different error
+            raise
+
+    # Fallback: list_objects v1 (uses Marker for pagination)
+    marker = None
     while True:
         kwargs = {"Bucket": bucket, "MaxKeys": 1000}
         if prefix:
             kwargs["Prefix"] = prefix
-        if continuation_token:
-            kwargs["ContinuationToken"] = continuation_token
+        if marker:
+            kwargs["Marker"] = marker
 
-        response = s3.list_objects_v2(**kwargs)
+        response = s3.list_objects(**kwargs)
 
         for obj in response.get("Contents", []):
             objects.append({
@@ -282,7 +322,7 @@ def list_s3_objects(s3, bucket: str, prefix: str = "") -> list[dict]:
             })
 
         if response.get("IsTruncated"):
-            continuation_token = response["NextContinuationToken"]
+            marker = response.get("NextMarker") or objects[-1]["key"]
         else:
             break
 
