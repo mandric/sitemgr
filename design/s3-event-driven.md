@@ -1,17 +1,14 @@
 # S3 Event-Driven Architecture
 
-## The Pivot
+## The Core Assumption
 
-The original architecture assumed sitemgr controls media capture and sync.
-In practice, media sync to S3 is a solved problem — syncthing, rclone,
-s3drive, and dozens of other tools handle it well. Trying to own that
-layer adds complexity without adding value.
+Media sync to S3 is a solved problem — syncthing, rclone, s3drive, and
+dozens of other tools handle it well. sitemgr doesn't own media capture
+or sync.
 
-**New assumption:** Media already lives in an S3 bucket. sitemgr's job is
-to **watch, index, and enrich** — not to move bytes around.
-
-This is a better fit for OpenClaw + WhatsApp because the agent doesn't
-need to coordinate sync. It just queries the index.
+**Assumption:** Media already lives in an S3-compatible bucket (Supabase
+Storage for v1). sitemgr's job is to **watch, index, and enrich** — not
+to move bytes around.
 
 ---
 
@@ -41,11 +38,11 @@ Phone / Camera                    Any S3-compatible bucket
                            └─────────────────┼────────────────┘
                                              ▼
                               ┌──────────────────────────┐
-                              │  Event Store (SQLite)     │
+                              │  Event Store (Postgres)   │
                               │                          │
                               │  1. create event          │
                               │  2. enrich via LLM        │
-                              │  3. index in FTS5         │
+                              │  3. index in tsvector     │
                               └──────────────┬───────────┘
                                              │
                               ┌──────────────┼──────────────┐
@@ -77,7 +74,7 @@ smgr watch --once
 
 **How it works:**
 1. `ListObjectsV2` on the bucket/prefix
-2. Diff against `watched_keys` table in SQLite
+2. Diff against `watched_keys` table in Postgres
 3. For each new key: download → hash → create event → enrich
 4. Sleep, repeat
 
@@ -132,19 +129,19 @@ webhooks are for when you want instant enrichment.
 3. S3 event notification fires (or smgr watch polls and detects it)
 4. smgr downloads the image bytes
 5. Computes SHA-256 hash, checks for duplicates
-6. INSERT create event:
+6. INSERT create event into Postgres:
    { type: "create", content_type: "photo",
      content_hash: "sha256:...",
      remote_path: "s3://bucket/photos/2025/03/IMG_1234.jpg",
      metadata: { source: "s3-watch", s3_key: "...", size_bytes: 2450320 } }
 7. Sends image to Claude vision API
-8. INSERT enrich event:
+8. INSERT enrich event into Postgres:
    { type: "enrich", parent_id: "...",
      metadata: { enrichment: {
        description: "Cracked wooden bed frame...",
        objects: ["bed frame", "wood", "crack"],
        suggested_tags: ["bed-repair", "woodworking"] } } }
-9. FTS5 index updated — now searchable
+9. tsvector index updated — now searchable
 ```
 
 **Total latency from S3 arrival to searchable:** ~5-10 seconds (webhook)
@@ -157,8 +154,8 @@ or up to 30 seconds (polling).
 ```
 1. User sends WhatsApp message: "show me photos from the bed repair"
 2. Twilio webhook → bot.py
-3. Claude interprets → smgr query --format json --search "bed repair"
-4. FTS5 searches enrichment descriptions, returns matching events
+3. Claude interprets → structured query intent → Postgres query
+4. tsvector searches enrichment descriptions, returns matching events
 5. Claude summarizes results conversationally
 6. Bot sends response via WhatsApp:
    "Found 8 photos of your bed repair project from January.
@@ -250,16 +247,18 @@ python3 smgr.py enrich --pending
 The original architecture had sitemgr owning the full pipeline:
 capture → event → blob sync → enrichment → query.
 
-The new architecture splits responsibility:
+The current architecture splits responsibility:
 
-| Concern | Old | New |
+| Concern | Old | v1 |
 |---------|-----|-----|
 | Media capture | sitemgr (Android app) | Phone camera (existing) |
 | Media sync to S3 | sitemgr (blob sync) | syncthing/rclone/s3drive |
 | Detect new media | FS watcher / Android MediaStore | S3 polling / event notifications |
+| Event store | Per-device SQLite | Supabase Postgres (shared) |
+| Full-text search | SQLite FTS5 | Postgres tsvector + GIN |
 | Index + enrich | sitemgr | sitemgr |
-| Query | sitemgr CLI | sitemgr CLI |
-| Agent interface | OpenClaw (planned) | bot.py (working prototype) |
+| Query | sitemgr CLI | Supabase Edge Function (+ CLI) |
+| Agent interface | OpenClaw (planned) | WhatsApp bot (Supabase Edge Function) |
 
 sitemgr gets **simpler** by letting commodity tools handle sync and
 focusing on what's actually unique: the enrichment + index + agent layer.

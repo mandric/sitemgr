@@ -23,6 +23,12 @@ CREATE INDEX idx_events_device_id ON events(device_id);
 CREATE INDEX idx_events_remote_path ON events(remote_path);
 CREATE INDEX idx_events_parent_id ON events(parent_id);
 
+-- Immutable wrapper for array_to_string (needed for generated columns)
+CREATE OR REPLACE FUNCTION immutable_array_to_string(arr TEXT[], sep TEXT)
+RETURNS TEXT LANGUAGE sql IMMUTABLE AS $$
+    SELECT array_to_string(arr, sep);
+$$;
+
 -- Enrichments: full-text search on LLM-generated descriptions
 CREATE TABLE enrichments (
     event_id    TEXT PRIMARY KEY REFERENCES events(id),
@@ -33,8 +39,8 @@ CREATE TABLE enrichments (
     fts         TSVECTOR GENERATED ALWAYS AS (
         setweight(to_tsvector('english', coalesce(description, '')), 'A') ||
         setweight(to_tsvector('english', coalesce(context, '')), 'B') ||
-        setweight(to_tsvector('english', coalesce(array_to_string(tags, ' '), '')), 'C') ||
-        setweight(to_tsvector('english', coalesce(array_to_string(objects, ' '), '')), 'C')
+        setweight(to_tsvector('english', coalesce(immutable_array_to_string(tags, ' '), '')), 'C') ||
+        setweight(to_tsvector('english', coalesce(immutable_array_to_string(objects, ' '), '')), 'C')
     ) STORED
 );
 

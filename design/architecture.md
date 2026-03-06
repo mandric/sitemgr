@@ -1,102 +1,81 @@
 # Architecture
 
+> **v1 scope: cloud-based.** The first version requires an internet
+> connection and uses Supabase (Postgres + Storage) as the backend.
+> Local-first/offline support is deferred to a future version.
+> Supabase is used for testing and prototyping — the long-term goal
+> is to support any S3-compatible storage API (backlog).
+>
+> **Post-prototype idea:** Store enrichment metadata as sidecar files
+> in S3 (e.g., `{hash}.meta.json` next to `{hash}.jpg`), so metadata
+> always lives alongside the user's media in their own storage. Worth
+> exploring once the prototype is working.
+
 ## System Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    CAPTURE & SYNC                            │
 │                                                             │
-│  ┌─────────────┐  ┌───────────┐  ┌──────────┐  ┌────────┐  │
-│  │  Android     │  │   CLI     │  │ FS Watch │  │ Future │  │
-│  │  WorkManager │  │ smgr add  │  │ (desktop)│  │ (iOS)  │  │
-│  └──────┬──────┘  └─────┬─────┘  └────┬─────┘  └───┬────┘  │
-└─────────┼───────────────┼─────────────┼────────────┼────────┘
-          │               │             │            │
-          ▼               ▼             ▼            ▼
+│  ┌──────────────┐  ┌──────────┐  ┌────────────────────────┐ │
+│  │ Phone camera │  │  CLI     │  │ Future: FS Watch, iOS  │ │
+│  │ → S3 sync    │  │ smgr add │  │                        │ │
+│  │ (rclone etc) │  │          │  │                        │ │
+│  └──────┬───────┘  └────┬─────┘  └───────────┬────────────┘ │
+└─────────┼───────────────┼────────────────────┼──────────────┘
+          │               │                    │
+          ▼               ▼                    ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    S3-COMPATIBLE STORAGE                     │
+│                                                             │
+│  Media lands here first. sitemgr watches, not moves.        │
+│  Supabase Storage for v1 (testing). BYO S3 is backlog.      │
+│                                                             │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                    smgr watch / webhook
+                         │
+                         ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    EVENT STORE                               │
 │                                                             │
-│  Append-only, locally stored.                               │
-│  Every action becomes an event. Events are immutable.       │
-│  Stored in a per-device SQLite database (WAL mode).         │
-│  Each event carries a device_id for provenance.             │
+│  Append-only. Every action becomes an event.                │
+│  Events are immutable. Stored in Supabase Postgres.         │
 │                                                             │
 │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐             │
 │  │evt 1 │→│evt 2 │→│evt 3 │→│evt 4 │→│evt 5 │→ ...        │
 │  └──────┘ └──────┘ └──────┘ └──────┘ └──────┘             │
 └────────────────────────┬────────────────────────────────────┘
                          │
-          ┌──────────────┼──────────────┐
-          ▼              ▼              ▼
-┌────────────────┐ ┌────────────┐ ┌────────────────┐
-│  BLOB SYNC     │ │ ENRICHMENT │ │  DOCUMENT SYNC │
-│  (Storage      │ │ (Enrichment│ │  (Git)         │
-│   Provider)    │ │  Provider) │ │                │
-│                │ │            │ │                │
-│ BYO: S3, R2,  │ │ BYO: Claude│ │  auto-commit   │
-│ GCS, local     │ │ GPT, Gemini│ │  auto-push     │
-│                │ │ Ollama     │ │  conflict       │
-│ content-       │ │            │ │  resolution TBD │
-│ addressed      │ │ media →    │ │                │
-│ key scheme     │ │ structured │ │                │
-│                │ │ metadata   │ │                │
-└───────┬────────┘ └─────┬──────┘ └───────┬────────┘
-        │                │                │
-        │                ▼                │
-        │  ┌──────────────────────┐       │
-        │  │  Enrichment result   │       │
-        │  │  appended as new     │       │
-        │  │  event to log        │       │
-        │  └──────────┬───────────┘       │
-        │             │                   │
-        └─────────────┼───────────────────┘
-                      ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    QUERY INTERFACE                           │
-│                      (Query Provider)                       │
-│                                                             │
-│  Queries run against the SQLite event store directly.       │
-│  FTS5 indexes are maintained alongside event data.          │
-│                                                             │
-│  - Full-text search (FTS5)                                  │
-│  - Semantic search over enriched descriptions               │
-│  - Filter by content type, tags, date range, device_id      │
-│  - Hash → local path, remote URL                            │
-│  - ATTACH multiple device DBs for cross-device queries      │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-              ┌──────────┼──────────┐
-              ▼          ▼          ▼
-┌────────────┐ ┌──────────────┐ ┌──────────────┐
-│    CLI     │ │   OPENCLAW   │ │   FUTURE UI  │
-│            │ │   (Agent)    │ │              │
-│  smgr query│ │  Translates  │ │  Web, mobile │
-│  smgr show │ │  natural     │ │  dashboard   │
-│  smgr enrich│ │  language →  │ │              │
-│  smgr sync │ │  CLI calls   │ │              │
-└────────────┘ └──────────────┘ └──────┬───────┘
-                                       │
-                                       ▼
-                            ┌──────────────────────┐
-                            │  RENDERERS (future)  │
-                            │                      │
-                            │  Markdown → HTML     │
-                            │  Templates per type  │
-                            │  Static site export  │
-                            │                      │
-                            │  Gallery, blog,      │
-                            │  feed, note, ...     │
-                            └──────────┬───────────┘
-                                       │
-                                       ▼
-                            ┌──────────────────────┐
-                            │  PUBLISH (future)    │
-                            │                      │
-                            │  Upload rendered     │
-                            │  HTML + assets to S3 │
-                            │                      │
-                            │  → shareable URL     │
-                            └──────────────────────┘
+                    ┌────┴─────┐
+                    ▼          ▼
+          ┌────────────┐ ┌────────────────┐
+          │ ENRICHMENT │ │ QUERY          │
+          │            │ │ INTERFACE      │
+          │ BYO: Claude│ │                │
+          │ GPT, Gemini│ │ Postgres       │
+          │            │ │ tsvector + GIN │
+          │ media →    │ │ full-text      │
+          │ structured │ │ search         │
+          │ metadata   │ │                │
+          └─────┬──────┘ └───────┬────────┘
+                │                │
+                ▼                │
+   ┌──────────────────┐         │
+   │ Enrichment result│         │
+   │ stored as event  │         │
+   └──────────┬───────┘         │
+              │                 │
+              └────────┬────────┘
+                       ▼
+            ┌──────────┼──────────┐
+            ▼          ▼          ▼
+  ┌────────────┐ ┌───────────┐ ┌──────────────┐
+  │    CLI     │ │ WhatsApp  │ │   FUTURE UI  │
+  │            │ │ Bot       │ │              │
+  │  smgr     │ │ (Supabase │ │  Web, mobile │
+  │  query    │ │  Edge Fn) │ │  dashboard   │
+  └────────────┘ └───────────┘ └──────────────┘
 ```
 
 ---
@@ -149,43 +128,34 @@ API costs and processing.
 - iOS: PhotoKit + background task API
 - Web app / PWA for quick notes and bookmarks
 
-### 2. Event Store (SQLite)
+### 2. Event Store (Postgres)
 
-The event store is the source of truth. It's a per-device SQLite database
-running in WAL mode. Each device maintains its own database — no concurrent
-writer conflicts, no file locking, no dual-write consistency problems.
+The event store is the source of truth. For v1, it's a single Supabase
+Postgres database — shared, cloud-hosted, always available.
 
 **Properties:**
 - Append-only (no edits, no deletes — delete is a new event)
 - Content-addressed (events reference content by hash)
-- Per-device (each device owns its own database)
+- Single shared database (all devices write to the same Postgres instance)
 - Every event carries a `device_id` for provenance
-- SQLite WAL mode handles concurrent reads safely
-- Single database for both event storage and querying — no separate index to keep in sync
+- JSONB for flexible metadata
+- Full-text search via `tsvector` + GIN indexes
 
-**Why SQLite (not ndjson):**
-- Writes and queries in one place — no separate log + index to keep in sync
-- Built-in concurrency (WAL mode) — no file locking needed
-- `INSERT` is as easy as appending a line to a file
-- FTS5 for full-text search lives alongside the data
-- Handles millions of events easily
-- Cross-device queries via `ATTACH DATABASE` — no merge logic needed
-- Still inspectable: `sqlite3 events.db "SELECT * FROM events"`
+**Why Postgres for v1 (not SQLite):**
+- Shared access — all devices and the Edge Function query the same database
+- No sync protocol needed — just write to Postgres
+- Supabase provides managed hosting, auth (future), and Edge Functions
+- `tsvector` + GIN for full-text search, native JSONB operators
+- Gets something working fast without building a sync layer
 
-**Event provenance (hard rule):** Events are always created on the
-originating device. If you take a photo on your phone, the phone creates
-the `create` event. The desktop never re-creates events for content it
-receives — it pulls the event data from the originating device's database.
-The desktop CLI only creates events for content added locally (via
-`smgr add`).
+**v1 tradeoff:** Requires internet connectivity. No offline support. This
+is acceptable for getting a working prototype — offline/local-first with
+SQLite is a future version concern.
 
-**Multi-device model:**
-- Each device maintains its own `events.db`
-- A web dashboard or CLI can `ATTACH` multiple device databases and query
-  across them (e.g., "show me all photos from all devices last week")
-- No merge, no conflict resolution, no sync protocol needed for reads
-- Cross-device sync (replicating events between devices) is a future concern
-  with its own design — but the per-device model works now
+**Future: SQLite local-first (backlog)**
+The per-device SQLite model from the original design is sound and worth
+revisiting once v1 is validated. The append-only event model and
+`device_id` provenance make eventual local-first migration tractable.
 
 **Event schema:** See [interfaces.md](interfaces.md).
 
@@ -241,40 +211,30 @@ else.
   regardless of subscription plan (~$0.01–0.05 per photo depending on
   resolution).
 
-- **Offline-safe.** Enrichment is an external API call. If the device is
-  offline (or the provider is unreachable), the call fails and an
-  `enrich_failed` event is inserted into the store so it can be retried later.
-  Content is never lost — the `create` event and blob are unaffected.
-
-- **Online trigger.** When connectivity is restored, the enrichment process
-  queries the index for `create` events that have no corresponding `enrich`
-  event. Any unenriched items are re-queued automatically. This means the
-  user can take photos all day on airplane mode and enrichment catches up
-  when they're back online.
+- **Retry on failure.** If the enrichment API call fails (provider error,
+  timeout, etc.), an `enrich_failed` event is inserted into the store so
+  it can be retried later. Content is never lost — the `create` event
+  and blob are unaffected. `smgr enrich --pending` retries all failed items.
 
 - **Raw response preserved.** The full LLM response is stored in the event.
   If we improve the structured extraction later, we can re-process from the
   raw response without re-calling the API.
 
-### 4. Blob Sync (BYO Storage)
+### 4. Blob Storage
 
-Binary content (photos, videos, audio) syncs to user-provided storage.
+Binary content (photos, videos, audio) lives in S3-compatible storage.
+For v1, media arrives in the bucket via external sync tools (rclone,
+Syncthing, etc.) — sitemgr watches the bucket, not uploads to it.
+
+**v1: Supabase Storage** (S3-compatible API, used for testing/prototyping).
+**Backlog: BYO S3** — support any S3-compatible provider (AWS S3, R2,
+MinIO, GCS). The storage provider interface is designed for this, but
+v1 focuses on getting things working with Supabase.
 
 **Key scheme:** Content-addressed.
 ```
-s3://bucket/prefix/{first-2-chars-of-hash}/{full-hash}.{ext}
+media/{first-2-chars-of-hash}/{full-hash}.{ext}
 ```
-
-Example:
-```
-s3://my-bucket/sync/a1/a1b2c3d4e5f6...jpg
-```
-
-**Sync behavior:**
-- On `create` event: upload blob to storage key derived from hash
-- On `delete` event: check if hash is still referenced; if not, delete
-- Idempotent: re-uploading the same hash is a no-op (content-addressed)
-- Retry with exponential backoff on failure
 
 **Provider interface:**
 ```
@@ -283,8 +243,6 @@ get(hash) → bytes
 exists(hash) → bool
 delete(hash) → void
 ```
-
-Implementations: S3, Cloudflare R2, Google Cloud Storage, local filesystem.
 
 ### 5. Document Sync (Git) *(future)*
 
@@ -345,25 +303,23 @@ Where filter supports:
 - **Agent (OpenClaw)** — translates natural language to CLI calls via chat
 - **Future UI** — web dashboard querying across device databases
 
-The CLI does NOT know about SQLite. The agent calls the CLI. They all go
-through the query interface. The query backend is swappable.
+The Edge Function queries Postgres directly. The CLI also queries Postgres.
+They all go through the query interface. The query backend is swappable.
 
-**Default implementation: SQLite + FTS5**
+**v1 implementation: Postgres + tsvector/GIN**
 
 The event store and query index are the same database. Tables:
 - `events` — all events, indexed by type, content_type, timestamp, device_id
-- `tags` — tag → event_id mapping
-- `enrichments` — enrichment results linked to source events
-- `fts` — FTS5 virtual table for full-text search across descriptions,
-  titles, tags
-- `hashes` — content_hash → local_path, remote_url mapping
+- `enrichments` — enrichment results linked to source events, with GIN-indexed
+  `tsvector` column for full-text search
+- `watched_keys` — S3 sync tracking
 
-**Cross-device queries:** A web dashboard or desktop CLI can `ATTACH`
-multiple device databases and query across them using SQLite's built-in
-cross-database query support. No merge or replication needed for read access.
+All devices and consumers query the same Postgres instance — no sync or
+merge logic needed.
 
-**Rebuild:** `smgr index rebuild` rebuilds FTS and derived indexes from
-the events table.
+**Future: SQLite + FTS5 for local-first (backlog).** The original design
+used per-device SQLite with `ATTACH DATABASE` for cross-device queries.
+This is still a valid architecture for a future offline-capable version.
 
 ### 7. Renderers *(future)*
 
@@ -395,9 +351,9 @@ Publish = render + upload.
 
 ### 9. Observability
 
-Multiple async pipelines (capture → event → sync → enrichment) need to be
+Multiple async pipelines (capture → event → enrichment) need to be
 debuggable. The event log is itself the primary observability tool — every
-action produces an event, including failures (`enrich_failed`, sync errors).
+action produces an event, including failures (`enrich_failed`, etc.).
 
 **Key queries:**
 - `smgr enrich --status` — how many items are pending enrichment, how many
@@ -416,62 +372,52 @@ No separate logging infrastructure needed — the event store is the log.
 
 ## Data Flow: The Core Loop
 
-### Photo Capture + Enrichment (CLI)
+### Photo Arrives in S3 → Index + Enrich (v1)
 
 ```
-1. User runs: smgr add --enrich ~/photos/bed-frame.jpg
-2. CLI computes SHA-256 hash
-3. CREATE event inserted into device's events.db:
-   { type: "create", content_type: "photo", device_id: "thinkpad-x1",
+1. User takes photo on phone
+2. rclone/Syncthing/s3drive syncs it to S3: photos/2025/03/IMG_1234.jpg
+3. smgr watch detects new object (polling) or webhook fires
+4. smgr downloads the image bytes, computes SHA-256 hash
+5. CREATE event inserted into Postgres:
+   { type: "create", content_type: "photo", device_id: "s3-watch",
      content_hash: "sha256:...",
-     metadata: { mime_type: "image/jpeg", size_bytes: 2450320,
-       exif: { taken_at: "2025-03-15T14:32:07Z", lat: 45.523, lon: -122.676,
-               camera: "Pixel 7a", ... } } }
-4. FTS index updated automatically (same database)
-5. Enrichment sends image to Claude:
+     remote_path: "s3://bucket/photos/2025/03/IMG_1234.jpg",
+     metadata: { source: "s3-watch", size_bytes: 2450320 } }
+6. Enrichment sends image to Claude:
    { description: "Cracked wooden bed frame, split along side rail...",
      objects: ["bed frame", "wood", "crack"], context: "furniture repair",
      suggested_tags: ["bed-repair", "woodworking"] }
-6. ENRICH event inserted: { type: "enrich", parent_id: "...", metadata:
-   { enrichment: { ... } } }
-7. FTS index updated — now searchable
-8. User runs: smgr sync push → blob uploaded to S3
-9. SYNC event inserted: { type: "sync", parent_id: "...", remote_path: "s3://..." }
+7. ENRICH event inserted into Postgres with tsvector index updated
+8. Now searchable via WhatsApp bot or CLI
 ```
 
-Or via the agent (OpenClaw):
+### WhatsApp Query (v1)
 
 ```
-User: "sync my photos from today"
-Agent: Found 8 new photos on your phone. Syncing...
-       ✓ 8/8 synced to S3. Enrich them?
-User: "yes"
-Agent: Enriching... ✓ 8/8 done.
-User: "what did I photograph?"
-Agent: [queries enriched metadata, returns summary]
+User: "what did I photograph this week?"
+Bot:  Queries Postgres → enrichments full-text search
+      Returns conversational summary of matching photos
 ```
 
-A single capture produces multiple sitemgr events (CREATE, SYNC, ENRICH).
-Since the event store is append-only, these events can be processed in
-parallel. Items with CREATE but no SYNC event are still pending — sync is
-resumable by design.
+A single capture produces multiple sitemgr events (CREATE, ENRICH).
+Since the event store is append-only, these events can be processed
+in sequence. Items with CREATE but no ENRICH event are pending —
+`smgr enrich --pending` catches them up.
 
 ### Agent Query + Content Generation
 
-The user interacts via OpenClaw — an open-source personal AI assistant
-framework that runs on the user's desktop and is accessible via messaging
-apps (WhatsApp, Telegram, Discord, iMessage). The smgr CLI commands are
-registered as OpenClaw skills.
+The user interacts via WhatsApp (Twilio → Supabase Edge Function).
+The Edge Function queries Postgres directly — no CLI subprocess.
 
 ```
-1. User (via chat): "write a blog post about my bed repair project"
-2. Agent calls CLI: smgr query --search "bed repair" --type photo --format json
-3. Query provider searches FTS index across enriched descriptions, returns
-   12 matching events spanning two months, each with pre-computed metadata
-4. Agent reads the enriched descriptions chronologically — it can see the
-   full arc of the project without re-analyzing any images
-5. Agent generates markdown with smgr:// references to actual photos
-6. (future) Agent calls: smgr publish blog.md → HTML rendered, uploaded, URL returned
+1. User (via WhatsApp): "write a blog post about my bed repair project"
+2. Edge Function calls Claude with the user's message
+3. Claude generates a structured query intent
+4. Edge Function queries Postgres: full-text search on enrichments
+5. Returns 12 matching events spanning two months, each with pre-computed metadata
+6. Claude reads the enriched descriptions chronologically and generates a narrative
+7. Response sent back via WhatsApp
 ```
 
 The blog post is grounded — every description came from the LLM looking at
@@ -481,101 +427,95 @@ about what happened.
 
 ---
 
-## Configuration
+## Configuration (v1)
 
-```toml
-# ~/.sitemgr/config.toml
+All via environment variables (12-factor friendly):
 
-# Device identity — unique per device, human-readable
-device_id = "pixel-7a"
-device_name = "Milan's Pixel 7a"
+```bash
+# Supabase (required for v1)
+export SUPABASE_URL=https://<ref>.supabase.co
+export SUPABASE_SERVICE_ROLE_KEY=eyJ...
 
-# Where the event store (SQLite) lives
-events_db = "~/.sitemgr/events.db"
+# S3 bucket (where media lives)
+export SMGR_S3_BUCKET=my-photos
+export SMGR_S3_PREFIX=photos/
+export SMGR_S3_ENDPOINT=https://...    # Supabase Storage or external S3
+export SMGR_S3_REGION=us-east-1
 
-# Where synced blobs are cached locally (content-addressed)
-blob_store = "~/.sitemgr/blobs"
+# Enrichment
+export SMGR_ENRICHMENT_PROVIDER=anthropic
+export ANTHROPIC_API_KEY=sk-...
+export SMGR_AUTO_ENRICH=true
 
-# --- Storage Provider (BYO) ---
+# Watcher
+export SMGR_WATCH_INTERVAL=30  # seconds between polls
 
-[storage]
-provider = "s3"             # "s3" | "r2" | "gcs" | "local"
-bucket = "my-site-assets"
-prefix = "sync/"
-region = "us-east-1"
-# Credentials from env vars or cloud SDK credential chain
-
-# --- Enrichment Provider (BYO) ---
-
-[enrichment]
-provider = "anthropic"      # "anthropic" | "openai" | "google" | "ollama"
-model = "claude-sonnet-4-20250514"
-auto_enrich = true
-media_types = ["image/*", "video/*"]
-# For Ollama: endpoint = "http://localhost:11434"
-# API keys from env vars: ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.
-
-# --- Watchers ---
-
-# Android watchers are configured in the Android app settings.
-# Desktop watchers use the same format as before:
-
-[[watcher]]
-path = "~/Screenshots"
-content_type = "photo"
-patterns = ["*.png", "*.jpg", "*.jpeg", "*.webp"]
-auto_enrich = true
-
-[[watcher]]
-path = "~/notes"
-content_type = "note"
-patterns = ["*.md"]
-auto_enrich = false         # text notes don't need vision enrichment
-
-# --- Document Sync (Git) ---
-
-[targets.git]
-remote = "git@github.com:user/notes.git"
-branch = "main"
-push_interval = "5m"
-commit_message = "sync: {file} [{event_id}]"
+# WhatsApp bot
+export TWILIO_ACCOUNT_SID=AC...
+export TWILIO_AUTH_TOKEN=...
+export TWILIO_WHATSAPP_FROM=whatsapp:+14155238886
 ```
 
 ---
 
-## Technology Choices
+## Technology Choices (v1)
+
+| Component       | Choice                  | Rationale                                     |
+|-----------------|-------------------------|-----------------------------------------------|
+| Event store     | Supabase Postgres       | Managed, shared, no sync protocol needed      |
+| Full-text search| Postgres tsvector + GIN | Built into Postgres, no separate engine       |
+| Blob storage    | Supabase Storage (S3)   | S3-compatible, co-located with Postgres. BYO S3 is backlog. |
+| Enrichment      | LLM API                 | BYO — Claude, GPT, Gemini, Ollama             |
+| Webhook handler | Supabase Edge Functions | Serverless Deno/TypeScript, free tier          |
+| Bot transport   | Twilio (WhatsApp)       | WhatsApp Business API                          |
+| Agent brain     | Claude                  | Natural language → structured queries          |
+| Config          | Environment variables   | 12-factor, works with Edge Functions           |
+
+**Future technology options (backlog):**
 
 | Component       | Choice         | Rationale                                     |
 |-----------------|----------------|-----------------------------------------------|
-| Language        | Rust           | Single binary, fast, cross-platform. Native APIs (Kotlin/Swift) only when required. |
-| Event store     | SQLite (WAL)   | Writes + queries in one place, no dual-write  |
-| Full-text search| FTS5           | Built into SQLite, no separate engine needed  |
-| Blob storage    | S3-compatible  | BYO — any provider works                      |
-| Enrichment      | LLM API        | BYO — Claude, GPT, Gemini, Ollama             |
-| Doc storage     | Git            | Already handles text well, built-in history   |
-| FS watching     | notify crate   | Cross-platform (inotify/FSEvents/ReadDir)     |
-| CLI framework   | clap           | Standard Rust CLI library                     |
-| HTTP server     | axum           | Lightweight, async, good ergonomics           |
-| Templates       | tera           | Jinja2-like, familiar syntax                  |
-| Config          | TOML           | Readable, standard in Rust ecosystem          |
+| Language        | Rust           | Single binary, fast, cross-platform            |
+| Local event store| SQLite (WAL)  | Per-device, offline-capable                    |
+| Local FTS       | FTS5           | Built into SQLite                              |
+| CLI framework   | clap           | Standard Rust CLI library                      |
+| Doc storage     | Git            | Already handles text well, built-in history    |
 
 ---
 
 ## What We're NOT Building
 
-- **Not a platform.** No accounts, no hosted service, no subscription. BYO everything.
-- **Not a centralized database.** Each device owns its own SQLite event store. There is no central server.
-- **Not a CMS.** No admin panel, no user accounts, no WYSIWYG editor.
-- **Not a sync protocol.** We use S3 and git — commodity sync.
+- **Not a CMS.** No admin panel, no WYSIWYG editor.
 - **Not a photo editor / note editor / etc.** We observe what other apps produce.
 - **Not a backup system.** Sync ≠ backup. Use restic/borg/etc. for backups.
 - **Not an LLM.** We call LLMs. Swap providers any time.
+- **Not a sync tool.** Media gets to S3 via existing tools (rclone, Syncthing, etc.). We watch, index, and enrich.
+
+**v1 uses Supabase as a hosted backend.** This is a pragmatic choice to
+get a working prototype fast. The architecture preserves provider
+interfaces so a future version can support BYO storage and local-first
+operation.
 
 ---
 
 ---
 
 ## Future Considerations
+
+- **Local-first / offline mode.** The original per-device SQLite design is
+  sound. Once v1 is validated with cloud Postgres, revisit local-first with
+  SQLite + FTS5 for offline-capable operation. The append-only event model
+  and `device_id` provenance make this migration tractable.
+
+- **BYO S3-compatible storage.** v1 uses Supabase Storage. Support any
+  S3-compatible API (AWS S3, Cloudflare R2, MinIO, GCS) so users own
+  their storage infrastructure.
+
+- **Enrichment metadata in S3.** Store enrichment results as sidecar JSON
+  files in S3 alongside the media (e.g., `{hash}.meta.json`). This makes
+  metadata portable — it lives in the user's storage, not just in Postgres.
+  If the user switches backends or wants to export, the metadata travels
+  with the media. Worth exploring after the prototype is working.
 
 - **Enrichment batching.** Group rapid-fire captures (e.g., 20 photos at a
   job site) into a single enrichment call with session context so the LLM can

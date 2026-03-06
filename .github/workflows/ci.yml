@@ -25,6 +25,57 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # --- Supabase migrations (db start = Postgres only) ---
+
+      - name: Start local Postgres
+        run: supabase db start
+
+      - name: Apply migrations
+        run: supabase db push --local
+
+      - name: FTS smoke test
+        run: |
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -c "INSERT INTO events (id, \"timestamp\", device_id, type, content_type, content_hash) VALUES ('test-1', now(), 'ci', 'create', 'photo', 'abc123')"
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -c "INSERT INTO enrichments (event_id, description, objects, context, tags) VALUES ('test-1', 'A dog on a beach', ARRAY['dog','beach'], 'Vacation photo', ARRAY['travel','pets'])"
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -c "SELECT * FROM search_events('dog beach')" | grep -q test-1
+          echo "FTS smoke test passed."
+
+      - name: Stop Postgres
+        if: always()
+        run: supabase stop
+
+      # --- Edge Function smoke test ---
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Edge Function health check
+        run: |
+          export SUPABASE_URL=http://localhost:54321
+          export SUPABASE_SERVICE_ROLE_KEY=test-key
+          export ANTHROPIC_API_KEY=test-key
+          export TWILIO_ACCOUNT_SID=test-sid
+          export TWILIO_AUTH_TOKEN=test-token
+          export TWILIO_WHATSAPP_FROM=whatsapp:+10000000000
+          deno run --allow-env --allow-net supabase/functions/whatsapp/index.ts &
+          DENO_PID=$!
+          sleep 5
+          response=$(curl -sf http://localhost:8000)
+          echo "$response"
+          echo "$response" | grep -q '"status":"ok"'
+          echo "Edge Function health check passed."
+          kill $DENO_PID
+
+      # --- S3 watcher integration test ---
+
       - name: Build Docker image
         run: docker compose build smgr
 
