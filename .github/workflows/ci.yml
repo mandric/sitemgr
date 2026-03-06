@@ -39,9 +39,12 @@ jobs:
 
       - name: FTS smoke test
         run: |
-          supabase db execute --local "INSERT INTO events (id, \"timestamp\", device_id, type, content_type, content_hash) VALUES ('test-1', now(), 'ci', 'create', 'photo', 'abc123')"
-          supabase db execute --local "INSERT INTO enrichments (event_id, description, objects, context, tags) VALUES ('test-1', 'A dog on a beach', ARRAY['dog','beach'], 'Vacation photo', ARRAY['travel','pets'])"
-          supabase db execute --local "SELECT * FROM search_events('dog beach')" | grep -q test-1
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -c "INSERT INTO events (id, \"timestamp\", device_id, type, content_type, content_hash) VALUES ('test-1', now(), 'ci', 'create', 'photo', 'abc123')"
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -c "INSERT INTO enrichments (event_id, description, objects, context, tags) VALUES ('test-1', 'A dog on a beach', ARRAY['dog','beach'], 'Vacation photo', ARRAY['travel','pets'])"
+          psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+            -c "SELECT * FROM search_events('dog beach')" | grep -q test-1
           echo "FTS smoke test passed."
 
       - name: Stop Postgres
