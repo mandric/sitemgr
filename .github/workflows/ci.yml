@@ -29,10 +29,13 @@ jobs:
         with:
           version: latest
 
-      # --- Supabase migrations (start auto-applies migrations) ---
+      # --- Supabase migrations (db start = Postgres only) ---
 
-      - name: Start local Supabase
-        run: supabase start -x realtime,imgproxy,edge-runtime,logflare,vector,supavisor
+      - name: Start local Postgres
+        run: supabase db start
+
+      - name: Apply migrations
+        run: supabase db push --local
 
       - name: FTS smoke test
         run: |
@@ -41,7 +44,8 @@ jobs:
           supabase db execute --local "SELECT * FROM search_events('dog beach')" | grep -q test-1
           echo "FTS smoke test passed."
 
-      - name: Stop Supabase
+      - name: Stop Postgres
+        if: always()
         run: supabase stop
 
       # --- S3 watcher integration test ---
