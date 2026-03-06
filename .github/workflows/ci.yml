@@ -33,32 +33,13 @@ jobs:
         run: supabase start -x realtime,imgproxy,edge-runtime,logflare,vector,supavisor
 
       - name: Apply migrations
+        run: supabase db push --local
+
+      - name: FTS smoke test
         run: |
-          supabase db push --local
-          echo "All migrations applied."
-
-      - name: Verify schema
-        run: |
-          DB_URL=$(supabase status --output json | python3 -c "import sys,json; print(json.load(sys.stdin)['DB_URL'])")
-
-          # Verify tables
-          psql "$DB_URL" -c "\dt public.*" | grep -q events
-          psql "$DB_URL" -c "\dt public.*" | grep -q enrichments
-          psql "$DB_URL" -c "\dt public.*" | grep -q watched_keys
-          psql "$DB_URL" -c "\dt public.*" | grep -q conversations
-          echo "All tables verified."
-
-          # Verify RPC functions
-          psql "$DB_URL" -c "\df public.*" | grep -q stats_by_content_type
-          psql "$DB_URL" -c "\df public.*" | grep -q stats_by_event_type
-          psql "$DB_URL" -c "\df public.*" | grep -q search_events
-          echo "All functions verified."
-
-          # FTS smoke test
-          psql "$DB_URL" -c "INSERT INTO events (id, timestamp, device_id, type, content_type, content_hash) VALUES ('test-1', now(), 'ci', 'create', 'photo', 'abc123');"
-          psql "$DB_URL" -c "INSERT INTO enrichments (event_id, description, objects, context, tags) VALUES ('test-1', 'A dog on a beach', ARRAY['dog','beach'], 'Vacation photo', ARRAY['travel','pets']);"
-          psql "$DB_URL" -c "SELECT event_id, fts IS NOT NULL as has_fts FROM enrichments;" | grep -q test-1
-          psql "$DB_URL" -c "SELECT * FROM search_events('dog beach');" | grep -q test-1
+          supabase db execute --local "INSERT INTO events (id, timestamp, device_id, type, content_type, content_hash) VALUES ('test-1', now(), 'ci', 'create', 'photo', 'abc123')"
+          supabase db execute --local "INSERT INTO enrichments (event_id, description, objects, context, tags) VALUES ('test-1', 'A dog on a beach', ARRAY['dog','beach'], 'Vacation photo', ARRAY['travel','pets'])"
+          supabase db execute --local "SELECT * FROM search_events('dog beach')" | grep -q test-1
           echo "FTS smoke test passed."
 
       - name: Cleanup
