@@ -7,5 +7,8 @@ schemas = ["public", "storage"]
 port = 54322
 major_version = 15
 
+[analytics]
+enabled = false  # Disable analytics (causes issues with Colima Docker socket mounting)
+
 [functions.whatsapp]
 verify_jwt = false  # Twilio webhooks don't send JWTs

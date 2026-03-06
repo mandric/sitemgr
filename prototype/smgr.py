@@ -42,6 +42,7 @@ import sys
 import time
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 # --- Constants ---
 
@@ -200,7 +201,7 @@ def s3_metadata(key: str, size: int, etag: str) -> dict:
     }
 
 
-def _read_image_dimensions(path: str, mime: str) -> tuple | None:
+def _read_image_dimensions(path: str, mime: str) -> Optional[tuple]:
     try:
         with open(path, "rb") as f:
             header = f.read(32)
@@ -215,7 +216,7 @@ def _read_image_dimensions(path: str, mime: str) -> tuple | None:
     return None
 
 
-def _jpeg_dimensions(f) -> tuple | None:
+def _jpeg_dimensions(f) -> Optional[tuple]:
     import struct
     f.seek(2)
     while True:
@@ -427,7 +428,7 @@ def enrich_image(image_bytes: bytes, mime_type: str) -> dict:
     return enrich_image_anthropic(image_bytes, mime_type)
 
 
-def do_enrich(conn: sqlite3.Connection, event_id: str, image_bytes: bytes, mime_type: str) -> str | None:
+def do_enrich(conn: sqlite3.Connection, event_id: str, image_bytes: bytes, mime_type: str) -> Optional[str]:
     """Run enrichment for a single event. Returns enrich event ID or None on failure."""
     try:
         result = enrich_image(image_bytes, mime_type)
@@ -765,7 +766,7 @@ def cmd_enrich(args):
     conn.close()
 
 
-def _get_event_image_bytes(conn, event, s3=None, bucket=None) -> bytes | None:
+def _get_event_image_bytes(conn, event, s3=None, bucket=None) -> Optional[bytes]:
     """Get image bytes for an event, from local path or S3."""
     # Try local path first
     local_path = event["local_path"] if isinstance(event, dict) else event[6]  # local_path column
