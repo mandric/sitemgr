@@ -9,12 +9,52 @@ echo "  Deploy to Supabase"
 echo "================================================"
 echo ""
 
-# Load .env.production if it exists
-if [ -f .env.production ]; then
-    echo "✓ Loading configuration from .env.production"
-    source .env.production
+# Require .env.production
+if [ ! -f .env.production ]; then
+    echo "❌ .env.production not found"
     echo ""
+    echo "Create it from the example:"
+    echo "  cp .env.example .env.production"
+    echo "  # Then edit .env.production with your values"
+    echo ""
+    exit 1
 fi
+
+# Load .env.production
+echo "Loading configuration from .env.production..."
+source .env.production
+
+# Validate required variables
+REQUIRED_VARS=(
+    "SUPABASE_PROJECT_REF"
+    "ANTHROPIC_API_KEY"
+    "TWILIO_ACCOUNT_SID"
+    "TWILIO_AUTH_TOKEN"
+    "TWILIO_WHATSAPP_FROM"
+)
+
+MISSING_VARS=()
+for var in "${REQUIRED_VARS[@]}"; do
+    if [ -z "${!var}" ]; then
+        MISSING_VARS+=("$var")
+    fi
+done
+
+if [ ${#MISSING_VARS[@]} -gt 0 ]; then
+    echo ""
+    echo "❌ Missing required environment variables in .env.production:"
+    for var in "${MISSING_VARS[@]}"; do
+        echo "  - $var"
+    done
+    echo ""
+    echo "Edit .env.production and set all required values."
+    echo "See .env.example for reference."
+    echo ""
+    exit 1
+fi
+
+echo "✓ All required variables set"
+echo ""
 
 # Check if supabase CLI is installed
 if ! command -v supabase &> /dev/null; then
@@ -36,22 +76,6 @@ if ! supabase projects list &> /dev/null; then
     exit 1
 fi
 
-# List projects to help user choose
-echo "Available Supabase projects:"
-supabase projects list
-echo ""
-
-# Prompt for project reference if not provided
-if [ -z "$SUPABASE_PROJECT_REF" ]; then
-    read -p "Enter your Supabase project reference ID: " SUPABASE_PROJECT_REF
-fi
-
-if [ -z "$SUPABASE_PROJECT_REF" ]; then
-    echo "❌ Project reference ID required"
-    exit 1
-fi
-
-echo ""
 echo "🚀 Deploying to: $SUPABASE_PROJECT_REF"
 echo ""
 
@@ -101,59 +125,13 @@ supabase functions deploy whatsapp --no-verify-jwt
 # Set secrets
 echo ""
 echo "→ Setting Edge Function secrets..."
+supabase secrets set \
+    ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+    TWILIO_ACCOUNT_SID="$TWILIO_ACCOUNT_SID" \
+    TWILIO_AUTH_TOKEN="$TWILIO_AUTH_TOKEN" \
+    TWILIO_WHATSAPP_FROM="$TWILIO_WHATSAPP_FROM"
 
-# Check if we have secrets loaded
-if [ -n "$ANTHROPIC_API_KEY" ] && [ -n "$TWILIO_ACCOUNT_SID" ]; then
-    echo "✓ Secrets loaded from .env.production"
-    SET_SECRETS=true
-else
-    echo ""
-    echo "You need to set the following secrets:"
-    echo "  - ANTHROPIC_API_KEY"
-    echo "  - TWILIO_ACCOUNT_SID"
-    echo "  - TWILIO_AUTH_TOKEN"
-    echo "  - TWILIO_WHATSAPP_FROM"
-    echo ""
-    echo "Tip: Create .env.production from .env.production.template"
-    echo ""
-    read -p "Set secrets now? (y/N) " -n 1 -r
-    echo
-
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        SET_SECRETS=true
-    else
-        SET_SECRETS=false
-    fi
-fi
-
-if [ "$SET_SECRETS" = true ]; then
-
-    # Prompt for each secret if not set
-    if [ -z "$ANTHROPIC_API_KEY" ]; then
-        read -p "Enter ANTHROPIC_API_KEY: " ANTHROPIC_API_KEY
-    fi
-    if [ -z "$TWILIO_ACCOUNT_SID" ]; then
-        read -p "Enter TWILIO_ACCOUNT_SID: " TWILIO_ACCOUNT_SID
-    fi
-    if [ -z "$TWILIO_AUTH_TOKEN" ]; then
-        read -p "Enter TWILIO_AUTH_TOKEN: " TWILIO_AUTH_TOKEN
-    fi
-    if [ -z "$TWILIO_WHATSAPP_FROM" ]; then
-        read -p "Enter TWILIO_WHATSAPP_FROM (e.g., whatsapp:+1234567890): " TWILIO_WHATSAPP_FROM
-    fi
-
-    # Set secrets
-    supabase secrets set \
-        ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
-        TWILIO_ACCOUNT_SID="$TWILIO_ACCOUNT_SID" \
-        TWILIO_AUTH_TOKEN="$TWILIO_AUTH_TOKEN" \
-        TWILIO_WHATSAPP_FROM="$TWILIO_WHATSAPP_FROM"
-
-    echo "✅ Secrets configured"
-else
-    echo "⚠️  Skipping secrets. Set them later with:"
-    echo "   supabase secrets set ANTHROPIC_API_KEY=..."
-fi
+echo "✅ Secrets configured"
 
 # Summary
 FUNCTION_URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/whatsapp"

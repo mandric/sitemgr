@@ -23,25 +23,25 @@ Get sitemgr deployed and running in ~10 minutes.
 5. Wait ~2 minutes for project to provision
 6. **Save the Project Reference ID** - it's in the URL: `https://supabase.com/dashboard/project/[THIS-IS-THE-REF]`
 
-## Step 2: Configure Secrets (2 minutes)
+## Step 2: Configure Environment (2 minutes)
 
 Create your production environment file:
 
 ```bash
-# Copy the template
-cp .env.production.template .env.production
+# Copy the example
+cp .env.example .env.production
 
 # Edit with your values
 nano .env.production  # or use your favorite editor
 ```
 
-Fill in:
+**Required variables** (deployment will fail if any are missing):
 - `SUPABASE_PROJECT_REF` - Your project reference ID
 - `ANTHROPIC_API_KEY` - From https://console.anthropic.com/settings/keys
 - `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` - From https://console.twilio.com
 - `TWILIO_WHATSAPP_FROM` - Your WhatsApp number like `whatsapp:+1234567890`
 
-**Don't worry** - `.env.production` is gitignored and won't be committed.
+**All `.env.*` files are gitignored** (except `.env.example`), so your secrets stay local.
 
 ## Step 3: Deploy from Laptop (5 minutes)
 
@@ -54,13 +54,13 @@ supabase login
 ```
 
 The script will:
-1. Load configuration from `.env.production`
-2. Show your available projects
-3. Ask for confirmation (uses `SUPABASE_PROJECT_REF` from .env.production)
-4. Preview database migrations
-5. Deploy everything and set secrets automatically
+1. Validate `.env.production` exists and all variables are set
+2. Link to your Supabase project
+3. Preview database migrations and ask for confirmation
+4. Deploy Edge Functions
+5. Set all secrets automatically
 
-**First time without .env.production?** The script will prompt you for each value interactively.
+**The script will fail fast** if `.env.production` is missing or any required variables are empty.
 
 ## Step 3: Test the Deployment (1 minute)
 

@@ -9,9 +9,9 @@ venv/
 ENV/
 env/
 
-# Local environment
-.env.local
-.env
+# Local environment (ignore all .env.* except .env.example)
+.env.*
+!.env.example
 
 # sitemgr data
 .sitemgr/
@@ -35,4 +35,3 @@ Thumbs.db
 tests/fixtures/photos/*.jpg
 tests/fixtures/photos/*.png
 *.log
-.env.production
