@@ -362,13 +362,21 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    console.log("=== Webhook received ===");
+
     const formData = await req.text();
+    console.log("Form data:", formData.substring(0, 200));
+
     const params = new URLSearchParams(formData);
 
     const fromNumber = params.get("From") ?? "";
     const messageBody = params.get("Body") ?? "";
 
+    console.log("From:", fromNumber);
+    console.log("Body:", messageBody);
+
     if (!messageBody) {
+      console.log("No message body, returning early");
       return new Response("<Response></Response>", {
         headers: { "Content-Type": "text/xml" },
       });
@@ -402,7 +410,9 @@ Deno.serve(async (req: Request) => {
     );
 
     // Send via Twilio
+    console.log("Sending to Twilio:", fromNumber);
     await sendWhatsApp(fromNumber, responseText);
+    console.log("Twilio send complete");
 
     // Return empty TwiML (we send via API for longer messages)
     return new Response("<Response></Response>", {
