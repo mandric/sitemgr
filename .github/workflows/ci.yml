@@ -34,18 +34,18 @@ jobs:
           docker compose up minio-setup
 
       - name: Run smgr init
-        run: docker compose run --rm smgr python3 prototype/smgr.py init
+        run: docker compose run --rm smgr prototype/smgr.py init
 
       - name: Run smgr stats
-        run: docker compose run --rm smgr python3 prototype/smgr.py stats
+        run: docker compose run --rm smgr prototype/smgr.py stats
 
       - name: Upload test image to MinIO
         run: |
           # Create a small test JPEG (1x1 red pixel)
           echo -n '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AKwA//9k=' | base64 -d > /tmp/test.jpg
-          docker compose run --rm \
+          docker compose run --rm --entrypoint="" \
             -v /tmp/test.jpg:/tmp/test.jpg \
-            smgr sh -c "pip install -q boto3 && python3 -c \"
+            smgr sh -c "python3 -c \"
           import boto3
           s3 = boto3.client('s3',
               endpoint_url='http://minio:9000',
@@ -58,12 +58,11 @@ jobs:
           \""
 
       - name: Run smgr watch --once (detect new S3 object)
-        run: |
-          docker compose run --rm smgr python3 prototype/smgr.py watch --once
+        run: docker compose run --rm smgr prototype/smgr.py watch --once
 
       - name: Verify event was created
         run: |
-          docker compose run --rm smgr python3 -c "
+          docker compose run --rm smgr -c "
           import subprocess, json, sys
           result = subprocess.run(
               ['python3', 'prototype/smgr.py', 'query', '--format', 'json'],
@@ -76,7 +75,7 @@ jobs:
 
       - name: Run smoke tests
         run: |
-          docker compose run --rm smgr python3 prototype/smgr.py stats
+          docker compose run --rm smgr prototype/smgr.py stats
           echo "All smoke tests passed"
 
       - name: Cleanup
