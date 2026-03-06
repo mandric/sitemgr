@@ -19,73 +19,51 @@ jobs:
       - run: ruff check prototype/
 
   migrations:
-    name: Test Postgres Migrations
+    name: Test Supabase Migrations
     runs-on: ubuntu-latest
     needs: lint
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: smgr_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run all migrations in order
-        env:
-          PGHOST: localhost
-          PGPORT: 5432
-          PGUSER: postgres
-          PGPASSWORD: postgres
-          PGDATABASE: smgr_test
-        run: |
-          # Create the storage schema (normally provided by Supabase platform)
-          psql -c "CREATE SCHEMA IF NOT EXISTS storage;"
-          psql -c "CREATE TABLE IF NOT EXISTS storage.buckets (id TEXT PRIMARY KEY, name TEXT, public BOOLEAN);"
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
 
-          # Apply each migration in order
-          for f in $(ls supabase/migrations/*.sql | sort); do
-            echo "Applying $f..."
-            psql -f "$f"
-            echo "  OK"
-          done
-          echo "All migrations applied successfully."
+      - name: Start local Supabase
+        run: supabase start -x realtime,imgproxy,edge-runtime,logflare,vector,supavisor
+
+      - name: Apply migrations
+        run: |
+          supabase db push --local
+          echo "All migrations applied."
 
       - name: Verify schema
-        env:
-          PGHOST: localhost
-          PGPORT: 5432
-          PGUSER: postgres
-          PGPASSWORD: postgres
-          PGDATABASE: smgr_test
         run: |
-          # Verify tables exist
-          psql -c "\dt" | grep -q events
-          psql -c "\dt" | grep -q enrichments
-          psql -c "\dt" | grep -q watched_keys
-          psql -c "\dt" | grep -q conversations
+          DB_URL=$(supabase status --output json | python3 -c "import sys,json; print(json.load(sys.stdin)['DB_URL'])")
+
+          # Verify tables
+          psql "$DB_URL" -c "\dt public.*" | grep -q events
+          psql "$DB_URL" -c "\dt public.*" | grep -q enrichments
+          psql "$DB_URL" -c "\dt public.*" | grep -q watched_keys
+          psql "$DB_URL" -c "\dt public.*" | grep -q conversations
           echo "All tables verified."
 
-          # Verify RPC functions exist
-          psql -c "\df" | grep -q stats_by_content_type
-          psql -c "\df" | grep -q stats_by_event_type
-          psql -c "\df" | grep -q search_events
+          # Verify RPC functions
+          psql "$DB_URL" -c "\df public.*" | grep -q stats_by_content_type
+          psql "$DB_URL" -c "\df public.*" | grep -q stats_by_event_type
+          psql "$DB_URL" -c "\df public.*" | grep -q search_events
           echo "All functions verified."
 
-          # Verify FTS works by inserting test data
-          psql -c "INSERT INTO events (id, timestamp, device_id, type, content_type, content_hash) VALUES ('test-1', now(), 'ci', 'create', 'photo', 'abc123');"
-          psql -c "INSERT INTO enrichments (event_id, description, objects, context, tags) VALUES ('test-1', 'A dog on a beach', ARRAY['dog','beach'], 'Vacation photo', ARRAY['travel','pets']);"
-          psql -c "SELECT event_id, fts IS NOT NULL as has_fts FROM enrichments;" | grep -q test-1
-          psql -c "SELECT * FROM search_events('dog beach');" | grep -q test-1
+          # FTS smoke test
+          psql "$DB_URL" -c "INSERT INTO events (id, timestamp, device_id, type, content_type, content_hash) VALUES ('test-1', now(), 'ci', 'create', 'photo', 'abc123');"
+          psql "$DB_URL" -c "INSERT INTO enrichments (event_id, description, objects, context, tags) VALUES ('test-1', 'A dog on a beach', ARRAY['dog','beach'], 'Vacation photo', ARRAY['travel','pets']);"
+          psql "$DB_URL" -c "SELECT event_id, fts IS NOT NULL as has_fts FROM enrichments;" | grep -q test-1
+          psql "$DB_URL" -c "SELECT * FROM search_events('dog beach');" | grep -q test-1
           echo "FTS smoke test passed."
+
+      - name: Cleanup
+        if: always()
+        run: supabase stop
 
   build:
     name: Build & Integration Test
