@@ -132,16 +132,16 @@ if [ "${CI:-false}" = "true" ]; then
     test_pass
 else
     python3 prototype/smgr.py watch --once
-fi
 
-# Check if event was created
-STATS_AFTER=$(python3 prototype/smgr.py stats)
-echo "$STATS_AFTER"
+    # Check if event was created
+    STATS_AFTER=$(python3 prototype/smgr.py stats)
+    echo "$STATS_AFTER"
 
-if echo "$STATS_AFTER" | grep -q '"total_events": 1'; then
-    test_pass
-else
-    test_fail "Expected 1 event after watch"
+    if echo "$STATS_AFTER" | grep -q '"total_events": 1'; then
+        test_pass
+    else
+        test_fail "Expected 1 event after watch"
+    fi
 fi
 
 # ============================================================
