@@ -297,7 +297,7 @@ def list_s3_objects(s3, bucket: str, prefix: str = "") -> list[dict]:
     except Exception as e:
         # Fall back to v1 if v2 not supported (Supabase Storage, etc.)
         if "not implemented" in str(e).lower() or "unsupported" in str(e).lower():
-            print(f"  Note: list_objects_v2 not supported, using v1 fallback", file=sys.stderr)
+            print("  Note: list_objects_v2 not supported, using v1 fallback", file=sys.stderr)
         else:
             # Re-raise if it's a different error
             raise
