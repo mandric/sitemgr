@@ -9,6 +9,13 @@ echo "  Deploy to Supabase"
 echo "================================================"
 echo ""
 
+# Load .env.production if it exists
+if [ -f .env.production ]; then
+    echo "✓ Loading configuration from .env.production"
+    source .env.production
+    echo ""
+fi
+
 # Check if supabase CLI is installed
 if ! command -v supabase &> /dev/null; then
     echo "❌ Supabase CLI not found"
@@ -94,21 +101,32 @@ supabase functions deploy whatsapp --no-verify-jwt
 # Set secrets
 echo ""
 echo "→ Setting Edge Function secrets..."
-echo ""
-echo "You need to set the following secrets:"
-echo "  - ANTHROPIC_API_KEY"
-echo "  - TWILIO_ACCOUNT_SID"
-echo "  - TWILIO_AUTH_TOKEN"
-echo "  - TWILIO_WHATSAPP_FROM"
-echo ""
-read -p "Set secrets now? (y/N) " -n 1 -r
-echo
 
-if [[ $REPLY =~ ^[Yy]$ ]]; then
-    if [ -f .env.production ]; then
-        echo "Loading secrets from .env.production..."
-        source .env.production
+# Check if we have secrets loaded
+if [ -n "$ANTHROPIC_API_KEY" ] && [ -n "$TWILIO_ACCOUNT_SID" ]; then
+    echo "✓ Secrets loaded from .env.production"
+    SET_SECRETS=true
+else
+    echo ""
+    echo "You need to set the following secrets:"
+    echo "  - ANTHROPIC_API_KEY"
+    echo "  - TWILIO_ACCOUNT_SID"
+    echo "  - TWILIO_AUTH_TOKEN"
+    echo "  - TWILIO_WHATSAPP_FROM"
+    echo ""
+    echo "Tip: Create .env.production from .env.production.template"
+    echo ""
+    read -p "Set secrets now? (y/N) " -n 1 -r
+    echo
+
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        SET_SECRETS=true
+    else
+        SET_SECRETS=false
     fi
+fi
+
+if [ "$SET_SECRETS" = true ]; then
 
     # Prompt for each secret if not set
     if [ -z "$ANTHROPIC_API_KEY" ]; then

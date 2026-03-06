@@ -23,10 +23,30 @@ Get sitemgr deployed and running in ~10 minutes.
 5. Wait ~2 minutes for project to provision
 6. **Save the Project Reference ID** - it's in the URL: `https://supabase.com/dashboard/project/[THIS-IS-THE-REF]`
 
-## Step 2: Deploy from Laptop (5 minutes)
+## Step 2: Configure Secrets (2 minutes)
+
+Create your production environment file:
 
 ```bash
-# Login to Supabase CLI
+# Copy the template
+cp .env.production.template .env.production
+
+# Edit with your values
+nano .env.production  # or use your favorite editor
+```
+
+Fill in:
+- `SUPABASE_PROJECT_REF` - Your project reference ID
+- `ANTHROPIC_API_KEY` - From https://console.anthropic.com/settings/keys
+- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` - From https://console.twilio.com
+- `TWILIO_WHATSAPP_FROM` - Your WhatsApp number like `whatsapp:+1234567890`
+
+**Don't worry** - `.env.production` is gitignored and won't be committed.
+
+## Step 3: Deploy from Laptop (5 minutes)
+
+```bash
+# Login to Supabase CLI (first time only)
 supabase login
 
 # Run deployment script
@@ -34,13 +54,13 @@ supabase login
 ```
 
 The script will:
-1. Show your available projects
-2. Ask for the project reference ID
-3. Preview database migrations
-4. Deploy everything
-5. Optionally set Edge Function secrets
+1. Load configuration from `.env.production`
+2. Show your available projects
+3. Ask for confirmation (uses `SUPABASE_PROJECT_REF` from .env.production)
+4. Preview database migrations
+5. Deploy everything and set secrets automatically
 
-**First time?** Say "yes" to setting secrets if you have your API keys ready, or "no" and set them later.
+**First time without .env.production?** The script will prompt you for each value interactively.
 
 ## Step 3: Test the Deployment (1 minute)
 
@@ -54,13 +74,15 @@ curl -X POST "https://YOUR-PROJECT-REF.supabase.co/functions/v1/whatsapp" \
 
 If secrets are set, you should get a response from Claude. If not, you'll see an error about missing API keys (that's okay!).
 
-## Step 4: Set Secrets (if skipped earlier)
+## Step 4: Verify Secrets (if needed)
+
+If you skipped setting secrets or need to update them:
 
 ```bash
 # Link to your project first
 supabase link --project-ref YOUR-PROJECT-REF
 
-# Set secrets
+# Set secrets manually
 supabase secrets set \
   ANTHROPIC_API_KEY=sk-ant-... \
   TWILIO_ACCOUNT_SID=AC... \
@@ -68,17 +90,7 @@ supabase secrets set \
   TWILIO_WHATSAPP_FROM=whatsapp:+1234567890
 ```
 
-Or create a `.env.production` file:
-
-```bash
-# .env.production
-ANTHROPIC_API_KEY=sk-ant-...
-TWILIO_ACCOUNT_SID=AC...
-TWILIO_AUTH_TOKEN=...
-TWILIO_WHATSAPP_FROM=whatsapp:+1234567890
-```
-
-Then run `./scripts/deploy.sh` again and it will load from this file.
+Or update `.env.production` and run `./scripts/deploy.sh` again.
 
 ## Step 5: Configure GitHub Actions (optional, 2 minutes)
 

@@ -35,3 +35,4 @@ Thumbs.db
 tests/fixtures/photos/*.jpg
 tests/fixtures/photos/*.png
 *.log
+.env.production
