@@ -1,0 +1,83 @@
+name: CI — Build & Test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - run: ruff check prototype/
+
+  build:
+    name: Build & Integration Test
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker compose build smgr
+
+      - name: Start MinIO
+        run: |
+          docker compose up -d minio
+          docker compose up minio-setup
+
+      - name: Run smgr init
+        run: docker compose run --rm smgr prototype/smgr.py init
+
+      - name: Run smgr stats
+        run: docker compose run --rm smgr prototype/smgr.py stats
+
+      - name: Upload test image to MinIO
+        run: |
+          # Create a small test JPEG (1x1 red pixel)
+          echo -n '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AKwA//9k=' | base64 -d > /tmp/test.jpg
+          docker compose run --rm --entrypoint="" \
+            -v /tmp/test.jpg:/tmp/test.jpg \
+            smgr sh -c "python3 -c \"
+          import boto3
+          s3 = boto3.client('s3',
+              endpoint_url='http://minio:9000',
+              aws_access_key_id='minioadmin',
+              aws_secret_access_key='minioadmin',
+              region_name='us-east-1')
+          s3.upload_file('/tmp/test.jpg', 'smgr-test', 'photos/test.jpg',
+              ExtraArgs={'ContentType': 'image/jpeg'})
+          print('Uploaded test.jpg to smgr-test')
+          \""
+
+      - name: Run smgr watch --once (detect new S3 object)
+        run: docker compose run --rm smgr prototype/smgr.py watch --once
+
+      - name: Verify event was created
+        run: |
+          docker compose run --rm smgr -c "
+          import subprocess, json, sys
+          result = subprocess.run(
+              ['python3', 'prototype/smgr.py', 'query', '--format', 'json'],
+              capture_output=True, text=True)
+          print(result.stdout)
+          events = json.loads(result.stdout)
+          assert len(events) > 0, 'Expected at least one event after watch'
+          print(f'OK: {len(events)} event(s) found')
+          "
+
+      - name: Run smoke tests
+        run: |
+          docker compose run --rm smgr prototype/smgr.py stats
+          echo "All smoke tests passed"
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v

@@ -93,9 +93,11 @@ device. sitemgr is the orchestration layer, not the platform.
    objects, inferred context. This turns dumb files into queryable knowledge.
    Enrichment is async (don't block the user) and provider-agnostic (BYO LLM).
 
-4. **Content-addressable.** Every blob gets a hash. References use a custom
-   URI scheme (`smgr://sha256:abc123`) that resolves to local or remote paths
-   at render time. No broken links when you move things around.
+4. **Content-addressable (blobs).** Every blob (photo, video, audio) gets a
+   SHA-256 hash. References use a custom URI scheme (`smgr://sha256:abc123`)
+   that resolves to local or remote paths at render time. No broken links when
+   you move things around. Document types (notes, documents, quotes, bookmarks)
+   are **not** hashed — they change frequently and are tracked by git instead.
 
 5. **BYO everything.** Bring your own storage (S3, R2, GCS, local disk).
    Bring your own LLM (Claude, GPT, Gemini, Ollama). Bring your own device.

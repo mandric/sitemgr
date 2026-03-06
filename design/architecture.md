@@ -16,7 +16,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                    EVENT STORE                               │
 │                                                             │
-│  Append-only, locally stored, content-addressed.            │
+│  Append-only, locally stored.                               │
 │  Every action becomes an event. Events are immutable.       │
 │  Stored in a per-device SQLite database (WAL mode).         │
 │  Each event carries a device_id for provenance.             │
@@ -288,12 +288,16 @@ Implementations: S3, Cloudflare R2, Google Cloud Storage, local filesystem.
 
 ### 5. Document Sync (Git) *(future)*
 
-Text content (notes, documents, bookmarks) syncs to a git remote.
+Text content (notes, documents, bookmarks) syncs to a git remote. Unlike
+blobs, **documents are not content-hashed** — git handles their identity,
+history, and deduplication. The local filesystem is mirrored to git as-is.
 
 **Behavior:**
 - Watch directory is itself a git repo (or a subdirectory of one)
 - On file change: auto-commit with a message template
-- Batch commits and push on a configurable interval (default: 5 minutes)
+- Commits and pushes happen **frequently** — on every save, app
+  background, or context switch — not on a timer
+- On app foreground or device switch: pull before opening
 
 **Sync model: one editor at a time, small frequent commits.** The main
 use case is an individual switching between devices (mobile and laptop),
@@ -302,7 +306,7 @@ not simultaneous editing. The sync cycle:
 1. When the app backgrounds, closes, or the user switches context, write
    the file to disk immediately.
 2. The background service detects the file change and commits + pushes to
-   git.
+   git immediately.
 3. When the app foregrounds on another device, pull before opening the
    file.
 

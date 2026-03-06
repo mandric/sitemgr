@@ -1,0 +1,14 @@
+[project]
+id = ""  # Set via `supabase link --project-ref <ref>`
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage"]
+
+[db]
+port = 54322
+major_version = 15
+
+[functions.whatsapp]
+verify_jwt = false  # Twilio webhooks don't send JWTs
