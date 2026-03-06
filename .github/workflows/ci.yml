@@ -45,9 +45,10 @@ jobs:
 
       - name: Extract Supabase connection details
         run: |
-          echo "SUPABASE_URL=$(supabase status -o json | jq -r .api_url)" >> $GITHUB_ENV
-          echo "SUPABASE_SERVICE_ROLE_KEY=$(supabase status -o json | jq -r .service_role_key)" >> $GITHUB_ENV
-          echo "SUPABASE_ANON_KEY=$(supabase status -o json | jq -r .anon_key)" >> $GITHUB_ENV
+          # Keys are UPPERCASE in status JSON
+          echo "SUPABASE_URL=$(supabase status -o json | jq -r .API_URL)" >> $GITHUB_ENV
+          echo "SUPABASE_SERVICE_ROLE_KEY=$(supabase status -o json | jq -r .SERVICE_ROLE_KEY)" >> $GITHUB_ENV
+          echo "SUPABASE_ANON_KEY=$(supabase status -o json | jq -r .ANON_KEY)" >> $GITHUB_ENV
 
       - name: Configure environment for smgr
         run: |
