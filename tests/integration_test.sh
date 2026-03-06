@@ -78,7 +78,7 @@ echo ""
 # ============================================================
 test_start "Database initialization"
 
-python3 prototype/smgr.py init
+uv run uv run python3 prototype/smgr.py init
 test_pass
 
 # ============================================================
@@ -86,7 +86,7 @@ test_pass
 # ============================================================
 test_start "Stats on empty database"
 
-STATS=$(python3 prototype/smgr.py stats)
+STATS=$(uv run python3 prototype/smgr.py stats)
 echo "$STATS"
 
 if echo "$STATS" | grep -q '"total_events": 0'; then
@@ -100,12 +100,19 @@ fi
 # ============================================================
 test_start "Upload test image to Supabase Storage"
 
+# Storage REST API endpoint (different from S3 API endpoint)
+STORAGE_REST_API="$SUPABASE_URL/storage/v1"
+
+# Cleanup: delete test file if it exists from previous run
+curl -sf -X DELETE "$STORAGE_REST_API/object/$SMGR_S3_BUCKET/photos/test_integration.jpg" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" > /dev/null 2>&1 || true
+
 # Create a minimal test JPEG (1x1 red pixel)
 TEST_IMAGE_PATH="/tmp/test_image_$$.jpg"
 echo '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AKwA//9k=' | base64 -d > "$TEST_IMAGE_PATH"
 
-# Upload via Supabase Storage API
-UPLOAD_RESPONSE=$(curl -sf -X POST "$SMGR_S3_ENDPOINT/object/$SMGR_S3_BUCKET/photos/test_integration.jpg" \
+# Upload via Supabase Storage REST API (not S3 API)
+UPLOAD_RESPONSE=$(curl -sf -X POST "$STORAGE_REST_API/object/$SMGR_S3_BUCKET/photos/test_integration.jpg" \
   -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
   -H "Content-Type: image/jpeg" \
   --data-binary "@$TEST_IMAGE_PATH" 2>&1)
@@ -125,10 +132,10 @@ rm -f "$TEST_IMAGE_PATH"
 # ============================================================
 test_start "S3 watcher detects new object"
 
-python3 prototype/smgr.py watch --once
+uv run python3 prototype/smgr.py watch --once
 
 # Check if event was created
-STATS_AFTER=$(python3 prototype/smgr.py stats)
+STATS_AFTER=$(uv run python3 prototype/smgr.py stats)
 echo "$STATS_AFTER"
 
 if echo "$STATS_AFTER" | grep -q '"total_events": 1'; then
@@ -142,7 +149,7 @@ fi
 # ============================================================
 test_start "Query returns uploaded photo"
 
-QUERY_RESULT=$(python3 prototype/smgr.py query --format json --type photo)
+QUERY_RESULT=$(uv run python3 prototype/smgr.py query --format json --type photo)
 echo "$QUERY_RESULT"
 
 if echo "$QUERY_RESULT" | jq -e '.events[0].id' > /dev/null 2>&1; then
@@ -159,7 +166,7 @@ fi
 test_start "Show event details"
 
 if [ -n "$EVENT_ID" ]; then
-    SHOW_RESULT=$(python3 prototype/smgr.py show "$EVENT_ID")
+    SHOW_RESULT=$(uv run python3 prototype/smgr.py show "$EVENT_ID")
     echo "$SHOW_RESULT"
 
     if echo "$SHOW_RESULT" | jq -e '.id' > /dev/null 2>&1; then
@@ -178,7 +185,7 @@ fi
 test_start "Bot conversation - stats query"
 
 # Test bot in stdio mode with a simple query
-BOT_RESPONSE=$(echo "how many photos do I have?" | timeout 30 python3 prototype/bot.py --stdio 2>/dev/null || true)
+BOT_RESPONSE=$(echo "how many photos do I have?" | timeout 30 uv run python3 prototype/bot.py --stdio 2>/dev/null || true)
 
 if [ -n "$BOT_RESPONSE" ]; then
     echo "Bot response: $BOT_RESPONSE"
@@ -193,7 +200,7 @@ fi
 # ============================================================
 test_start "Database consistency check"
 
-FINAL_STATS=$(python3 prototype/smgr.py stats)
+FINAL_STATS=$(uv run python3 prototype/smgr.py stats)
 echo "$FINAL_STATS"
 
 # Check for expected fields
@@ -203,6 +210,16 @@ if echo "$FINAL_STATS" | jq -e '.total_events' > /dev/null 2>&1 && \
 else
     test_fail "Stats output missing expected fields"
 fi
+
+# ============================================================
+# Cleanup
+# ============================================================
+echo ""
+echo "Cleaning up test artifacts..."
+STORAGE_REST_API="$SUPABASE_URL/storage/v1"
+curl -sf -X DELETE "$STORAGE_REST_API/object/$SMGR_S3_BUCKET/photos/test_integration.jpg" \
+  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" > /dev/null 2>&1 || true
+echo "Done"
 
 # ============================================================
 # Summary

@@ -46,12 +46,21 @@ if [ -n "$STATUS_JSON" ]; then
     SUPABASE_ANON_KEY=$(echo "$STATUS_JSON" | jq -r '.ANON_KEY')
     SUPABASE_SERVICE_ROLE_KEY=$(echo "$STATUS_JSON" | jq -r '.SERVICE_ROLE_KEY')
     DB_URL=$(echo "$STATUS_JSON" | jq -r '.DB_URL')
+    STORAGE_S3_URL=$(echo "$STATUS_JSON" | jq -r '.STORAGE_S3_URL // .API_URL + "/storage/v1/s3"')
+
+    # Extract S3 credentials from table output (not in JSON)
+    STATUS_TABLE=$(supabase status 2>/dev/null)
+    AWS_ACCESS_KEY_ID=$(echo "$STATUS_TABLE" | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
+    AWS_SECRET_ACCESS_KEY=$(echo "$STATUS_TABLE" | grep "Secret Key" | awk -F '│' '{print $3}' | tr -d ' ')
 else
     echo "Warning: Could not get supabase status, using defaults"
     SUPABASE_URL="http://localhost:54321"
     SUPABASE_ANON_KEY=""
     SUPABASE_SERVICE_ROLE_KEY=""
     DB_URL=""
+    STORAGE_S3_URL="http://localhost:54321/storage/v1/s3"
+    AWS_ACCESS_KEY_ID="local-access-key"
+    AWS_SECRET_ACCESS_KEY="local-secret-key"
 fi
 
 STORAGE_ENDPOINT="$SUPABASE_URL/storage/v1"
@@ -76,16 +85,16 @@ SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
 SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY
 
 # smgr CLI configuration
-SMGR_S3_ENDPOINT=$STORAGE_ENDPOINT
+SMGR_S3_ENDPOINT=$STORAGE_S3_URL
 SMGR_S3_BUCKET=media
 SMGR_S3_REGION=local
 SMGR_DEVICE_ID=local-dev
 SMGR_AUTO_ENRICH=false
 
-# For boto3/S3 compatibility (use service role key as credentials)
-AWS_ACCESS_KEY_ID=local-access-key
-AWS_SECRET_ACCESS_KEY=local-secret-key
-AWS_ENDPOINT_URL_S3=$STORAGE_ENDPOINT
+# For boto3/S3 compatibility
+AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+AWS_ENDPOINT_URL_S3=$STORAGE_S3_URL
 
 # Database (for direct connections if needed)
 DATABASE_URL=$DB_URL

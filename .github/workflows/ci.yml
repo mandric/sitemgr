@@ -29,8 +29,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Python dependencies
-        run: pip install -r prototype/requirements.txt
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Add uv to PATH
+        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Install Python dependencies with uv
+        run: |
+          uv venv
+          uv pip install -r prototype/requirements.txt
 
       - uses: supabase/setup-cli@v1
         with:
@@ -49,16 +57,22 @@ jobs:
           echo "SUPABASE_URL=$(supabase status -o json | jq -r .API_URL)" >> $GITHUB_ENV
           echo "SUPABASE_SERVICE_ROLE_KEY=$(supabase status -o json | jq -r .SERVICE_ROLE_KEY)" >> $GITHUB_ENV
           echo "SUPABASE_ANON_KEY=$(supabase status -o json | jq -r .ANON_KEY)" >> $GITHUB_ENV
+          echo "STORAGE_S3_URL=$(supabase status -o json | jq -r .STORAGE_S3_URL)" >> $GITHUB_ENV
+
+          # Extract S3 credentials from table output (not in JSON)
+          AWS_ACCESS_KEY=$(supabase status | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
+          AWS_SECRET_KEY=$(supabase status | grep "Secret Key" | awk -F '│' '{print $3}' | tr -d ' ')
+          echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY" >> $GITHUB_ENV
+          echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_KEY" >> $GITHUB_ENV
 
       - name: Configure environment for smgr
         run: |
-          echo "SMGR_S3_ENDPOINT=${{ env.SUPABASE_URL }}/storage/v1" >> $GITHUB_ENV
+          echo "SMGR_S3_ENDPOINT=${{ env.STORAGE_S3_URL }}" >> $GITHUB_ENV
           echo "SMGR_S3_BUCKET=media" >> $GITHUB_ENV
           echo "SMGR_S3_REGION=local" >> $GITHUB_ENV
           echo "SMGR_DEVICE_ID=ci-test" >> $GITHUB_ENV
           echo "SMGR_AUTO_ENRICH=false" >> $GITHUB_ENV
-          echo "AWS_ACCESS_KEY_ID=test-key" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=test-secret" >> $GITHUB_ENV
+          echo "AWS_ENDPOINT_URL_S3=${{ env.STORAGE_S3_URL }}" >> $GITHUB_ENV
 
       - name: Create storage bucket
         run: |
