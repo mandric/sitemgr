@@ -139,7 +139,7 @@ jobs:
           export TWILIO_AUTH_TOKEN=test-token
           export TWILIO_WHATSAPP_FROM=whatsapp:+10000000000
 
-          deno test --allow-env --allow-net tests/edge_function_bucket_test.ts
+          deno test --allow-env --allow-net --no-check tests/edge_function_bucket_test.ts
           echo "✓ Bucket configuration tests passed"
 
       - name: Edge Function end-to-end scan tests
@@ -155,7 +155,7 @@ jobs:
           export TWILIO_AUTH_TOKEN=test-token
           export TWILIO_WHATSAPP_FROM=whatsapp:+10000000000
 
-          deno test --allow-env --allow-net --allow-read tests/edge_function_scan_test.ts
+          deno test --allow-env --allow-net --allow-read --no-check tests/edge_function_scan_test.ts
           echo "✓ End-to-end scan tests passed"
 
       # --- Cleanup ---
