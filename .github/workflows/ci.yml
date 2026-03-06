@@ -129,6 +129,35 @@ jobs:
 
           kill $DENO_PID
 
+      - name: Edge Function bucket configuration tests
+        run: |
+          export SUPABASE_URL=${{ env.SUPABASE_URL }}
+          export SUPABASE_SERVICE_ROLE_KEY=${{ env.SUPABASE_SERVICE_ROLE_KEY }}
+          export ENCRYPTION_KEY=test-encryption-key-for-ci-32!!
+          export ANTHROPIC_API_KEY=test-key
+          export TWILIO_ACCOUNT_SID=test-sid
+          export TWILIO_AUTH_TOKEN=test-token
+          export TWILIO_WHATSAPP_FROM=whatsapp:+10000000000
+
+          deno test --allow-env --allow-net tests/edge_function_bucket_test.ts
+          echo "✓ Bucket configuration tests passed"
+
+      - name: Edge Function end-to-end scan tests
+        run: |
+          export SUPABASE_URL=${{ env.SUPABASE_URL }}
+          export SUPABASE_SERVICE_ROLE_KEY=${{ env.SUPABASE_SERVICE_ROLE_KEY }}
+          export STORAGE_S3_URL=${{ env.STORAGE_S3_URL }}
+          export AWS_ACCESS_KEY_ID=${{ env.AWS_ACCESS_KEY_ID }}
+          export AWS_SECRET_ACCESS_KEY=${{ env.AWS_SECRET_ACCESS_KEY }}
+          export ENCRYPTION_KEY=test-encryption-key-for-ci-32!!
+          export ANTHROPIC_API_KEY=test-key
+          export TWILIO_ACCOUNT_SID=test-sid
+          export TWILIO_AUTH_TOKEN=test-token
+          export TWILIO_WHATSAPP_FROM=whatsapp:+10000000000
+
+          deno test --allow-env --allow-net --allow-read tests/edge_function_scan_test.ts
+          echo "✓ End-to-end scan tests passed"
+
       # --- Cleanup ---
 
       - name: Stop Supabase
@@ -147,4 +176,6 @@ jobs:
           echo "✓ FTS search working"
           echo "✓ Integration tests passed"
           echo "✓ Edge Function healthy"
+          echo "✓ Bucket configuration tests passed"
+          echo "✓ End-to-end scan tests passed"
           echo ""

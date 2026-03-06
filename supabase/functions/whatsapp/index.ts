@@ -9,19 +9,91 @@ const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 const TWILIO_ACCOUNT_SID = Deno.env.get("TWILIO_ACCOUNT_SID")!;
 const TWILIO_AUTH_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN")!;
 const TWILIO_WHATSAPP_FROM = Deno.env.get("TWILIO_WHATSAPP_FROM")!;
+const ENCRYPTION_KEY = Deno.env.get("ENCRYPTION_KEY")!;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+// --- Encryption Helpers ---
+
+async function encryptSecret(plaintext: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(plaintext);
+  const keyData = encoder.encode(ENCRYPTION_KEY);
+
+  // Import key for AES-GCM
+  const key = await crypto.subtle.importKey(
+    "raw",
+    await crypto.subtle.digest("SHA-256", keyData), // Hash to get 256-bit key
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt"],
+  );
+
+  // Generate random IV
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+
+  // Encrypt
+  const encrypted = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    data,
+  );
+
+  // Combine IV + encrypted data and encode as base64
+  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(encrypted), iv.length);
+
+  return btoa(String.fromCharCode(...combined));
+}
+
+async function decryptSecret(ciphertext: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const keyData = encoder.encode(ENCRYPTION_KEY);
+
+  // Import key for AES-GCM
+  const key = await crypto.subtle.importKey(
+    "raw",
+    await crypto.subtle.digest("SHA-256", keyData),
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["decrypt"],
+  );
+
+  // Decode base64
+  const combined = Uint8Array.from(atob(ciphertext), (c) => c.charCodeAt(0));
+
+  // Extract IV and encrypted data
+  const iv = combined.slice(0, 12);
+  const encrypted = combined.slice(12);
+
+  // Decrypt
+  const decrypted = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    key,
+    encrypted,
+  );
+
+  return decoder.decode(decrypted);
+}
+
 // --- Agent ---
 
-const AGENT_SYSTEM_PROMPT = `You are a personal media assistant. You help the user find, describe, and manage their photo/video library.
+const AGENT_SYSTEM_PROMPT = `You are a personal media assistant. You help the user find, describe, and manage their photo/video library stored in S3-compatible buckets.
 
 You have access to a Postgres database with these tables:
+- bucket_configs: S3 bucket configurations (users can have multiple buckets)
 - events: immutable event log (type: create/enrich/enrich_failed/sync/delete/publish)
 - enrichments: LLM-generated descriptions, objects, context, tags (with full-text search)
 - watched_keys: tracked S3 objects
 
 Respond with a JSON object describing the action to take:
+
+For bucket configuration:
+{"action": "add_bucket", "params": {"bucket_name": "string", "endpoint_url": "string", "region": "optional", "access_key_id": "string", "secret_access_key": "string"}}
+{"action": "list_buckets"}
+{"action": "remove_bucket", "params": {"bucket_name": "string"}}
 
 For queries:
 {"action": "query", "params": {"search": "optional text", "type": "photo|video|audio", "since": "ISO date", "until": "ISO date", "limit": 10}}
@@ -41,8 +113,10 @@ If no database action is needed (greeting, clarification):
 Rules:
 1. For vague queries like "what photos do I have?", use stats
 2. For search queries, use action: query with search param
-3. Keep it simple — one action per response
-4. Only return valid JSON`;
+3. When user wants to configure S3 bucket, guide them to provide: bucket_name, endpoint_url, access_key_id, secret_access_key, and optionally region
+4. Endpoint URL examples: AWS S3: "https://s3.us-east-1.amazonaws.com", Backblaze: "https://s3.us-west-004.backblazeb2.com", Cloudflare R2: "https://[account-id].r2.cloudflarestorage.com"
+5. Keep it simple — one action per response
+6. Only return valid JSON`;
 
 interface AgentPlan {
   action: string;
@@ -86,12 +160,123 @@ async function agentPlan(
   return JSON.parse(text);
 }
 
+// --- Bucket Configuration ---
+
+async function addBucket(
+  phoneNumber: string,
+  params: Record<string, unknown>,
+): Promise<string> {
+  const bucketName = params.bucket_name as string;
+  const endpointUrl = params.endpoint_url as string;
+  const region = (params.region as string) || null;
+  const accessKeyId = params.access_key_id as string;
+  const secretAccessKey = params.secret_access_key as string;
+
+  if (!bucketName || !endpointUrl || !accessKeyId || !secretAccessKey) {
+    return JSON.stringify({
+      error: "Missing required fields: bucket_name, endpoint_url, access_key_id, secret_access_key",
+    });
+  }
+
+  // Encrypt the secret access key
+  const encryptedSecret = await encryptSecret(secretAccessKey);
+
+  const { data, error } = await supabase
+    .from("bucket_configs")
+    .insert({
+      phone_number: phoneNumber,
+      bucket_name: bucketName,
+      region,
+      endpoint_url: endpointUrl,
+      access_key_id: accessKeyId,
+      secret_access_key: encryptedSecret,
+    })
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      // Unique constraint violation
+      return JSON.stringify({
+        error: `Bucket "${bucketName}" is already configured`,
+      });
+    }
+    console.error("Database error:", error);
+    return JSON.stringify({ error: "Failed to save bucket configuration" });
+  }
+
+  return JSON.stringify({
+    success: true,
+    bucket: {
+      id: data.id,
+      bucket_name: bucketName,
+      region,
+      endpoint_url: endpointUrl,
+    },
+  });
+}
+
+async function listBuckets(phoneNumber: string): Promise<string> {
+  const { data, error } = await supabase
+    .from("bucket_configs")
+    .select("id, bucket_name, region, endpoint_url, created_at, last_synced_key")
+    .eq("phone_number", phoneNumber)
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("Database error:", error);
+    return JSON.stringify({ error: "Failed to retrieve buckets" });
+  }
+
+  return JSON.stringify({
+    buckets: data ?? [],
+    count: data?.length ?? 0,
+  });
+}
+
+async function removeBucket(
+  phoneNumber: string,
+  bucketName: string,
+): Promise<string> {
+  if (!bucketName) {
+    return JSON.stringify({ error: "bucket_name is required" });
+  }
+
+  const { error } = await supabase
+    .from("bucket_configs")
+    .delete()
+    .eq("phone_number", phoneNumber)
+    .eq("bucket_name", bucketName);
+
+  if (error) {
+    console.error("Database error:", error);
+    return JSON.stringify({ error: "Failed to remove bucket" });
+  }
+
+  return JSON.stringify({
+    success: true,
+    message: `Bucket "${bucketName}" removed`,
+  });
+}
+
 // --- Database Queries ---
 
-async function executeAction(plan: AgentPlan): Promise<string> {
+async function executeAction(
+  plan: AgentPlan,
+  phoneNumber: string,
+): Promise<string> {
   switch (plan.action) {
     case "direct":
       return plan.response ?? "";
+
+    case "add_bucket":
+      return await addBucket(phoneNumber, plan.params ?? {});
+
+    case "list_buckets":
+      return await listBuckets(phoneNumber);
+
+    case "remove_bucket":
+      return await removeBucket(phoneNumber, plan.params?.bucket_name as string);
 
     case "stats":
       return await queryStats();
@@ -302,11 +487,10 @@ async function sendWhatsApp(to: string, message: string): Promise<void> {
   const chunks = splitMessage(message, 1500);
 
   for (const chunk of chunks) {
-    const body = new URLSearchParams({
-      To: to,
-      From: TWILIO_WHATSAPP_FROM,
-      Body: chunk,
-    });
+    const body = new URLSearchParams();
+    body.append("To", to);  // Use append to avoid + -> space conversion
+    body.append("From", TWILIO_WHATSAPP_FROM);
+    body.append("Body", chunk);
 
     await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
@@ -395,7 +579,7 @@ Deno.serve(async (req: Request) => {
       responseText = plan.response ?? "";
     } else {
       // Execute database action
-      const result = await executeAction(plan);
+      const result = await executeAction(plan, fromNumber);
       // Summarize
       responseText = await agentSummarize(messageBody, result);
     }
