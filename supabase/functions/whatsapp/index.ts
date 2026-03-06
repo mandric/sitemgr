@@ -113,10 +113,16 @@ If no database action is needed (greeting, clarification):
 Rules:
 1. For vague queries like "what photos do I have?", use stats
 2. For search queries, use action: query with search param
-3. When user wants to configure S3 bucket, guide them to provide: bucket_name, endpoint_url, access_key_id, secret_access_key, and optionally region
-4. Endpoint URL examples: AWS S3: "https://s3.us-east-1.amazonaws.com", Backblaze: "https://s3.us-west-004.backblazeb2.com", Cloudflare R2: "https://[account-id].r2.cloudflarestorage.com"
-5. Keep it simple — one action per response
-6. Only return valid JSON`;
+3. When user asks about adding/configuring an S3 bucket but doesn't provide credentials, use action: direct and ask them to provide all details in this format:
+   "bucket_name: YOUR_BUCKET
+   endpoint_url: https://s3.REGION.amazonaws.com
+   access_key_id: YOUR_KEY
+   secret_access_key: YOUR_SECRET
+   region: REGION (optional)"
+4. When user provides bucket credentials, use action: add_bucket with all params
+5. Endpoint URL examples: AWS S3: "https://s3.us-east-1.amazonaws.com", Backblaze: "https://s3.us-west-004.backblazeb2.com", Cloudflare R2: "https://[account-id].r2.cloudflarestorage.com"
+6. Keep it simple — one action per response
+7. Only return valid JSON`;
 
 interface AgentPlan {
   action: string;
