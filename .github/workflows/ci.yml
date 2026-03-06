@@ -18,8 +18,8 @@ jobs:
       - run: pip install ruff
       - run: ruff check prototype/
 
-  migrations:
-    name: Test Supabase Migrations
+  build:
+    name: Build & Integration Test
     runs-on: ubuntu-latest
     needs: lint
     steps:
@@ -28,6 +28,8 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: latest
+
+      # --- Supabase migrations ---
 
       - name: Start local Supabase
         run: supabase start -x realtime,imgproxy,edge-runtime,logflare,vector,supavisor
@@ -42,16 +44,10 @@ jobs:
           supabase db execute --local "SELECT * FROM search_events('dog beach')" | grep -q test-1
           echo "FTS smoke test passed."
 
-      - name: Cleanup
-        if: always()
+      - name: Stop Supabase
         run: supabase stop
 
-  build:
-    name: Build & Integration Test
-    runs-on: ubuntu-latest
-    needs: lint
-    steps:
-      - uses: actions/checkout@v4
+      # --- S3 watcher integration test ---
 
       - name: Build Docker image
         run: docker compose build smgr
