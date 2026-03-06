@@ -42,7 +42,6 @@ import sys
 import time
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
 # --- Constants ---
 
@@ -553,7 +552,7 @@ def cmd_watch(args):
 
     print(f"Watching s3://{bucket}/{prefix}")
     print(f"Poll interval: {interval}s | Auto-enrich: {auto_enrich}")
-    print(f"Press Ctrl+C to stop.\n")
+    print("Press Ctrl+C to stop.\n")
 
     # Graceful shutdown
     running = True
@@ -651,7 +650,7 @@ def _poll_bucket(conn: sqlite3.Connection, s3, bucket: str, prefix: str, auto_en
             if auto_enrich and content_type == "photo":
                 mime, _ = mimetypes.guess_type(key)
                 if mime and mime.startswith("image/"):
-                    print(f"    Enriching...")
+                    print("    Enriching...")
                     enrich_id = do_enrich(conn, event_id, image_bytes, mime)
                     if enrich_id:
                         print(f"    Enriched → {enrich_id}")
@@ -735,7 +734,7 @@ def cmd_enrich(args):
 
             image_bytes = _get_event_image_bytes(conn, event, s3=s3, bucket=bucket)
             if not image_bytes:
-                print(f"  Skipping — cannot get image bytes")
+                print("  Skipping — cannot get image bytes")
                 continue
 
             meta = json.loads(event["metadata"]) if event["metadata"] else {}
@@ -1078,7 +1077,7 @@ def cmd_webhook_server(args):
                                 (key, now_iso(), existing["id"], record.get("etag", ""), record.get("size", 0)),
                             )
                             conn.commit()
-                            print(f"  Already indexed (hash match)")
+                            print("  Already indexed (hash match)")
                             continue
 
                         event_id = new_event_id()
