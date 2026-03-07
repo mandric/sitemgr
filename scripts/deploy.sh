@@ -139,6 +139,30 @@ supabase secrets set \
 
 echo "✅ Secrets configured"
 
+# Deploy Next.js app to Vercel (optional)
+echo ""
+echo "→ Deploying Next.js app to Vercel..."
+if command -v vercel &> /dev/null; then
+    echo "   Using Vercel CLI..."
+    cd web
+
+    # Check if vercel is linked
+    if [ ! -f .vercel/project.json ]; then
+        echo "   Linking to Vercel project..."
+        vercel link --yes
+    fi
+
+    # Deploy to production
+    vercel --prod --yes
+    cd ..
+    echo "✅ Next.js app deployed"
+else
+    echo "⚠️  Vercel CLI not installed"
+    echo "   Option 1: Install Vercel CLI: npm i -g vercel"
+    echo "   Option 2: Deploy via Vercel dashboard (auto-deploys on git push)"
+    echo "   Skipping Next.js deployment..."
+fi
+
 # Summary
 FUNCTION_URL="https://${SUPABASE_PROJECT_REF}.supabase.co/functions/v1/whatsapp"
 
