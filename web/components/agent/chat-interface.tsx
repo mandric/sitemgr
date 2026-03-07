@@ -13,6 +13,8 @@ type Message = {
   timestamp: Date;
 };
 
+// TODO: pass userId to sendMessage once conversation history is implemented
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function ChatInterface({ userId }: { userId: string }) {
   const [mounted, setMounted] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
@@ -53,7 +55,7 @@ export function ChatInterface({ userId }: { userId: string }) {
     setIsLoading(true);
 
     try {
-      const response = await sendMessage(input.trim(), userId);
+      const response = await sendMessage(input.trim());
 
       if (response.error) {
         setMessages((prev) => [

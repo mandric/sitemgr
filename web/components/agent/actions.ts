@@ -3,10 +3,9 @@
 import { sendMessageToAgent } from "@/lib/agent/core";
 
 export async function sendMessage(
-  message: string,
-  userId: string
+  message: string
 ): Promise<{ content?: string; error?: string }> {
-  // TODO: Fetch conversation history from database
+  // TODO: Add userId param and fetch conversation history from database
   // TODO: Add user context (buckets, media stats, etc.)
 
   return sendMessageToAgent(message);

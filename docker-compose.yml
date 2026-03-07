@@ -42,28 +42,7 @@ services:
       AWS_SECRET_ACCESS_KEY: minioadmin
     volumes:
       - smgr-data:/root/.sitemgr
-    # Default: init + watch --once
-    command: ["prototype/smgr.py", "init"]
-
-  bot:
-    build: .
-    depends_on:
-      minio-setup:
-        condition: service_completed_successfully
-    environment:
-      SMGR_S3_BUCKET: smgr-test
-      SMGR_S3_ENDPOINT: http://minio:9000
-      SMGR_S3_REGION: us-east-1
-      SMGR_DEVICE_ID: ci-test
-      SMGR_AUTO_ENRICH: "false"
-      AWS_ACCESS_KEY_ID: minioadmin
-      AWS_SECRET_ACCESS_KEY: minioadmin
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-test-key}
-    volumes:
-      - smgr-data:/root/.sitemgr
-    command: ["prototype/bot.py", "--stdio"]
-    profiles:
-      - bot  # only started when explicitly requested
+    command: ["bin/smgr.ts", "watch", "--once"]
 
 volumes:
   smgr-data:

@@ -71,7 +71,7 @@ jobs:
           LOOKUP=$(curl -sf -u "${{ secrets.TWILIO_ACCOUNT_SID }}:${{ secrets.TWILIO_AUTH_TOKEN }}" \
             "https://api.twilio.com/2010-04-01/Accounts/${{ secrets.TWILIO_ACCOUNT_SID }}/IncomingPhoneNumbers.json?PhoneNumber=$RAW_NUMBER")
 
-          PHONE_SID=$(echo "$LOOKUP" | python3 -c "import sys,json; nums=json.load(sys.stdin)['incoming_phone_numbers']; print(nums[0]['sid'] if nums else '')")
+          PHONE_SID=$(echo "$LOOKUP" | jq -r '.incoming_phone_numbers[0].sid // empty')
 
           if [ -n "$PHONE_SID" ]; then
             echo "Found phone SID: $PHONE_SID — updating webhook..."

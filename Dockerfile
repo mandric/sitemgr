@@ -1,20 +1,20 @@
-FROM python:3.12-slim
+FROM node:20-slim
 
 WORKDIR /app
 
 # Install dependencies
-COPY prototype/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --production=false
 
-# Copy prototype source
-COPY prototype/ ./prototype/
+# Copy web source
+COPY web/ ./
 
-# Create sitemgr data directory
-RUN mkdir -p /root/.sitemgr
+# Build (if needed for CLI usage)
+# RUN npm run build
 
 # Default: run the watcher
 ENV SMGR_DEVICE_ID=docker
 ENV SMGR_S3_REGION=us-east-1
 
-ENTRYPOINT ["python3"]
-CMD ["prototype/smgr.py", "watch", "--once"]
+ENTRYPOINT ["npx", "tsx"]
+CMD ["bin/smgr.ts", "watch", "--once"]

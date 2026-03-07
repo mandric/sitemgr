@@ -17,18 +17,17 @@ if ! command -v supabase &> /dev/null; then
     exit 1
 fi
 
-# Check if .venv exists (uv run will use it automatically)
-if [ ! -d ".venv" ]; then
-    echo "⚠️  Warning: No .venv directory found"
-    echo ""
-    echo "Run setup first:"
-    echo "  ./scripts/setup.sh"
-    echo ""
-    read -p "Continue anyway? (y/N) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 1
-    fi
+# Check for Node.js
+if ! command -v node &> /dev/null; then
+    echo "Error: Node.js not found. Install Node.js 20+:"
+    echo "  https://nodejs.org/"
+    exit 1
+fi
+
+# Check if web dependencies are installed
+if [ ! -d "web/node_modules" ]; then
+    echo "Installing web dependencies..."
+    cd web && npm install && cd ..
 fi
 
 # Start Supabase (Postgres + Storage + Edge Functions + Studio)
@@ -91,7 +90,7 @@ SMGR_S3_REGION=local
 SMGR_DEVICE_ID=local-dev
 SMGR_AUTO_ENRICH=false
 
-# For boto3/S3 compatibility
+# For S3 compatibility
 AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
 AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
 AWS_ENDPOINT_URL_S3=$STORAGE_S3_URL
@@ -111,7 +110,7 @@ EOF
 
 echo ""
 echo "================================================"
-echo "  ✅ LOCAL ENVIRONMENT READY"
+echo "  LOCAL ENVIRONMENT READY"
 echo "================================================"
 echo ""
 echo "Supabase Studio:  http://localhost:54323"
@@ -129,28 +128,19 @@ echo ""
 echo "1. Load environment:"
 echo "   source $ENV_FILE"
 echo ""
-echo "2. Initialize database:"
-echo "   uv run python prototype/smgr.py init"
+echo "2. Check status:"
+echo "   cd web && npm run smgr stats"
 echo ""
-echo "3. Check status:"
-echo "   uv run python prototype/smgr.py stats"
+echo "3. Watch for S3 changes:"
+echo "   cd web && npm run smgr watch"
 echo ""
-echo "4. Test the bot (interactive mode):"
-echo "   uv run python prototype/bot.py --stdio"
+echo "4. Run unit tests:"
+echo "   cd web && npm test"
 echo ""
-echo "5. Watch for S3 changes:"
-echo "   uv run python prototype/smgr.py watch"
-echo ""
-echo "6. Run integration tests:"
-echo "   uv run ./tests/integration_test.sh"
-echo ""
-echo "7. Seed test data:"
-echo "   uv run ./tests/seed_test_data.sh"
+echo "5. Run integration tests:"
+echo "   ./tests/integration_test.sh"
 echo ""
 echo "------------------------------------------------"
-echo "Note: 'uv run' automatically uses .venv - no activation needed!"
-echo "------------------------------------------------"
-echo ""
 echo "To stop Supabase: supabase stop"
 echo "To view logs:     supabase logs"
 echo ""
