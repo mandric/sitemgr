@@ -22,9 +22,10 @@ jobs:
         run: supabase start
 
       - name: Run integration tests
-        run: |
-          source .env.local
-          ./tests/integration_test.sh
+        run: ./tests/integration_test.sh
+        env:
+          SUPABASE_URL: http://127.0.0.1:54321
+          SMGR_S3_BUCKET: media
 
       - name: Stop Supabase
         if: always()
@@ -69,21 +70,51 @@ jobs:
 
       - name: Create test user
         run: |
+          # Install pgcrypto extension if not already available
           PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -c "
-            INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+            CREATE EXTENSION IF NOT EXISTS pgcrypto;
+          "
+
+          # Create test user with proper bcrypt hash
+          PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -c "
+            INSERT INTO auth.users (
+              instance_id,
+              id,
+              aud,
+              role,
+              email,
+              encrypted_password,
+              email_confirmed_at,
+              confirmation_sent_at,
+              created_at,
+              updated_at,
+              raw_app_meta_data,
+              raw_user_meta_data
+            )
             VALUES (
+              '00000000-0000-0000-0000-000000000000',
               gen_random_uuid(),
+              'authenticated',
+              'authenticated',
               'test@example.com',
               crypt('test123', gen_salt('bf')),
               NOW(),
               NOW(),
-              NOW()
+              NOW(),
+              NOW(),
+              '{\"provider\":\"email\",\"providers\":[\"email\"]}',
+              '{}'
             )
-            ON CONFLICT DO NOTHING;
+            ON CONFLICT (email) DO NOTHING;
           "
+
+      - name: Build Next.js app
+        run: cd web && npm run build
 
       - name: Run E2E tests
         run: cd web && npm run test:e2e
+        env:
+          CI: true
 
       - uses: actions/upload-artifact@v4
         if: always()
