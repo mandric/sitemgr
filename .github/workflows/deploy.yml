@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'supabase/**'
+      - 'web/**'
       - '.github/workflows/deploy.yml'
 
   # Allow manual deployment
@@ -80,6 +81,23 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
+      - name: Deploy Next.js app to Vercel
+        id: vercel
+        run: |
+          echo "Deploying Next.js app to Vercel..."
+          npm install -g vercel@latest
+          cd web
+
+          # Deploy to production
+          vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }} --yes > deployment-url.txt
+
+          VERCEL_URL=$(cat deployment-url.txt | tail -n 1)
+          echo "vercel_url=$VERCEL_URL" >> $GITHUB_OUTPUT
+          echo "✅ Next.js app deployed to: $VERCEL_URL"
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
       - name: Deployment summary
         run: |
           PROJECT_REF="${{ vars.SUPABASE_PROJECT_REF }}"
@@ -88,6 +106,9 @@ jobs:
           echo "================================================"
           echo "  ✅ Deployment Complete"
           echo "================================================"
+          echo ""
+          echo "Next.js App:"
+          echo "  ${{ steps.vercel.outputs.vercel_url }}"
           echo ""
           echo "Edge Function URL:"
           echo "  https://${PROJECT_REF}.supabase.co/functions/v1/whatsapp"
