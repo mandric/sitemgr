@@ -27,10 +27,8 @@ import {
 import {
   sha256Bytes,
   newEventId,
-  nowIso,
   detectContentType,
   isMediaKey,
-  humanSize,
   s3Metadata,
   getMimeType,
 } from "../lib/media/utils";
