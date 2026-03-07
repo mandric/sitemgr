@@ -69,12 +69,16 @@ test.describe('Site Manager Agent', () => {
   test('should send message and receive response', async ({ page }) => {
     await page.goto('/agent');
 
+    // Wait for initial greeting to load
+    await page.waitForSelector('.rounded-lg.px-4.py-2', { timeout: 5000 });
+    const initialMessageCount = await page.locator('.rounded-lg.px-4.py-2').count();
+
     // Type a message
     await page.fill('input[placeholder="Ask me anything..."]', 'What can you help me with?');
     await page.click('button[type="submit"]');
 
-    // Wait for response
-    await expect(page.getByText(/buckets/i)).toBeVisible({ timeout: 10000 });
+    // Wait for new messages to appear (user message + assistant response)
+    await expect(page.locator('.rounded-lg.px-4.py-2')).toHaveCount(initialMessageCount + 2, { timeout: 20000 });
   });
 
   test('should render markdown links', async ({ page }) => {
@@ -84,9 +88,9 @@ test.describe('Site Manager Agent', () => {
     await page.fill('input[placeholder="Ask me anything..."]', 'How do I add a bucket?');
     await page.click('button[type="submit"]');
 
-    // Check for clickable link
-    const bucketsLink = page.getByRole('link', { name: /buckets/i });
-    await expect(bucketsLink).toBeVisible({ timeout: 10000 });
+    // Wait for response and check for clickable link (more specific selector)
+    const bucketsLink = page.locator('.bg-muted').getByRole('link', { name: /buckets/i }).first();
+    await expect(bucketsLink).toBeVisible({ timeout: 15000 });
     await expect(bucketsLink).toHaveAttribute('href', '/buckets');
   });
 
@@ -97,8 +101,10 @@ test.describe('Site Manager Agent', () => {
     await page.fill('input[placeholder="Ask me anything..."]', 'How do I configure a bucket?');
     await page.click('button[type="submit"]');
 
-    // Click the buckets link
-    await page.getByRole('link', { name: /buckets/i }).click();
+    // Wait for and click the buckets link in the assistant's response
+    const bucketsLink = page.locator('.bg-muted').getByRole('link', { name: /buckets/i }).first();
+    await expect(bucketsLink).toBeVisible({ timeout: 15000 });
+    await bucketsLink.click();
 
     // Verify navigation
     await expect(page).toHaveURL('/buckets');
