@@ -1,0 +1,28 @@
+/**
+ * Shared constants for media handling
+ */
+
+export const MEDIA_EXTENSIONS = new Set([
+  // Images
+  ".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif",
+  ".gif", ".bmp", ".tiff", ".tif",
+  // Video
+  ".mp4", ".mov", ".avi", ".mkv", ".webm",
+  // Audio
+  ".mp3", ".wav", ".ogg", ".flac", ".m4a",
+]);
+
+export const CONTENT_TYPE_MAP: Record<string, string> = {
+  image: "photo",
+  video: "video",
+  audio: "audio",
+};
+
+export const ENRICHMENT_PROMPT = `Analyze this image and return a JSON object with exactly these fields:
+- "description": A detailed description of what you see (2-3 sentences)
+- "objects": A list of notable objects, subjects, or elements
+- "context": The likely activity or context (e.g., "furniture repair", "travel", "cooking")
+- "suggested_tags": 3-5 short tags for categorization
+
+Be specific and concrete. Describe what you actually see.
+Return ONLY valid JSON, no markdown fences or extra text.`;
