@@ -5,31 +5,25 @@ Media management system with LLM enrichment and WhatsApp bot interface.
 ## Quick Start
 
 ```bash
-# 1. Install uv (Python package manager)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 2. Run setup (creates venv + installs dependencies)
+# 1. Run setup (installs Node.js dependencies)
 ./scripts/setup.sh
 
-# 3. Activate environment
-source .venv/bin/activate
-
-# 4. Start Supabase and configure
+# 2. Start Supabase and configure
 ./scripts/local-dev.sh
 
-# 5. Load environment variables
+# 3. Load environment variables
 source .env.local
 
-# 6. Run tests
-./tests/integration_test.sh
+# 4. Run the CLI
+cd web && npm run smgr stats
 
-# 7. Try the CLI
-python3 prototype/smgr.py stats
+# 5. Run tests
+cd web && npm test
 ```
 
 ## Prerequisites
 
-- **uv** - Fast Python package installer ([install guide](https://docs.astral.sh/uv/))
+- **Node.js 20+** - JavaScript runtime ([install guide](https://nodejs.org/))
 - **Supabase CLI** - Local development environment ([install guide](https://supabase.com/docs/guides/cli))
 - **Docker** or **Colima** - For running Supabase locally
 - **jq** - JSON processor (`brew install jq`)
@@ -38,15 +32,18 @@ python3 prototype/smgr.py stats
 
 ```
 sitemgr/
-├── prototype/          # Python CLI + bot
-│   ├── smgr.py        # Main CLI tool
-│   └── bot.py         # WhatsApp bot agent
+├── web/               # Next.js app + TypeScript CLI
+│   ├── bin/smgr.ts   # CLI tool (query, watch, enrich, stats)
+│   ├── lib/media/    # Core media processing library
+│   ├── app/          # Next.js web UI
+│   └── __tests__/    # Unit tests (Vitest)
 ├── supabase/          # Database + Edge Functions
 │   ├── migrations/    # Database schema
 │   └── functions/     # Edge Functions (TypeScript)
 ├── scripts/           # Development scripts
 │   ├── setup.sh       # First-time setup
-│   └── local-dev.sh   # Start local environment
+│   ├── local-dev.sh   # Start local environment
+│   └── deploy.sh      # Manual deployment
 ├── tests/             # Integration tests
 └── design/            # Architecture docs
 ```
@@ -54,7 +51,7 @@ sitemgr/
 ## What It Does
 
 1. **Watches S3 bucket** for new photos/videos
-2. **Enriches media** using LLM (Claude/GPT/Gemini) - descriptions, tags, objects
+2. **Enriches media** using LLM (Claude) - descriptions, tags, objects
 3. **Indexes content** in Postgres with full-text search
 4. **WhatsApp bot** - Natural language queries ("show me photos from last week")
 5. **Event-driven** - Append-only event log for all actions
@@ -63,33 +60,48 @@ sitemgr/
 
 - **Event Store**: Supabase Postgres (append-only log)
 - **Storage**: Supabase Storage (S3-compatible)
-- **Enrichment**: BYO LLM (Anthropic/OpenAI/Gemini)
+- **Enrichment**: BYO LLM (Anthropic)
 - **Query**: Postgres FTS (tsvector + GIN)
 - **Bot**: Supabase Edge Function + Twilio WhatsApp
+- **Web UI**: Next.js + Supabase Auth
 
 See [design/architecture.md](design/architecture.md) for details.
 
 ## Development
 
+### CLI Usage
+
+```bash
+cd web
+
+# Check database stats
+npm run smgr stats
+
+# Query events
+npm run smgr query -- --search "beach" --format json
+
+# Watch for new S3 objects
+npm run smgr watch
+
+# Enrich pending items
+npm run smgr enrich -- --pending
+```
+
 ### Local Testing
 
 ```bash
 # Start environment
-source .venv/bin/activate
 ./scripts/local-dev.sh
 source .env.local
 
-# Run tests
+# Run unit tests
+cd web && npm test
+
+# Run E2E tests
+cd web && npm run test:e2e
+
+# Run integration tests
 ./tests/integration_test.sh
-
-# Seed test data
-./tests/seed_test_data.sh
-
-# Watch for changes
-python3 prototype/smgr.py watch
-
-# Interactive bot
-python3 prototype/bot.py --stdio
 ```
 
 ### Deployment
@@ -111,11 +123,3 @@ See [INTEGRATION_TESTS_SETUP.md](INTEGRATION_TESTS_SETUP.md) for complete setup 
 - [design/vision.md](design/vision.md) - Project vision
 - [design/architecture.md](design/architecture.md) - System architecture
 - [tests/README.md](tests/README.md) - Test documentation
-
-## Contributing
-
-This is currently a prototype. See [design/vision.md](design/vision.md) for roadmap.
-
-## License
-
-[To be determined]

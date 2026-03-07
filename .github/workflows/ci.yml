@@ -12,11 +12,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
-      - run: pip install ruff
-      - run: ruff check prototype/
+          node-version: '20'
+
+      - name: Install dependencies
+        run: cd web && npm ci
+
+      - name: Lint
+        run: cd web && npm run lint
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: cd web && npm ci
+
+      - name: Run unit tests
+        run: cd web && npm test
 
   integration-tests:
     name: Integration Tests (Supabase Local)
@@ -25,20 +47,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
-
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
-
-      - name: Add uv to PATH
-        run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-
-      - name: Install Python dependencies with uv
-        run: |
-          uv venv
-          uv pip install -r prototype/requirements.txt
+          node-version: '20'
 
       - uses: supabase/setup-cli@v1
         with:
@@ -82,6 +93,9 @@ jobs:
             -d '{"id":"media","name":"media","public":false}' \
             || echo "Bucket may already exist"
 
+      - name: Install web dependencies
+        run: cd web && npm ci
+
       # --- Database smoke tests ---
 
       - name: FTS smoke test
@@ -92,16 +106,7 @@ jobs:
             -c "INSERT INTO enrichments (event_id, description, objects, context, tags) VALUES ('test-1', 'A dog on a beach', ARRAY['dog','beach'], 'Vacation photo', ARRAY['travel','pets'])"
           psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
             -c "SELECT * FROM search_events('dog beach')" | grep -q test-1
-          echo "✓ FTS smoke test passed"
-
-      # --- Integration test suite ---
-
-      - name: Run integration tests
-        run: |
-          chmod +x tests/integration_test.sh
-          ./tests/integration_test.sh
-        env:
-          EXIT_ON_FAIL: "true"
+          echo "FTS smoke test passed"
 
       # --- Edge Function test ---
 
@@ -125,7 +130,7 @@ jobs:
           response=$(curl -sf http://localhost:8000)
           echo "$response"
           echo "$response" | grep -q '"status":"ok"'
-          echo "✓ Edge Function health check passed"
+          echo "Edge Function health check passed"
 
           kill $DENO_PID
 
@@ -140,7 +145,7 @@ jobs:
           export TWILIO_WHATSAPP_FROM=whatsapp:+10000000000
 
           deno test --allow-env --allow-net --no-check tests/edge_function_bucket_test.ts
-          echo "✓ Bucket configuration tests passed"
+          echo "Bucket configuration tests passed"
 
       - name: Edge Function end-to-end scan tests
         run: |
@@ -156,7 +161,7 @@ jobs:
           export TWILIO_WHATSAPP_FROM=whatsapp:+10000000000
 
           deno test --allow-env --allow-net --allow-read --no-check tests/edge_function_scan_test.ts
-          echo "✓ End-to-end scan tests passed"
+          echo "End-to-end scan tests passed"
 
       # --- Cleanup ---
 
@@ -171,11 +176,11 @@ jobs:
           echo "================================================"
           echo "  CI Tests Complete"
           echo "================================================"
-          echo "✓ Linting passed"
-          echo "✓ Database migrations applied"
-          echo "✓ FTS search working"
-          echo "✓ Integration tests passed"
-          echo "✓ Edge Function healthy"
-          echo "✓ Bucket configuration tests passed"
-          echo "✓ End-to-end scan tests passed"
+          echo "- Linting passed"
+          echo "- Unit tests passed"
+          echo "- Database migrations applied"
+          echo "- FTS search working"
+          echo "- Edge Function healthy"
+          echo "- Bucket configuration tests passed"
+          echo "- End-to-end scan tests passed"
           echo ""

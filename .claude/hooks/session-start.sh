@@ -26,23 +26,6 @@ if [ -n "${GH_REPO_DETECTED:-}" ]; then
   export GH_REPO="$GH_REPO_DETECTED"
 fi
 
-# Install uv (Python package manager) if not present
-if ! command -v uv &>/dev/null; then
-  curl -LsSf https://astral.sh/uv/install.sh | sh
-  echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"
-  export PATH="$HOME/.local/bin:$PATH"
-fi
-
-# Set up Python venv and install dependencies
-cd "$CLAUDE_PROJECT_DIR"
-if [ ! -d ".venv" ]; then
-  uv venv
-fi
-source .venv/bin/activate
-uv pip install -r prototype/requirements.txt
-echo "export PATH=\"$CLAUDE_PROJECT_DIR/.venv/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"
-echo "export VIRTUAL_ENV=\"$CLAUDE_PROJECT_DIR/.venv\"" >> "$CLAUDE_ENV_FILE"
-
 # Install Node.js dependencies for the web app
 cd "$CLAUDE_PROJECT_DIR/web"
 npm install

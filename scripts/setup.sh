@@ -1,6 +1,6 @@
 #!/bin/bash
 # First-time setup script for sitemgr development environment
-# Requires: uv (https://docs.astral.sh/uv/)
+# Requires: Node.js 20+, npm
 
 set -e
 
@@ -9,50 +9,51 @@ echo "  sitemgr Development Environment Setup"
 echo "================================================"
 echo ""
 
-# Check for uv
-if ! command -v uv &> /dev/null; then
-    echo "❌ uv not found"
+# Check for Node.js
+if ! command -v node &> /dev/null; then
+    echo "Error: Node.js not found"
     echo ""
-    echo "Install uv first:"
-    echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
-    echo ""
-    echo "Or visit: https://docs.astral.sh/uv/getting-started/installation/"
+    echo "Install Node.js 20+:"
+    echo "  https://nodejs.org/"
     exit 1
 fi
 
-echo "✓ Found uv"
-
-# Create virtual environment
-if [ ! -d ".venv" ]; then
-    echo ""
-    echo "Creating Python virtual environment..."
-    uv venv
-    echo "✓ Virtual environment created at .venv/"
-else
-    echo "✓ Virtual environment already exists"
+NODE_VERSION=$(node -v | sed 's/v//' | cut -d. -f1)
+if [ "$NODE_VERSION" -lt 20 ]; then
+    echo "Error: Node.js 20+ required (found $(node -v))"
+    exit 1
 fi
 
-# Install dependencies
+echo "Found Node.js $(node -v)"
+
+# Check for npm
+if ! command -v npm &> /dev/null; then
+    echo "Error: npm not found"
+    exit 1
+fi
+
+echo "Found npm $(npm -v)"
+
+# Install web dependencies
 echo ""
-echo "Installing Python dependencies..."
-source .venv/bin/activate
-uv pip install -r prototype/requirements.txt
+echo "Installing web dependencies..."
+cd web
+npm install
+cd ..
 
 echo ""
 echo "================================================"
-echo "  ✅ Setup Complete"
+echo "  Setup Complete"
 echo "================================================"
 echo ""
 echo "Next steps:"
 echo ""
-echo "1. Activate the virtual environment:"
-echo "   source .venv/bin/activate"
-echo ""
-echo "2. Start Supabase and configure environment:"
+echo "1. Start Supabase and configure environment:"
 echo "   ./scripts/local-dev.sh"
 echo ""
-echo "3. Run integration tests:"
-echo "   ./tests/integration_test.sh"
+echo "2. Run the CLI:"
+echo "   cd web && npm run smgr stats"
 echo ""
-echo "4. Start developing!"
+echo "3. Run tests:"
+echo "   cd web && npm test"
 echo ""

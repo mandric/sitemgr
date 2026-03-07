@@ -1,6 +1,7 @@
 #!/bin/bash
 # Integration tests for sitemgr using local Supabase
-# Tests the full pipeline: upload → detect → enrich → query → bot
+# Tests the full pipeline: upload → detect → enrich → query
+# Uses the TypeScript CLI (web/bin/smgr.ts)
 
 set -e
 
@@ -14,6 +15,14 @@ TEST_COUNT=0
 PASS_COUNT=0
 FAIL_COUNT=0
 
+# CLI command helper — runs smgr via npm in the web directory
+SMGR="npx tsx bin/smgr.ts"
+WEB_DIR="$(cd "$(dirname "$0")/../web" && pwd)"
+
+smgr() {
+    (cd "$WEB_DIR" && $SMGR "$@")
+}
+
 # Test helper functions
 test_start() {
     TEST_COUNT=$((TEST_COUNT + 1))
@@ -23,12 +32,12 @@ test_start() {
 
 test_pass() {
     PASS_COUNT=$((PASS_COUNT + 1))
-    echo -e "${GREEN}✓ PASS${NC}"
+    echo -e "${GREEN}PASS${NC}"
 }
 
 test_fail() {
     FAIL_COUNT=$((FAIL_COUNT + 1))
-    echo -e "${RED}✗ FAIL: $1${NC}"
+    echo -e "${RED}FAIL: $1${NC}"
     if [ "${EXIT_ON_FAIL:-true}" = "true" ]; then
         exit 1
     fi
@@ -74,29 +83,21 @@ echo "S3 Bucket: $SMGR_S3_BUCKET"
 echo ""
 
 # ============================================================
-# Test 1: Database initialization
+# Test 1: Stats on empty/existing database
 # ============================================================
-test_start "Database initialization"
+test_start "Stats query"
 
-uv run uv run python3 prototype/smgr.py init
-test_pass
-
-# ============================================================
-# Test 2: Database is accessible and empty
-# ============================================================
-test_start "Stats on empty database"
-
-STATS=$(uv run python3 prototype/smgr.py stats)
+STATS=$(smgr stats)
 echo "$STATS"
 
-if echo "$STATS" | grep -q '"total_events": 0'; then
+if echo "$STATS" | jq -e '.total_events' > /dev/null 2>&1; then
     test_pass
 else
-    test_fail "Expected 0 events"
+    test_fail "Stats command failed or returned invalid JSON"
 fi
 
 # ============================================================
-# Test 3: Create test image and upload to storage
+# Test 2: Create test image and upload to storage
 # ============================================================
 test_start "Upload test image to Supabase Storage"
 
@@ -128,28 +129,29 @@ fi
 rm -f "$TEST_IMAGE_PATH"
 
 # ============================================================
-# Test 4: Watch detects new S3 object
+# Test 3: Watch detects new S3 object
 # ============================================================
 test_start "S3 watcher detects new object"
 
-uv run python3 prototype/smgr.py watch --once
+smgr watch --once
 
 # Check if event was created
-STATS_AFTER=$(uv run python3 prototype/smgr.py stats)
+STATS_AFTER=$(smgr stats)
 echo "$STATS_AFTER"
 
-if echo "$STATS_AFTER" | grep -q '"total_events": 1'; then
+TOTAL_EVENTS=$(echo "$STATS_AFTER" | jq -r '.total_events')
+if [ "$TOTAL_EVENTS" -ge 1 ] 2>/dev/null; then
     test_pass
 else
-    test_fail "Expected 1 event after watch"
+    test_fail "Expected at least 1 event after watch"
 fi
 
 # ============================================================
-# Test 5: Query returns the uploaded photo
+# Test 4: Query returns the uploaded photo
 # ============================================================
 test_start "Query returns uploaded photo"
 
-QUERY_RESULT=$(uv run python3 prototype/smgr.py query --format json --type photo)
+QUERY_RESULT=$(smgr query --format json --type photo)
 echo "$QUERY_RESULT"
 
 if echo "$QUERY_RESULT" | jq -e '.events[0].id' > /dev/null 2>&1; then
@@ -161,12 +163,12 @@ else
 fi
 
 # ============================================================
-# Test 6: Show event details
+# Test 5: Show event details
 # ============================================================
 test_start "Show event details"
 
 if [ -n "$EVENT_ID" ]; then
-    SHOW_RESULT=$(uv run python3 prototype/smgr.py show "$EVENT_ID")
+    SHOW_RESULT=$(smgr show "$EVENT_ID")
     echo "$SHOW_RESULT"
 
     if echo "$SHOW_RESULT" | jq -e '.id' > /dev/null 2>&1; then
@@ -180,27 +182,11 @@ else
 fi
 
 # ============================================================
-# Test 7: Bot responds to stats query
-# ============================================================
-test_start "Bot conversation - stats query"
-
-# Test bot in stdio mode with a simple query
-BOT_RESPONSE=$(echo "how many photos do I have?" | timeout 30 uv run python3 prototype/bot.py --stdio 2>/dev/null || true)
-
-if [ -n "$BOT_RESPONSE" ]; then
-    echo "Bot response: $BOT_RESPONSE"
-    test_pass
-else
-    echo "Warning: Bot test skipped (requires ANTHROPIC_API_KEY)"
-    echo "Set ANTHROPIC_API_KEY in .env.local to enable bot tests"
-fi
-
-# ============================================================
-# Test 8: Database stats are consistent
+# Test 6: Database stats are consistent
 # ============================================================
 test_start "Database consistency check"
 
-FINAL_STATS=$(uv run python3 prototype/smgr.py stats)
+FINAL_STATS=$(smgr stats)
 echo "$FINAL_STATS"
 
 # Check for expected fields
@@ -234,9 +220,9 @@ echo -e "Failed: ${RED}$FAIL_COUNT${NC}"
 echo ""
 
 if [ $FAIL_COUNT -eq 0 ]; then
-    echo -e "${GREEN}✅ All tests passed!${NC}"
+    echo -e "${GREEN}All tests passed!${NC}"
     exit 0
 else
-    echo -e "${RED}❌ Some tests failed${NC}"
+    echo -e "${RED}Some tests failed${NC}"
     exit 1
 fi

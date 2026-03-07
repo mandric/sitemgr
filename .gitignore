@@ -1,13 +1,7 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-.venv/
-venv/
-ENV/
-env/
+# Node.js
+node_modules/
+.next/
+dist/
 
 # Local environment (ignore all .env.* except .env.example)
 .env.*
@@ -35,3 +29,8 @@ Thumbs.db
 tests/fixtures/photos/*.jpg
 tests/fixtures/photos/*.png
 *.log
+
+# Legacy Python (safe to remove once fully cleaned)
+__pycache__/
+*.py[cod]
+.venv/
