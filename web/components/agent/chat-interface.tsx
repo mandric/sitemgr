@@ -69,7 +69,7 @@ export function ChatInterface({ userId }: { userId: string }) {
           ...prev,
           {
             role: "assistant",
-            content: response.content,
+            content: response.content || "No response",
             timestamp: new Date(),
           },
         ]);

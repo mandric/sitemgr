@@ -26,6 +26,18 @@ jobs:
       - name: Start Supabase
         run: supabase start
 
+      - name: Create storage bucket
+        run: |
+          # Get service role key from supabase status
+          SERVICE_ROLE_KEY=$(supabase status -o json | jq -r .service_role_key)
+
+          # Create media bucket
+          curl -X POST "http://127.0.0.1:54321/storage/v1/bucket" \
+            -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"id":"media","name":"media","public":false}' \
+            || echo "Bucket might already exist"
+
       - name: Run integration tests
         run: ./tests/integration_test.sh
         env:
@@ -85,9 +97,6 @@ jobs:
               "password": "test123",
               "email_confirm": true
             }' || echo "User might already exist, continuing..."
-
-      - name: Build Next.js app
-        run: cd web && npm run build
 
       - name: Run E2E tests
         run: cd web && npm run test:e2e
