@@ -1,21 +1,62 @@
 import { test, expect } from '@playwright/test';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(exec);
+
+async function confirmUserEmail(email: string) {
+  // Confirm email via direct database update for testing
+  const sql = `UPDATE auth.users SET email_confirmed_at = NOW() WHERE email = '${email}' AND email_confirmed_at IS NULL;`;
+  await execAsync(`PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres -c "${sql}"`);
+}
+
+// Use the same test user for all workers
+const testEmail = process.env.CI ? 'test@example.com' : 'test@example.com';
+const testPassword = 'test123';
+
+test.describe.configure({ mode: 'serial' }); // Run tests serially to share setup
 
 test.describe('Site Manager Agent', () => {
-  const testEmail = process.env.CI ? 'test@example.com' : 'foo@bar.com';
-  const testPassword = 'test123';
+  test.beforeAll(async ({ browser }) => {
+    // Create test user via signup (only once for all tests)
+    const page = await browser.newPage();
+    await page.goto('/auth/sign-up');
 
-  test.beforeEach(async ({ page }) => {
-    // Login first
-    await page.goto('/auth/login');
-    await page.fill('input[name="email"]', testEmail);
-    await page.fill('input[name="password"]', testPassword);
+    // Fill signup form (including repeat password!)
+    await page.fill('input[id="email"]', testEmail);
+    await page.fill('input[id="password"]', testPassword);
+    await page.fill('input[id="repeat-password"]', testPassword);
     await page.click('button[type="submit"]');
 
-    // Wait for redirect after login
-    await page.waitForURL('/', { timeout: 5000 }).catch(() => {
-      // If redirect fails, we might already be logged in
-      console.log('Already logged in or redirect not needed');
+    // Wait for signup to complete
+    await page.waitForURL('/auth/sign-up-success', { timeout: 10000 }).catch(() => {
+      console.log('Signup may have failed - user might already exist');
     });
+
+    // Confirm email manually for testing
+    await confirmUserEmail(testEmail);
+    console.log(`✓ Email confirmed for ${testEmail}`);
+
+    await page.close();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    // Login for each test
+    await page.goto('/auth/login');
+    await page.fill('input[id="email"]', testEmail);
+    await page.fill('input[id="password"]', testPassword);
+    await page.click('button[type="submit"]');
+
+    // Wait for navigation (any URL change)
+    await page.waitForLoadState('networkidle');
+    const currentURL = page.url();
+    console.log(`Current URL after login: ${currentURL}`);
+
+    // If we're not at /protected, we're probably still at login with an error
+    if (!currentURL.includes('/protected')) {
+      const errorText = await page.locator('p[class*="text-red"]').textContent().catch(() => null);
+      console.log(`Login error: ${errorText || 'Unknown error'}`);
+    }
   });
 
   test('should display initial greeting', async ({ page }) => {

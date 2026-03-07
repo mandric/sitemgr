@@ -7,46 +7,9 @@ on:
   pull_request:
 
 jobs:
-  backend-tests:
-    name: Backend Integration Tests
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          version: "latest"
-
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
-
-      - name: Start Supabase
-        run: supabase start
-
-      - name: Create storage bucket
-        run: |
-          # Get service role key from supabase status
-          SERVICE_ROLE_KEY=$(supabase status -o json | jq -r .service_role_key)
-
-          # Create media bucket
-          curl -X POST "http://127.0.0.1:54321/storage/v1/bucket" \
-            -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
-            -H "Content-Type: application/json" \
-            -d '{"id":"media","name":"media","public":false}' \
-            || echo "Bucket might already exist"
-
-      - name: Run integration tests
-        run: ./tests/integration_test.sh
-        env:
-          SUPABASE_URL: http://127.0.0.1:54321
-          SMGR_S3_BUCKET: media
-
-      - name: Stop Supabase
-        if: always()
-        run: supabase stop
+  # Backend tests disabled - they test the old SQLite prototype which we dropped
+  # We're now using Supabase/Postgres directly instead of local-first SQLite
+  # TODO: Add tests for Supabase Edge Functions and database operations
 
   web-e2e-tests:
     name: Web E2E Tests
@@ -84,19 +47,6 @@ jobs:
           TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}
           TWILIO_WHATSAPP_FROM=${{ secrets.TWILIO_WHATSAPP_FROM }}
           EOF
-
-      - name: Create test user
-        run: |
-          # Use Supabase CLI to create test user (easier than direct SQL)
-          # This creates a proper user with all required auth fields
-          curl -X POST 'http://127.0.0.1:54321/auth/v1/signup' \
-            -H "apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0" \
-            -H "Content-Type: application/json" \
-            -d '{
-              "email": "test@example.com",
-              "password": "test123",
-              "email_confirm": true
-            }' || echo "User might already exist, continuing..."
 
       - name: Run E2E tests
         run: cd web && npm run test:e2e
