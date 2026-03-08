@@ -43,6 +43,7 @@ describe("WhatsApp route", () => {
     vi.stubEnv("TWILIO_ACCOUNT_SID", "AC_test_sid");
     vi.stubEnv("TWILIO_AUTH_TOKEN", "test_auth_token");
     vi.stubEnv("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886");
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test-key");
     mockPlan.mockReset();
     mockExecute.mockReset();
     mockSummarize.mockReset();
@@ -120,7 +121,7 @@ describe("WhatsApp route", () => {
       expect(mockPlan).not.toHaveBeenCalled();
     });
 
-    it("returns 200 with empty TwiML on error", async () => {
+    it("returns 200 with empty TwiML on error and sends error message to user", async () => {
       mockPlan.mockRejectedValue(new Error("API key not configured"));
 
       const req = makeRequest({
@@ -132,6 +133,31 @@ describe("WhatsApp route", () => {
       expect(res.status).toBe(200);
       const text = await res.text();
       expect(text).toBe("<Response></Response>");
+
+      // Should have tried to send an error message back to the user
+      expect(mockFetch).toHaveBeenCalledOnce();
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toContain("api.twilio.com");
+      const body = new URLSearchParams(options.body);
+      expect(body.get("To")).toBe("whatsapp:+1234567890");
+      expect(body.get("Body")).toContain("something went wrong");
+    });
+
+    it("returns empty TwiML when env vars are missing", async () => {
+      vi.unstubAllEnvs();
+      // Don't set any env vars — should detect missing config
+
+      const req = makeRequest({
+        From: "whatsapp:+1234567890",
+        Body: "hello",
+      });
+
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).toBe("<Response></Response>");
+      // Should not attempt to call any agent functions
+      expect(mockPlan).not.toHaveBeenCalled();
     });
   });
 });
