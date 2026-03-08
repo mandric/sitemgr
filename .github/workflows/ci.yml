@@ -334,6 +334,7 @@ jobs:
 
       - name: Deploy Next.js app to Vercel
         id: vercel
+        working-directory: web
         run: |
           echo "Deploying Next.js app to Vercel..."
           npm install -g vercel@latest
