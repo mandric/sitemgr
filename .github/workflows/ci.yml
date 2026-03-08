@@ -282,6 +282,56 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
+      - name: Smoke test Edge Function
+        run: |
+          WEBHOOK_URL="https://${{ vars.SUPABASE_PROJECT_REF }}.supabase.co/functions/v1/whatsapp"
+          echo "Testing: $WEBHOOK_URL"
+          RESPONSE=$(curl -sf "$WEBHOOK_URL")
+          echo "Response: $RESPONSE"
+          echo "$RESPONSE" | grep -q '"status":"ok"'
+          echo "Edge Function is live."
+
+      - name: Configure Twilio WhatsApp webhook
+        run: |
+          WEBHOOK_URL="https://${{ vars.SUPABASE_PROJECT_REF }}.supabase.co/functions/v1/whatsapp"
+          RAW_NUMBER=$(echo "${{ secrets.TWILIO_WHATSAPP_FROM }}" | sed 's/^whatsapp://')
+
+          echo "Looking up Twilio phone number SID for $RAW_NUMBER..."
+          LOOKUP=$(curl -sf -u "${{ secrets.TWILIO_ACCOUNT_SID }}:${{ secrets.TWILIO_AUTH_TOKEN }}" \
+            "https://api.twilio.com/2010-04-01/Accounts/${{ secrets.TWILIO_ACCOUNT_SID }}/IncomingPhoneNumbers.json?PhoneNumber=$RAW_NUMBER")
+
+          PHONE_SID=$(echo "$LOOKUP" | jq -r '.incoming_phone_numbers[0].sid // empty')
+
+          if [ -n "$PHONE_SID" ]; then
+            echo "Found phone SID: $PHONE_SID — updating webhook..."
+            curl -sf -X POST \
+              -u "${{ secrets.TWILIO_ACCOUNT_SID }}:${{ secrets.TWILIO_AUTH_TOKEN }}" \
+              "https://api.twilio.com/2010-04-01/Accounts/${{ secrets.TWILIO_ACCOUNT_SID }}/IncomingPhoneNumbers/$PHONE_SID.json" \
+              -d "SmsUrl=$WEBHOOK_URL" \
+              -d "SmsMethod=POST" \
+              > /dev/null
+            echo "Twilio webhook set to: $WEBHOOK_URL"
+          else
+            echo "::warning::Phone number SID not found — configuring via WhatsApp Sandbox instead"
+            curl -sf -X POST \
+              -u "${{ secrets.TWILIO_ACCOUNT_SID }}:${{ secrets.TWILIO_AUTH_TOKEN }}" \
+              "https://api.twilio.com/2010-04-01/Accounts/${{ secrets.TWILIO_ACCOUNT_SID }}/Sandbox.json" \
+              -d "SmsUrl=$WEBHOOK_URL" \
+              -d "SmsMethod=POST" \
+              > /dev/null 2>&1 || echo "::warning::Sandbox API not available — set webhook manually in Twilio Console: $WEBHOOK_URL"
+          fi
+
+      - name: Verify Twilio can reach webhook
+        run: |
+          WEBHOOK_URL="https://${{ vars.SUPABASE_PROJECT_REF }}.supabase.co/functions/v1/whatsapp"
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" \
+            -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "From=whatsapp%3A%2B10000000000&Body=")
+          echo "POST to webhook returned HTTP $STATUS"
+          [ "$STATUS" = "200" ]
+          echo "End-to-end verify passed."
+
       - name: Deploy Next.js app to Vercel
         id: vercel
         run: |
