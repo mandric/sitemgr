@@ -87,12 +87,33 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const reqId = crypto.randomUUID().slice(0, 8);
+  const ts = () => new Date().toISOString();
+  let fromNumber = "";
+
   try {
+    // Check required env vars early so we get a clear error
+    const missingEnv = [
+      "TWILIO_ACCOUNT_SID",
+      "TWILIO_AUTH_TOKEN",
+      "TWILIO_WHATSAPP_FROM",
+      "ANTHROPIC_API_KEY",
+    ].filter((k) => !process.env[k]);
+
+    if (missingEnv.length > 0) {
+      console.error(`[${reqId}] Missing env vars: ${missingEnv.join(", ")}`);
+      return new NextResponse("<Response></Response>", {
+        headers: { "Content-Type": "text/xml" },
+      });
+    }
+
     const formData = await req.text();
     const params = new URLSearchParams(formData);
 
-    const fromNumber = params.get("From") ?? "";
+    fromNumber = params.get("From") ?? "";
     const messageBody = params.get("Body") ?? "";
+
+    console.log(`[${ts()}][${reqId}] from=${fromNumber} body=${JSON.stringify(messageBody)}`);
 
     if (!messageBody) {
       return new NextResponse("<Response></Response>", {
@@ -100,20 +121,23 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    console.log(`[${new Date().toISOString()}] ${fromNumber}: ${messageBody}`);
-
     // Get conversation history
+    console.log(`[${ts()}][${reqId}] fetching conversation history`);
     const history = await getConversationHistory(fromNumber);
 
     // Plan
+    console.log(`[${ts()}][${reqId}] planning action`);
     const plan = await planAction(messageBody, history);
+    console.log(`[${ts()}][${reqId}] plan: ${JSON.stringify(plan)}`);
 
     // Execute + summarize
     let responseText: string;
     if (plan.action === "direct") {
       responseText = plan.response ?? "";
     } else {
+      console.log(`[${ts()}][${reqId}] executing action: ${plan.action}`);
       const result = await executeAction(plan, fromNumber);
+      console.log(`[${ts()}][${reqId}] summarizing result (${result.length} chars)`);
       responseText = await summarizeResult(messageBody, result);
     }
 
@@ -122,17 +146,31 @@ export async function POST(req: NextRequest) {
     history.push({ role: "assistant", content: responseText });
     await saveConversationHistory(fromNumber, history);
 
-    console.log(`[${new Date().toISOString()}] -> ${responseText.slice(0, 100)}...`);
+    console.log(`[${ts()}][${reqId}] sending reply (${responseText.length} chars): ${responseText.slice(0, 100)}...`);
 
     // Send via Twilio
     await sendWhatsApp(fromNumber, responseText);
+
+    console.log(`[${ts()}][${reqId}] done`);
 
     // Return empty TwiML (we send via API for longer messages)
     return new NextResponse("<Response></Response>", {
       headers: { "Content-Type": "text/xml" },
     });
   } catch (error) {
-    console.error("WhatsApp webhook error:", error);
+    console.error(`[${ts()}][${reqId}] WhatsApp webhook error:`, error);
+
+    // Try to send an error message back to the user so they don't get silence
+    if (fromNumber) {
+      try {
+        await sendWhatsApp(
+          fromNumber,
+          "Sorry, something went wrong processing your message. Please try again."
+        );
+      } catch (sendErr) {
+        console.error(`[${ts()}][${reqId}] Failed to send error message:`, sendErr);
+      }
+    }
 
     // Return 200 with empty TwiML to prevent Twilio retries
     return new NextResponse("<Response></Response>", {

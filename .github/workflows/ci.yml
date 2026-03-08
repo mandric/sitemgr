@@ -250,11 +250,30 @@ jobs:
 
           STATUS=$(jq -r '.status // empty' /tmp/response.json)
           if [ "$STATUS" = "ok" ]; then
-            echo "WhatsApp webhook is live!"
+            echo "WhatsApp webhook GET health check passed!"
           else
             echo "ERROR: Unexpected response status: $STATUS"
             exit 1
           fi
+
+          # POST smoke test — send a minimal Twilio-style form body
+          # and verify the endpoint accepts it (returns 200 with TwiML)
+          echo ""
+          echo "Testing POST webhook..."
+          HTTP_CODE=$(curl -sS -o /tmp/post-response.txt -w '%{http_code}' \
+            -X POST \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "From=whatsapp%3A%2B15005550006&Body=ping" \
+            "$WEBHOOK_URL")
+          echo "POST HTTP status: $HTTP_CODE"
+          cat /tmp/post-response.txt
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "ERROR: POST expected HTTP 200, got $HTTP_CODE"
+            exit 1
+          fi
+
+          echo "WhatsApp webhook POST smoke test passed!"
 
       - name: Deployment summary
         run: |
