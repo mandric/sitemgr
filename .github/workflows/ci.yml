@@ -236,18 +236,23 @@ jobs:
 
       - name: Smoke test WhatsApp webhook
         run: |
-          WEBHOOK_URL="${{ env.DEPLOY_URL }}/api/whatsapp"
+          WEBHOOK_URL="${{ vars.VERCEL_APP_URL }}/api/whatsapp"
           echo "Testing webhook at: $WEBHOOK_URL"
 
-          RESPONSE=$(curl -sf "$WEBHOOK_URL" 2>&1)
-          STATUS=$(echo "$RESPONSE" | jq -r '.status // empty')
+          HTTP_CODE=$(curl -sS -o /tmp/response.json -w '%{http_code}' "$WEBHOOK_URL")
+          echo "HTTP status: $HTTP_CODE"
+          cat /tmp/response.json
 
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "ERROR: Expected HTTP 200, got $HTTP_CODE"
+            exit 1
+          fi
+
+          STATUS=$(jq -r '.status // empty' /tmp/response.json)
           if [ "$STATUS" = "ok" ]; then
             echo "WhatsApp webhook is live!"
-            echo "$RESPONSE" | jq .
           else
-            echo "ERROR: Unexpected response from webhook"
-            echo "Response: $RESPONSE"
+            echo "ERROR: Unexpected response status: $STATUS"
             exit 1
           fi
 
