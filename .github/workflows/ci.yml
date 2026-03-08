@@ -239,7 +239,7 @@ jobs:
 
       - name: Smoke test WhatsApp webhook
         run: |
-          WEBHOOK_URL="${{ vars.VERCEL_APP_URL }}/api/whatsapp"
+          WEBHOOK_URL="${{ env.DEPLOY_URL }}/api/whatsapp"
           echo "Testing webhook at: $WEBHOOK_URL"
 
           RESPONSE=$(curl -sf "$WEBHOOK_URL" 2>&1)
