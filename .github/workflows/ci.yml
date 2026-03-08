@@ -337,7 +337,6 @@ jobs:
         run: |
           echo "Deploying Next.js app to Vercel..."
           npm install -g vercel@latest
-          cd web
 
           vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }} --yes > deployment-url.txt
 
