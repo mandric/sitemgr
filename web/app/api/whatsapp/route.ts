@@ -1,12 +1,45 @@
 /**
  * WhatsApp webhook handler (Twilio)
- * Moved from Supabase Edge Function to Vercel API route for code sharing
+ * Migrated from Supabase Edge Function to Vercel API route.
+ *
+ * Flow: receive Twilio webhook → plan (Claude) → execute (Postgres) → summarize (Claude) → reply via Twilio
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { sendMessageToAgent } from "@/lib/agent/core";
+import {
+  planAction,
+  executeAction,
+  summarizeResult,
+  getConversationHistory,
+  saveConversationHistory,
+} from "@/lib/agent/core";
 
-async function sendWhatsAppMessage(to: string, body: string): Promise<void> {
+// ── Twilio helpers ─────────────────────────────────────────────
+
+function splitMessage(text: string, maxLen: number): string[] {
+  if (text.length <= maxLen) return [text];
+
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLen) {
+      chunks.push(remaining);
+      break;
+    }
+
+    let splitAt = remaining.lastIndexOf("\n", maxLen);
+    if (splitAt < maxLen / 2) splitAt = remaining.lastIndexOf(" ", maxLen);
+    if (splitAt < maxLen / 2) splitAt = maxLen;
+
+    chunks.push(remaining.slice(0, splitAt));
+    remaining = remaining.slice(splitAt).trimStart();
+  }
+
+  return chunks;
+}
+
+async function sendWhatsApp(to: string, message: string): Promise<void> {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_WHATSAPP_FROM;
@@ -15,74 +48,96 @@ async function sendWhatsAppMessage(to: string, body: string): Promise<void> {
     throw new Error("Twilio credentials not configured");
   }
 
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
-  const auth = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+  const chunks = splitMessage(message, 1500);
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${auth}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      From: from,
-      To: to,
-      Body: body,
-    }),
-  });
+  for (const chunk of chunks) {
+    const body = new URLSearchParams();
+    body.append("To", to);
+    body.append("From", from);
+    body.append("Body", chunk);
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Twilio API error: ${response.status} - ${error}`);
+    const response = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+      {
+        method: "POST",
+        headers: {
+          Authorization:
+            "Basic " + Buffer.from(`${accountSid}:${authToken}`).toString("base64"),
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: body.toString(),
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Twilio API error: ${response.status} - ${error}`);
+    }
   }
+}
+
+// ── Route handlers ─────────────────────────────────────────────
+
+export async function GET() {
+  return NextResponse.json({
+    status: "ok",
+    service: "smgr-whatsapp-bot",
+    timestamp: new Date().toISOString(),
+  });
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const formData = await req.formData();
-    const from = formData.get("From") as string;
-    const body = formData.get("Body") as string;
+    const formData = await req.text();
+    const params = new URLSearchParams(formData);
 
-    if (!from || !body) {
-      return NextResponse.json(
-        { error: "Missing From or Body" },
-        { status: 400 }
-      );
+    const fromNumber = params.get("From") ?? "";
+    const messageBody = params.get("Body") ?? "";
+
+    if (!messageBody) {
+      return new NextResponse("<Response></Response>", {
+        headers: { "Content-Type": "text/xml" },
+      });
     }
 
-    console.log(`WhatsApp message from ${from}: ${body}`);
+    console.log(`[${new Date().toISOString()}] ${fromNumber}: ${messageBody}`);
 
-    // Get response from agent
-    const response = await sendMessageToAgent(body);
+    // Get conversation history
+    const history = await getConversationHistory(fromNumber);
 
-    if (response.error) {
-      await sendWhatsAppMessage(
-        from,
-        "Sorry, I encountered an error. Please try again later."
-      );
-      return NextResponse.json({ error: response.error }, { status: 500 });
+    // Plan
+    const plan = await planAction(messageBody, history);
+
+    // Execute + summarize
+    let responseText: string;
+    if (plan.action === "direct") {
+      responseText = plan.response ?? "";
+    } else {
+      const result = await executeAction(plan, fromNumber);
+      responseText = await summarizeResult(messageBody, result);
     }
 
-    // Send response back to WhatsApp
-    if (response.content) {
-      await sendWhatsAppMessage(from, response.content);
-    }
+    // Persist conversation
+    history.push({ role: "user", content: messageBody });
+    history.push({ role: "assistant", content: responseText });
+    await saveConversationHistory(fromNumber, history);
 
-    return NextResponse.json({ success: true });
+    console.log(`[${new Date().toISOString()}] -> ${responseText.slice(0, 100)}...`);
+
+    // Send via Twilio
+    await sendWhatsApp(fromNumber, responseText);
+
+    // Return empty TwiML (we send via API for longer messages)
+    return new NextResponse("<Response></Response>", {
+      headers: { "Content-Type": "text/xml" },
+    });
   } catch (error) {
     console.error("WhatsApp webhook error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
-  }
-}
 
-// Health check endpoint
-export async function GET() {
-  return NextResponse.json({
-    status: "ok",
-    service: "whatsapp-webhook",
-    timestamp: new Date().toISOString(),
-  });
+    // Return 200 with empty TwiML to prevent Twilio retries
+    return new NextResponse("<Response></Response>", {
+      status: 200,
+      headers: { "Content-Type": "text/xml" },
+    });
+  }
 }
