@@ -26,7 +26,6 @@ jobs:
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
-    needs: lint
     steps:
       - uses: actions/checkout@v4
 
@@ -43,7 +42,6 @@ jobs:
   integration-tests:
     name: Integration Tests (Supabase Local)
     runs-on: ubuntu-latest
-    needs: lint
     steps:
       - uses: actions/checkout@v4
 
@@ -109,7 +107,6 @@ jobs:
   e2e-tests:
     name: Web E2E Tests
     runs-on: ubuntu-latest
-    needs: lint
     steps:
       - uses: actions/checkout@v4
 
@@ -161,7 +158,7 @@ jobs:
 
   deploy:
     name: Deploy to Production
-    needs: [unit-tests, integration-tests, e2e-tests]
+    needs: [lint, unit-tests, integration-tests, e2e-tests]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:
