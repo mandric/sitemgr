@@ -193,7 +193,7 @@ jobs:
           ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
           TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}
           TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}
-          TWILIO_WHATSAPP_FROM=${{ secrets.TWILIO_WHATSAPP_FROM }}
+          TWILIO_WHATSAPP_FROM=${{ vars.TWILIO_WHATSAPP_FROM }}
           EOF
 
       - name: Run E2E tests
@@ -275,7 +275,7 @@ jobs:
             ANTHROPIC_API_KEY="${{ secrets.ANTHROPIC_API_KEY }}" \
             TWILIO_ACCOUNT_SID="${{ secrets.TWILIO_ACCOUNT_SID }}" \
             TWILIO_AUTH_TOKEN="${{ secrets.TWILIO_AUTH_TOKEN }}" \
-            TWILIO_WHATSAPP_FROM="${{ secrets.TWILIO_WHATSAPP_FROM }}" \
+            TWILIO_WHATSAPP_FROM="${{ vars.TWILIO_WHATSAPP_FROM }}" \
             ENCRYPTION_KEY="${{ secrets.ENCRYPTION_KEY }}"
 
           echo "Secrets configured"
@@ -294,7 +294,7 @@ jobs:
       - name: Configure Twilio WhatsApp webhook
         run: |
           WEBHOOK_URL="https://${{ vars.SUPABASE_PROJECT_REF }}.supabase.co/functions/v1/whatsapp"
-          RAW_NUMBER=$(echo "${{ secrets.TWILIO_WHATSAPP_FROM }}" | sed 's/^whatsapp://')
+          RAW_NUMBER=$(echo "${{ vars.TWILIO_WHATSAPP_FROM }}" | sed 's/^whatsapp://')
 
           echo "Looking up Twilio phone number SID for $RAW_NUMBER..."
           LOOKUP=$(curl -sf -u "${{ secrets.TWILIO_ACCOUNT_SID }}:${{ secrets.TWILIO_AUTH_TOKEN }}" \
