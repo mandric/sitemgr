@@ -8,8 +8,15 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { AGENT_SYSTEM_PROMPT, WHATSAPP_PLANNER_PROMPT } from "./system-prompt";
 import { getSupabaseClient } from "@/lib/media/db";
-import { queryEvents, showEvent, getStats, getEnrichStatus } from "@/lib/media/db";
-import { encryptSecret } from "@/lib/crypto/encryption";
+import {
+  queryEvents, showEvent, getStats, getEnrichStatus,
+  insertEvent, insertEnrichment, upsertWatchedKey, getWatchedKeys,
+} from "@/lib/media/db";
+import { encryptSecret, decryptSecret } from "@/lib/crypto/encryption";
+import { createS3Client, listS3Objects, downloadS3Object } from "@/lib/media/s3";
+import { newEventId, nowIso, detectContentType, getMimeType, sha256Bytes, s3Metadata } from "@/lib/media/utils";
+import { enrichImage } from "@/lib/media/enrichment";
+import { ListObjectsV2Command, ListObjectsCommand } from "@aws-sdk/client-s3";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -148,6 +155,32 @@ export async function executeAction(
       return JSON.stringify({ results: result.events, count: result.total });
     }
 
+    case "test_bucket":
+      return await testBucket(phoneNumber, plan.params?.bucket_name as string);
+
+    case "list_objects":
+      return await listObjects(
+        phoneNumber,
+        plan.params?.bucket_name as string,
+        plan.params?.prefix as string | undefined,
+        (plan.params?.limit as number) ?? 100
+      );
+
+    case "count_objects":
+      return await countObjects(
+        phoneNumber,
+        plan.params?.bucket_name as string,
+        plan.params?.prefix as string | undefined
+      );
+
+    case "index_bucket":
+      return await indexBucket(
+        phoneNumber,
+        plan.params?.bucket_name as string,
+        plan.params?.prefix as string | undefined,
+        (plan.params?.batch_size as number) ?? 10
+      );
+
     default:
       return JSON.stringify({ error: `Unknown action: ${plan.action}` });
   }
@@ -271,6 +304,270 @@ async function removeBucket(phoneNumber: string, bucketName: string): Promise<st
   }
 
   return JSON.stringify({ success: true, message: `Bucket "${bucketName}" removed` });
+}
+
+// ── S3 bucket operations ────────────────────────────────────────
+
+async function getBucketConfig(phoneNumber: string, bucketName: string) {
+  if (!bucketName) return null;
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("bucket_configs")
+    .select("*")
+    .eq("phone_number", phoneNumber)
+    .eq("bucket_name", bucketName)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  const decryptedSecret = await decryptSecret(data.secret_access_key);
+  return { ...data, secret_access_key: decryptedSecret };
+}
+
+async function testBucket(
+  phoneNumber: string,
+  bucketName: string
+): Promise<string> {
+  if (!bucketName) {
+    return JSON.stringify({ error: "bucket_name is required" });
+  }
+
+  const config = await getBucketConfig(phoneNumber, bucketName);
+  if (!config) {
+    return JSON.stringify({ error: `Bucket "${bucketName}" not found` });
+  }
+
+  try {
+    const client = createS3Client({
+      endpoint: config.endpoint_url,
+      region: config.region ?? undefined,
+      accessKeyId: config.access_key_id,
+      secretAccessKey: config.secret_access_key,
+    });
+
+    // Try listing up to 1 object to verify read access
+    try {
+      const response = await client.send(
+        new ListObjectsV2Command({ Bucket: bucketName, MaxKeys: 1 })
+      );
+      const count = response.KeyCount ?? 0;
+      return JSON.stringify({
+        success: true,
+        message: `Read access confirmed for "${bucketName}"`,
+        has_objects: count > 0,
+      });
+    } catch {
+      // Fallback to v1 for providers that don't support v2
+      const response = await client.send(
+        new ListObjectsCommand({ Bucket: bucketName, MaxKeys: 1 })
+      );
+      const count = (response.Contents ?? []).length;
+      return JSON.stringify({
+        success: true,
+        message: `Read access confirmed for "${bucketName}" (v1 API)`,
+        has_objects: count > 0,
+      });
+    }
+  } catch (err) {
+    return JSON.stringify({
+      success: false,
+      error: `Cannot read bucket "${bucketName}": ${(err as Error).message}`,
+    });
+  }
+}
+
+async function listObjects(
+  phoneNumber: string,
+  bucketName: string,
+  prefix?: string,
+  limit = 100
+): Promise<string> {
+  if (!bucketName) {
+    return JSON.stringify({ error: "bucket_name is required" });
+  }
+
+  const config = await getBucketConfig(phoneNumber, bucketName);
+  if (!config) {
+    return JSON.stringify({ error: `Bucket "${bucketName}" not found` });
+  }
+
+  try {
+    const client = createS3Client({
+      endpoint: config.endpoint_url,
+      region: config.region ?? undefined,
+      accessKeyId: config.access_key_id,
+      secretAccessKey: config.secret_access_key,
+    });
+
+    const allObjects = await listS3Objects(client, bucketName, prefix ?? "");
+    const objects = allObjects.slice(0, limit);
+
+    return JSON.stringify({
+      bucket: bucketName,
+      prefix: prefix ?? "",
+      objects: objects.map((o) => ({
+        key: o.key,
+        size: o.size,
+        lastModified: o.lastModified,
+      })),
+      returned: objects.length,
+      total: allObjects.length,
+    });
+  } catch (err) {
+    return JSON.stringify({
+      error: `Failed to list objects: ${(err as Error).message}`,
+    });
+  }
+}
+
+async function countObjects(
+  phoneNumber: string,
+  bucketName: string,
+  prefix?: string
+): Promise<string> {
+  if (!bucketName) {
+    return JSON.stringify({ error: "bucket_name is required" });
+  }
+
+  const config = await getBucketConfig(phoneNumber, bucketName);
+  if (!config) {
+    return JSON.stringify({ error: `Bucket "${bucketName}" not found` });
+  }
+
+  try {
+    const client = createS3Client({
+      endpoint: config.endpoint_url,
+      region: config.region ?? undefined,
+      accessKeyId: config.access_key_id,
+      secretAccessKey: config.secret_access_key,
+    });
+
+    const allObjects = await listS3Objects(client, bucketName, prefix ?? "");
+
+    // Group by content type
+    const byType: Record<string, number> = {};
+    for (const obj of allObjects) {
+      const ct = detectContentType(obj.key);
+      byType[ct] = (byType[ct] ?? 0) + 1;
+    }
+
+    return JSON.stringify({
+      bucket: bucketName,
+      prefix: prefix ?? "",
+      total: allObjects.length,
+      by_type: byType,
+    });
+  } catch (err) {
+    return JSON.stringify({
+      error: `Failed to count objects: ${(err as Error).message}`,
+    });
+  }
+}
+
+const IMAGE_MIME_PREFIXES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+
+async function indexBucket(
+  phoneNumber: string,
+  bucketName: string,
+  prefix?: string,
+  batchSize = 10
+): Promise<string> {
+  if (!bucketName) {
+    return JSON.stringify({ error: "bucket_name is required" });
+  }
+
+  const config = await getBucketConfig(phoneNumber, bucketName);
+  if (!config) {
+    return JSON.stringify({ error: `Bucket "${bucketName}" not found` });
+  }
+
+  try {
+    const client = createS3Client({
+      endpoint: config.endpoint_url,
+      region: config.region ?? undefined,
+      accessKeyId: config.access_key_id,
+      secretAccessKey: config.secret_access_key,
+    });
+
+    // List all objects in bucket
+    const allObjects = await listS3Objects(client, bucketName, prefix ?? "");
+
+    // Get already-watched keys to find new ones
+    const watchedKeys = await getWatchedKeys();
+    const newObjects = allObjects.filter((o) => !watchedKeys.has(o.key));
+
+    // Take only batch_size items
+    const batch = newObjects.slice(0, batchSize);
+
+    let indexed = 0;
+    let enriched = 0;
+    const errors: string[] = [];
+
+    for (const obj of batch) {
+      try {
+        const eventId = newEventId();
+        const contentType = detectContentType(obj.key);
+        const mimeType = getMimeType(obj.key);
+
+        // Create event
+        await insertEvent({
+          id: eventId,
+          device_id: `whatsapp:${phoneNumber}`,
+          type: "create",
+          content_type: contentType,
+          content_hash: `etag:${obj.etag}`,
+          local_path: null,
+          remote_path: `s3://${bucketName}/${obj.key}`,
+          metadata: s3Metadata(obj.key, obj.size, obj.etag),
+          parent_id: null,
+          bucket_config_id: config.id,
+        });
+
+        // Track watched key
+        await upsertWatchedKey(obj.key, eventId, obj.etag, obj.size);
+        indexed++;
+
+        // Enrich if it's an image we can analyze
+        if (IMAGE_MIME_PREFIXES.includes(mimeType)) {
+          try {
+            const imageBytes = await downloadS3Object(client, bucketName, obj.key);
+            const result = await enrichImage(imageBytes, mimeType);
+            await insertEnrichment(eventId, result);
+            enriched++;
+          } catch (enrichErr) {
+            // Log enrichment failure but don't fail the whole batch
+            await insertEvent({
+              id: newEventId(),
+              device_id: `whatsapp:${phoneNumber}`,
+              type: "enrich_failed",
+              content_type: contentType,
+              content_hash: null,
+              local_path: null,
+              remote_path: `s3://${bucketName}/${obj.key}`,
+              metadata: { error: (enrichErr as Error).message },
+              parent_id: eventId,
+            });
+          }
+        }
+      } catch (err) {
+        errors.push(`${obj.key}: ${(err as Error).message}`);
+      }
+    }
+
+    return JSON.stringify({
+      bucket: bucketName,
+      total_objects: allObjects.length,
+      already_indexed: allObjects.length - newObjects.length,
+      remaining: newObjects.length - batch.length,
+      batch_indexed: indexed,
+      batch_enriched: enriched,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (err) {
+    return JSON.stringify({
+      error: `Failed to index bucket: ${(err as Error).message}`,
+    });
+  }
 }
 
 // ── Conversation history ───────────────────────────────────────

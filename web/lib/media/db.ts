@@ -28,6 +28,8 @@ export interface EventRow {
   remote_path: string | null;
   metadata: Record<string, unknown> | null;
   parent_id: string | null;
+  bucket_config_id?: string | null;
+  user_id?: string | null;
 }
 
 // ── Query ──────────────────────────────────────────────────────
