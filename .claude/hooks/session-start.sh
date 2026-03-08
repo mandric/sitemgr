@@ -26,6 +26,8 @@ if [ -n "${GH_REPO_DETECTED:-}" ]; then
   export GH_REPO="$GH_REPO_DETECTED"
 fi
 
-# Install Node.js dependencies for the web app
+# Install Node.js dependencies only when needed
 cd "$CLAUDE_PROJECT_DIR/web"
-npm install
+if [ ! -d node_modules ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then
+  npm install
+fi
