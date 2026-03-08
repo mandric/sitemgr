@@ -201,27 +201,58 @@ jobs:
             -d '{"id":"media","name":"media","public":false}' \
             || echo "Bucket already exists"
 
-      - name: Smoke test WhatsApp webhook
+      - name: Wait for Vercel deployment
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
         run: |
-          WEBHOOK_URL="${{ vars.VERCEL_APP_URL }}/api/whatsapp"
-          echo "Waiting for Vercel deployment to be ready..."
+          echo "Waiting for Vercel to deploy commit $GITHUB_SHA..."
 
-          MAX_ATTEMPTS=20
+          MAX_ATTEMPTS=60
           DELAY=10
+          API_URL="https://api.vercel.com/v6/deployments"
+
           for i in $(seq 1 $MAX_ATTEMPTS); do
-            RESPONSE=$(curl -sf "$WEBHOOK_URL" 2>/dev/null || echo '{}')
-            STATUS=$(echo "$RESPONSE" | jq -r '.status // empty')
-            if [ "$STATUS" = "ok" ]; then
-              echo "WhatsApp webhook is live at: $WEBHOOK_URL"
+            RESP=$(curl -s -H "Authorization: Bearer $VERCEL_TOKEN" \
+              "$API_URL?projectId=$VERCEL_PROJECT_ID&target=production&sha=$GITHUB_SHA&limit=1&teamId=$VERCEL_TEAM_ID")
+            STATE=$(echo "$RESP" | jq -r '.deployments[0].state // "NOT_FOUND"')
+            URL=$(echo "$RESP" | jq -r '.deployments[0].url // empty')
+
+            echo "Attempt $i/$MAX_ATTEMPTS: state=$STATE"
+
+            if [ "$STATE" = "READY" ]; then
+              echo "Vercel deployment is READY: https://$URL"
+              echo "DEPLOY_URL=https://$URL" >> "$GITHUB_ENV"
               exit 0
+            elif [ "$STATE" = "ERROR" ] || [ "$STATE" = "CANCELED" ]; then
+              echo "ERROR: Vercel deployment failed with state: $STATE"
+              echo "$RESP" | jq .
+              exit 1
             fi
-            echo "Attempt $i/$MAX_ATTEMPTS: not ready yet (status=$STATUS), retrying in ${DELAY}s..."
+
             sleep $DELAY
           done
 
-          echo "ERROR: Webhook did not become ready after $((MAX_ATTEMPTS * DELAY))s"
-          echo "Last response: $RESPONSE"
+          echo "ERROR: Vercel deployment did not become ready after $((MAX_ATTEMPTS * DELAY))s"
           exit 1
+
+      - name: Smoke test WhatsApp webhook
+        run: |
+          WEBHOOK_URL="${{ env.DEPLOY_URL }}/api/whatsapp"
+          echo "Testing webhook at: $WEBHOOK_URL"
+
+          RESPONSE=$(curl -sf "$WEBHOOK_URL" 2>&1)
+          STATUS=$(echo "$RESPONSE" | jq -r '.status // empty')
+
+          if [ "$STATUS" = "ok" ]; then
+            echo "WhatsApp webhook is live!"
+            echo "$RESPONSE" | jq .
+          else
+            echo "ERROR: Unexpected response from webhook"
+            echo "Response: $RESPONSE"
+            exit 1
+          fi
 
       - name: Deployment summary
         run: |
