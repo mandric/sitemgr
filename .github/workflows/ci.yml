@@ -203,15 +203,25 @@ jobs:
 
       - name: Smoke test WhatsApp webhook
         run: |
-          echo "Waiting for Vercel deployment to complete..."
-          sleep 30
-
           WEBHOOK_URL="${{ vars.VERCEL_APP_URL }}/api/whatsapp"
-          echo "Testing: $WEBHOOK_URL"
-          RESPONSE=$(curl -sf "$WEBHOOK_URL" || echo '{"error":"not reachable"}')
-          echo "Response: $RESPONSE"
-          echo "$RESPONSE" | grep -q '"status":"ok"'
-          echo "WhatsApp webhook is live on Vercel."
+          echo "Waiting for Vercel deployment to be ready..."
+
+          MAX_ATTEMPTS=20
+          DELAY=10
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            RESPONSE=$(curl -sf "$WEBHOOK_URL" 2>/dev/null || echo '{}')
+            STATUS=$(echo "$RESPONSE" | jq -r '.status // empty')
+            if [ "$STATUS" = "ok" ]; then
+              echo "WhatsApp webhook is live at: $WEBHOOK_URL"
+              exit 0
+            fi
+            echo "Attempt $i/$MAX_ATTEMPTS: not ready yet (status=$STATUS), retrying in ${DELAY}s..."
+            sleep $DELAY
+          done
+
+          echo "ERROR: Webhook did not become ready after $((MAX_ATTEMPTS * DELAY))s"
+          echo "Last response: $RESPONSE"
+          exit 1
 
       - name: Deployment summary
         run: |
