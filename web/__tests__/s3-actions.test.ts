@@ -8,9 +8,6 @@ vi.mock("@anthropic-ai/sdk", () => ({
 }));
 
 // Mock Supabase
-const mockSelect = vi.fn();
-const mockEq = vi.fn();
-const mockMaybeSingle = vi.fn();
 const mockFrom = vi.fn();
 
 vi.mock("@/lib/media/db", async (importOriginal) => {

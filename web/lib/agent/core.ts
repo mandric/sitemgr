@@ -14,7 +14,7 @@ import {
 } from "@/lib/media/db";
 import { encryptSecret, decryptSecret } from "@/lib/crypto/encryption";
 import { createS3Client, listS3Objects, downloadS3Object } from "@/lib/media/s3";
-import { newEventId, nowIso, detectContentType, getMimeType, sha256Bytes, s3Metadata } from "@/lib/media/utils";
+import { newEventId, detectContentType, getMimeType, s3Metadata } from "@/lib/media/utils";
 import { enrichImage } from "@/lib/media/enrichment";
 import { ListObjectsV2Command, ListObjectsCommand } from "@aws-sdk/client-s3";
 
