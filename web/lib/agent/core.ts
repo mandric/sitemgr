@@ -308,12 +308,18 @@ async function removeBucket(phoneNumber: string, bucketName: string): Promise<st
 
 // ── S3 bucket operations ────────────────────────────────────────
 
-type BucketConfigResult =
-  | { ok: true; config: Record<string, unknown> & { secret_access_key: string } }
-  | { ok: false; error: string };
+type BucketConfig = {
+  id: string;
+  endpoint_url: string;
+  region?: string;
+  access_key_id: string;
+  secret_access_key: string;
+  [key: string]: unknown;
+};
+type BucketConfigResult = { exists: boolean; config?: BucketConfig; error?: Error };
 
 async function getBucketConfig(phoneNumber: string, bucketName: string): Promise<BucketConfigResult> {
-  if (!bucketName) return { ok: false, error: "bucket_name is required" };
+  if (!bucketName) return { exists: false };
   const supabase = getSupabaseClient();
   const { data, error } = await supabase
     .from("bucket_configs")
@@ -322,20 +328,13 @@ async function getBucketConfig(phoneNumber: string, bucketName: string): Promise
     .eq("bucket_name", bucketName)
     .maybeSingle();
 
-  if (error || !data) return { ok: false, error: `Bucket "${bucketName}" not found` };
+  if (error || !data) return { exists: false };
 
   try {
     const decryptedSecret = await decryptSecret(data.secret_access_key);
-    return { ok: true, config: { ...data, secret_access_key: decryptedSecret } };
+    return { exists: true, config: { ...data, secret_access_key: decryptedSecret } };
   } catch (err) {
-    console.error(
-      `[getBucketConfig] decrypt failed for "${bucketName}":`,
-      err instanceof Error ? err.message : err
-    );
-    return {
-      ok: false,
-      error: `Failed to decrypt credentials for bucket "${bucketName}". Please remove and re-add the bucket.`,
-    };
+    return { exists: true, error: err instanceof Error ? err : new Error(String(err)) };
   }
 }
 
@@ -348,10 +347,13 @@ async function testBucket(
   }
 
   const result = await getBucketConfig(phoneNumber, bucketName);
-  if (!result.ok) {
-    return JSON.stringify({ error: result.error });
+  if (!result.exists) {
+    return JSON.stringify({ error: `Bucket "${bucketName}" not found` });
   }
-  const config = result.config;
+  if (result.error) {
+    return JSON.stringify({ error: result.error.message });
+  }
+  const config = result.config!;
 
   try {
     const client = createS3Client({
@@ -403,10 +405,13 @@ async function listObjects(
   }
 
   const result = await getBucketConfig(phoneNumber, bucketName);
-  if (!result.ok) {
-    return JSON.stringify({ error: result.error });
+  if (!result.exists) {
+    return JSON.stringify({ error: `Bucket "${bucketName}" not found` });
   }
-  const config = result.config;
+  if (result.error) {
+    return JSON.stringify({ error: result.error.message });
+  }
+  const config = result.config!;
 
   try {
     const client = createS3Client({
@@ -447,10 +452,13 @@ async function countObjects(
   }
 
   const result = await getBucketConfig(phoneNumber, bucketName);
-  if (!result.ok) {
-    return JSON.stringify({ error: result.error });
+  if (!result.exists) {
+    return JSON.stringify({ error: `Bucket "${bucketName}" not found` });
   }
-  const config = result.config;
+  if (result.error) {
+    return JSON.stringify({ error: result.error.message });
+  }
+  const config = result.config!;
 
   try {
     const client = createS3Client({
@@ -495,10 +503,13 @@ async function indexBucket(
   }
 
   const result = await getBucketConfig(phoneNumber, bucketName);
-  if (!result.ok) {
-    return JSON.stringify({ error: result.error });
+  if (!result.exists) {
+    return JSON.stringify({ error: `Bucket "${bucketName}" not found` });
   }
-  const config = result.config;
+  if (result.error) {
+    return JSON.stringify({ error: result.error.message });
+  }
+  const config = result.config!;
 
   try {
     const client = createS3Client({
