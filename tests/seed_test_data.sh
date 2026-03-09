@@ -12,6 +12,7 @@ echo ""
 # Load environment
 if [ -f .env.local ]; then
     echo "Loading environment from .env.local..."
+    # shellcheck disable=SC2046
     export $(grep -v '^#' .env.local | xargs)
 fi
 
@@ -69,12 +70,10 @@ UPLOAD_COUNT=0
 for photo in "${TEST_PHOTOS[@]}"; do
     echo -n "  $photo ... "
 
-    RESPONSE=$(curl -sf -X POST "$STORAGE_ENDPOINT/object/$BUCKET/test-photos/$photo" \
+    if RESPONSE=$(curl -sf -X POST "$STORAGE_ENDPOINT/object/$BUCKET/test-photos/$photo" \
         -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
         -H "Content-Type: image/jpeg" \
-        --data-binary "@tests/fixtures/photos/$photo" 2>&1)
-
-    if [ $? -eq 0 ]; then
+        --data-binary "@tests/fixtures/photos/$photo" 2>&1); then
         echo "✓"
         UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
     else

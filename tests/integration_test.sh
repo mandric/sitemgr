@@ -60,6 +60,7 @@ fi
 # Load environment
 if [ -f .env.local ]; then
     echo "Loading environment from .env.local..."
+    # shellcheck disable=SC2046
     export $(grep -v '^#' .env.local | xargs)
 else
     echo "Warning: .env.local not found. Run ./scripts/local-dev.sh first."
@@ -113,12 +114,10 @@ TEST_IMAGE_PATH="/tmp/test_image_$$.jpg"
 echo '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AKwA//9k=' | base64 -d > "$TEST_IMAGE_PATH"
 
 # Upload via Supabase Storage REST API (not S3 API)
-UPLOAD_RESPONSE=$(curl -sf -X POST "$STORAGE_REST_API/object/$SMGR_S3_BUCKET/photos/test_integration.jpg" \
+if UPLOAD_RESPONSE=$(curl -sf -X POST "$STORAGE_REST_API/object/$SMGR_S3_BUCKET/photos/test_integration.jpg" \
   -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
   -H "Content-Type: image/jpeg" \
-  --data-binary "@$TEST_IMAGE_PATH" 2>&1)
-
-if [ $? -eq 0 ]; then
+  --data-binary "@$TEST_IMAGE_PATH" 2>&1); then
     echo "Upload successful"
     test_pass
 else
