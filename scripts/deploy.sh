@@ -22,6 +22,7 @@ fi
 
 # Load .env.production
 echo "Loading configuration from .env.production..."
+# shellcheck source=/dev/null
 source .env.production
 
 # Validate required variables

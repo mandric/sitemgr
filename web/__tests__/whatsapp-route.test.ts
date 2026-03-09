@@ -13,7 +13,7 @@ vi.mock("@/lib/agent/core", () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-import { GET, POST } from "@/app/api/whatsapp/route";
+import { POST } from "@/app/api/whatsapp/route";
 import {
   planAction,
   executeAction,
@@ -40,6 +40,8 @@ function makeRequest(body: Record<string, string>): NextRequest {
 
 describe("WhatsApp route", () => {
   beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "test-key");
     vi.stubEnv("TWILIO_ACCOUNT_SID", "AC_test_sid");
     vi.stubEnv("TWILIO_AUTH_TOKEN", "test_auth_token");
     vi.stubEnv("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886");
@@ -59,16 +61,6 @@ describe("WhatsApp route", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
-  });
-
-  describe("GET", () => {
-    it("returns health check", async () => {
-      const res = await GET();
-      const json = await res.json();
-      expect(json.status).toBe("ok");
-      expect(json.service).toBe("smgr-whatsapp-bot");
-      expect(json.timestamp).toBeDefined();
-    });
   });
 
   describe("POST", () => {
@@ -143,21 +135,5 @@ describe("WhatsApp route", () => {
       expect(body.get("Body")).toContain("something went wrong");
     });
 
-    it("returns empty TwiML when env vars are missing", async () => {
-      vi.unstubAllEnvs();
-      // Don't set any env vars — should detect missing config
-
-      const req = makeRequest({
-        From: "whatsapp:+1234567890",
-        Body: "hello",
-      });
-
-      const res = await POST(req);
-      expect(res.status).toBe(200);
-      const text = await res.text();
-      expect(text).toBe("<Response></Response>");
-      // Should not attempt to call any agent functions
-      expect(mockPlan).not.toHaveBeenCalled();
-    });
   });
 });

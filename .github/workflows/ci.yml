@@ -20,8 +20,11 @@ jobs:
       - name: Install dependencies
         run: cd web && npm ci
 
-      - name: Lint
+      - name: Lint JavaScript/TypeScript
         run: cd web && npm run lint
+
+      - name: Lint shell scripts
+        run: shellcheck scripts/*.sh tests/*.sh
 
   unit-tests:
     name: Unit Tests
@@ -62,7 +65,7 @@ jobs:
         run: |
           echo "SUPABASE_URL=$(supabase status -o json | jq -r .API_URL)" >> $GITHUB_ENV
           echo "SUPABASE_SERVICE_ROLE_KEY=$(supabase status -o json | jq -r .SERVICE_ROLE_KEY)" >> $GITHUB_ENV
-          echo "SUPABASE_ANON_KEY=$(supabase status -o json | jq -r .ANON_KEY)" >> $GITHUB_ENV
+          echo "SUPABASE_PUBLISHABLE_KEY=$(supabase status -o json | jq -r .ANON_KEY)" >> $GITHUB_ENV
           echo "STORAGE_S3_URL=$(supabase status -o json | jq -r .STORAGE_S3_URL)" >> $GITHUB_ENV
 
           AWS_ACCESS_KEY=$(supabase status | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
@@ -127,12 +130,17 @@ jobs:
       - name: Install Playwright browsers
         run: cd web && npx playwright install --with-deps chromium
 
+      - name: Extract Supabase connection details
+        run: |
+          echo "SUPABASE_URL=$(supabase status -o json | jq -r .API_URL)" >> $GITHUB_ENV
+          echo "SUPABASE_PUBLISHABLE_KEY=$(supabase status -o json | jq -r .ANON_KEY)" >> $GITHUB_ENV
+
       - name: Set up environment
         run: |
           cd web
           cat > .env.local <<EOF
-          NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
-          NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+          NEXT_PUBLIC_SUPABASE_URL=${{ env.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ env.SUPABASE_PUBLISHABLE_KEY }}
           ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}
           ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
           TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}
@@ -155,6 +163,10 @@ jobs:
       - name: Stop Supabase
         if: always()
         run: supabase stop
+
+  # TODO: Add preview-smoke-test job once a Preview environment is configured
+  # in GitHub with VERCEL_TOKEN, VERCEL_PROJECT_ID, and VERCEL_TEAM_ID.
+  # See wait_for_vercel_deployment and smoke_test in scripts/lib.sh.
 
   deploy:
     name: Deploy to Production
@@ -204,76 +216,21 @@ jobs:
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
           VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
         run: |
-          echo "Waiting for Vercel to deploy commit $GITHUB_SHA..."
+          source scripts/lib.sh
+          wait_for_vercel_deployment --sha "$GITHUB_SHA" --target production
+          echo "DEPLOY_URL=$DEPLOY_URL" >> "$GITHUB_ENV"
+          echo "DEPLOY_ID=$DEPLOY_ID" >> "$GITHUB_ENV"
 
-          MAX_ATTEMPTS=60
-          DELAY=10
-          API_URL="https://api.vercel.com/v6/deployments"
-
-          for i in $(seq 1 $MAX_ATTEMPTS); do
-            RESP=$(curl -s -H "Authorization: Bearer $VERCEL_TOKEN" \
-              "$API_URL?projectId=$VERCEL_PROJECT_ID&target=production&sha=$GITHUB_SHA&limit=1&teamId=$VERCEL_TEAM_ID")
-            STATE=$(echo "$RESP" | jq -r '.deployments[0].state // "NOT_FOUND"')
-            URL=$(echo "$RESP" | jq -r '.deployments[0].url // empty')
-
-            echo "Attempt $i/$MAX_ATTEMPTS: state=$STATE"
-
-            if [ "$STATE" = "READY" ]; then
-              echo "Vercel deployment is READY: https://$URL"
-              echo "DEPLOY_URL=https://$URL" >> "$GITHUB_ENV"
-              exit 0
-            elif [ "$STATE" = "ERROR" ] || [ "$STATE" = "CANCELED" ]; then
-              echo "ERROR: Vercel deployment failed with state: $STATE"
-              echo "$RESP" | jq .
-              exit 1
-            fi
-
-            sleep $DELAY
-          done
-
-          echo "ERROR: Vercel deployment did not become ready after $((MAX_ATTEMPTS * DELAY))s"
-          exit 1
-
-      - name: Smoke test WhatsApp webhook
+      - name: Smoke test (health check + POST)
         run: |
-          WEBHOOK_URL="${{ vars.VERCEL_APP_URL }}/api/whatsapp"
-          echo "Testing webhook at: $WEBHOOK_URL"
+          source scripts/lib.sh
+          smoke_test "${{ vars.VERCEL_APP_URL }}"
 
-          HTTP_CODE=$(curl -sS -o /tmp/response.json -w '%{http_code}' "$WEBHOOK_URL")
-          echo "HTTP status: $HTTP_CODE"
-          cat /tmp/response.json
-
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "ERROR: Expected HTTP 200, got $HTTP_CODE"
-            exit 1
-          fi
-
-          STATUS=$(jq -r '.status // empty' /tmp/response.json)
-          if [ "$STATUS" = "ok" ]; then
-            echo "WhatsApp webhook GET health check passed!"
-          else
-            echo "ERROR: Unexpected response status: $STATUS"
-            exit 1
-          fi
-
-          # POST smoke test — send a minimal Twilio-style form body
-          # and verify the endpoint accepts it (returns 200 with TwiML)
-          echo ""
-          echo "Testing POST webhook..."
-          HTTP_CODE=$(curl -sS -o /tmp/post-response.txt -w '%{http_code}' \
-            -X POST \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "From=whatsapp%3A%2B15005550006&Body=ping" \
-            "$WEBHOOK_URL")
-          echo "POST HTTP status: $HTTP_CODE"
-          cat /tmp/post-response.txt
-
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "ERROR: POST expected HTTP 200, got $HTTP_CODE"
-            exit 1
-          fi
-
-          echo "WhatsApp webhook POST smoke test passed!"
+      - name: Check Vercel runtime logs
+        if: always() && env.DEPLOY_ID != ''
+        run: |
+          source scripts/lib.sh
+          vercel_log_check "${{ env.DEPLOY_ID }}"
 
       - name: Deployment summary
         run: |

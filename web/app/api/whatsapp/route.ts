@@ -76,15 +76,7 @@ async function sendWhatsApp(to: string, message: string): Promise<void> {
   }
 }
 
-// ── Route handlers ─────────────────────────────────────────────
-
-export async function GET() {
-  return NextResponse.json({
-    status: "ok",
-    service: "smgr-whatsapp-bot",
-    timestamp: new Date().toISOString(),
-  });
-}
+// ── Route handler ──────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const reqId = crypto.randomUUID().slice(0, 8);
@@ -92,21 +84,6 @@ export async function POST(req: NextRequest) {
   let fromNumber = "";
 
   try {
-    // Check required env vars early so we get a clear error
-    const missingEnv = [
-      "TWILIO_ACCOUNT_SID",
-      "TWILIO_AUTH_TOKEN",
-      "TWILIO_WHATSAPP_FROM",
-      "ANTHROPIC_API_KEY",
-    ].filter((k) => !process.env[k]);
-
-    if (missingEnv.length > 0) {
-      console.error(`[${reqId}] Missing env vars: ${missingEnv.join(", ")}`);
-      return new NextResponse("<Response></Response>", {
-        headers: { "Content-Type": "text/xml" },
-      });
-    }
-
     const formData = await req.text();
     const params = new URLSearchParams(formData);
 
