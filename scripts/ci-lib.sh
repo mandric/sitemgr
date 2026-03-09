@@ -12,16 +12,17 @@ set -euo pipefail
 
 # ---------------------------------------------------------------------------
 # smoke_test <deploy_url>
-#   Run health check (GET) and POST smoke test against /api/whatsapp
+#   Run health check (GET /api/health) and POST smoke test (/api/whatsapp)
 # ---------------------------------------------------------------------------
 smoke_test() {
   local deploy_url="${1:?Usage: smoke_test <deploy_url>}"
+  local health_url="${deploy_url}/api/health"
   local webhook_url="${deploy_url}/api/whatsapp"
 
-  echo "=== Health check: GET $webhook_url ==="
+  echo "=== Health check: GET $health_url ==="
 
   local http_code
-  http_code=$(curl -sS -o /tmp/health.json -w '%{http_code}' "$webhook_url")
+  http_code=$(curl -sS -o /tmp/health.json -w '%{http_code}' "$health_url")
   echo "HTTP status: $http_code"
   echo "Response:"
   jq . /tmp/health.json
@@ -135,7 +136,7 @@ vercel_log_check() {
 #   Required env vars: VERCEL_TOKEN, VERCEL_PROJECT_ID
 #   Optional env vars: VERCEL_TEAM_ID
 #
-#   Outputs (to stdout, parseable):
+#   Sets (exported):
 #     DEPLOY_URL=https://...
 #     DEPLOY_ID=dpl_...
 # ---------------------------------------------------------------------------
@@ -188,8 +189,8 @@ wait_for_vercel_deployment() {
 
     if [ "$state" = "READY" ]; then
       echo "Deployment is READY: https://$url" >&2
-      echo "DEPLOY_URL=https://$url"
-      echo "DEPLOY_ID=$deploy_id"
+      export DEPLOY_URL="https://$url"
+      export DEPLOY_ID="$deploy_id"
       return 0
     elif [ "$state" = "ERROR" ] || [ "$state" = "CANCELED" ]; then
       echo "ERROR: Deployment failed with state: $state" >&2
