@@ -64,7 +64,7 @@ jobs:
       - name: Extract Supabase connection details
         run: |
           echo "SUPABASE_URL=$(supabase status -o json | jq -r .API_URL)" >> $GITHUB_ENV
-          echo "SUPABASE_SERVICE_ROLE_KEY=$(supabase status -o json | jq -r .SERVICE_ROLE_KEY)" >> $GITHUB_ENV
+          echo "SUPABASE_SECRET_KEY=$(supabase status -o json | jq -r .SERVICE_ROLE_KEY)" >> $GITHUB_ENV
           echo "SUPABASE_PUBLISHABLE_KEY=$(supabase status -o json | jq -r .ANON_KEY)" >> $GITHUB_ENV
           echo "STORAGE_S3_URL=$(supabase status -o json | jq -r .STORAGE_S3_URL)" >> $GITHUB_ENV
 
@@ -85,7 +85,7 @@ jobs:
       - name: Create storage bucket
         run: |
           curl -sf -X POST "${{ env.SUPABASE_URL }}/storage/v1/bucket" \
-            -H "Authorization: Bearer ${{ env.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Authorization: Bearer ${{ env.SUPABASE_SECRET_KEY }}" \
             -H "Content-Type: application/json" \
             -d '{"id":"media","name":"media","public":false}' \
             || echo "Bucket may already exist"
@@ -175,6 +175,10 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: Production
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
 
     steps:
       - uses: actions/checkout@v4
@@ -205,16 +209,12 @@ jobs:
           SUPABASE_URL="https://${PROJECT_REF}.supabase.co"
 
           curl -X POST "${SUPABASE_URL}/storage/v1/bucket" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SECRET_KEY }}" \
             -H "Content-Type: application/json" \
             -d '{"id":"media","name":"media","public":false}' \
             || echo "Bucket already exists"
 
       - name: Wait for Vercel deployment
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
-          VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
         run: |
           source scripts/lib.sh
           wait_for_vercel_deployment --sha "$GITHUB_SHA" --target production

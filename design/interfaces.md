@@ -388,7 +388,7 @@ All configuration via environment variables (12-factor). See
 `design/architecture.md` for the full list. Key variables:
 
 ```bash
-SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY  # Postgres + Storage
+SUPABASE_URL, SUPABASE_SECRET_KEY  # Postgres + Storage
 SMGR_S3_BUCKET, SMGR_S3_PREFIX          # Where media lives
 ANTHROPIC_API_KEY                         # Enrichment
 TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN    # WhatsApp bot

@@ -66,7 +66,7 @@ else
     echo "Warning: .env.local not found. Run ./scripts/local-dev.sh first."
     # Set defaults
     export SUPABASE_URL=${SUPABASE_URL:-http://localhost:54321}
-    export SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+    export SUPABASE_SECRET_KEY=${SUPABASE_SECRET_KEY:-}
     export SMGR_S3_ENDPOINT=${SMGR_S3_ENDPOINT:-$SUPABASE_URL/storage/v1}
     export SMGR_S3_BUCKET=${SMGR_S3_BUCKET:-media}
     export SMGR_DEVICE_ID=${SMGR_DEVICE_ID:-test}
@@ -74,8 +74,8 @@ else
 fi
 
 # Extract service role key if not set
-if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-    SUPABASE_SERVICE_ROLE_KEY=$(supabase status -o json 2>/dev/null | jq -r .service_role_key)
+if [ -z "$SUPABASE_SECRET_KEY" ]; then
+    SUPABASE_SECRET_KEY=$(supabase status -o json 2>/dev/null | jq -r .service_role_key)
 fi
 
 echo "Supabase URL: $SUPABASE_URL"
@@ -107,7 +107,7 @@ STORAGE_REST_API="$SUPABASE_URL/storage/v1"
 
 # Cleanup: delete test file if it exists from previous run
 curl -sf -X DELETE "$STORAGE_REST_API/object/$SMGR_S3_BUCKET/photos/test_integration.jpg" \
-  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" > /dev/null 2>&1 || true
+  -H "Authorization: Bearer $SUPABASE_SECRET_KEY" > /dev/null 2>&1 || true
 
 # Create a minimal test JPEG (1x1 red pixel)
 TEST_IMAGE_PATH="/tmp/test_image_$$.jpg"
@@ -115,7 +115,7 @@ echo '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh
 
 # Upload via Supabase Storage REST API (not S3 API)
 if UPLOAD_RESPONSE=$(curl -sf -X POST "$STORAGE_REST_API/object/$SMGR_S3_BUCKET/photos/test_integration.jpg" \
-  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SECRET_KEY" \
   -H "Content-Type: image/jpeg" \
   --data-binary "@$TEST_IMAGE_PATH" 2>&1); then
     echo "Upload successful"
@@ -203,7 +203,7 @@ echo ""
 echo "Cleaning up test artifacts..."
 STORAGE_REST_API="$SUPABASE_URL/storage/v1"
 curl -sf -X DELETE "$STORAGE_REST_API/object/$SMGR_S3_BUCKET/photos/test_integration.jpg" \
-  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" > /dev/null 2>&1 || true
+  -H "Authorization: Bearer $SUPABASE_SECRET_KEY" > /dev/null 2>&1 || true
 echo "Done"
 
 # ============================================================

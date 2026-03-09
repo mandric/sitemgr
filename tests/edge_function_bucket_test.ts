@@ -5,11 +5,11 @@ import { assertEquals, assertExists } from "https://deno.land/std@0.208.0/assert
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "http://localhost:54321";
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_SECRET_KEY = Deno.env.get("SUPABASE_SECRET_KEY")!;
 const ENCRYPTION_KEY = Deno.env.get("ENCRYPTION_KEY") || "test-encryption-key-32-chars!!";
 const TEST_PHONE = "whatsapp:+15555551234";
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+const supabase = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY);
 
 // Helper to encrypt secret (same as Edge Function)
 async function encryptSecret(plaintext: string): Promise<string> {

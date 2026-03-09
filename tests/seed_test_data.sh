@@ -23,8 +23,8 @@ if ! curl -sf http://localhost:54321/health > /dev/null 2>&1; then
 fi
 
 # Extract service role key if not set
-if [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-    SUPABASE_SERVICE_ROLE_KEY=$(supabase status -o json 2>/dev/null | jq -r .service_role_key)
+if [ -z "$SUPABASE_SECRET_KEY" ]; then
+    SUPABASE_SECRET_KEY=$(supabase status -o json 2>/dev/null | jq -r .service_role_key)
 fi
 
 SUPABASE_URL=${SUPABASE_URL:-http://localhost:54321}
@@ -71,7 +71,7 @@ for photo in "${TEST_PHOTOS[@]}"; do
     echo -n "  $photo ... "
 
     if RESPONSE=$(curl -sf -X POST "$STORAGE_ENDPOINT/object/$BUCKET/test-photos/$photo" \
-        -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+        -H "Authorization: Bearer $SUPABASE_SECRET_KEY" \
         -H "Content-Type: image/jpeg" \
         --data-binary "@tests/fixtures/photos/$photo" 2>&1); then
         echo "✓"

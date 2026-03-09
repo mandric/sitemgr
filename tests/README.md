@@ -74,7 +74,7 @@ The test suite uses these environment variables (auto-configured by `local-dev.s
 
 ```bash
 SUPABASE_URL                  # Local Supabase API (http://localhost:54321)
-SUPABASE_SERVICE_ROLE_KEY     # Admin key from supabase status
+SUPABASE_SECRET_KEY     # Admin key from supabase status
 SMGR_S3_ENDPOINT              # Storage API endpoint
 SMGR_S3_BUCKET                # Bucket name (default: media)
 SMGR_DEVICE_ID                # Device identifier for tests
@@ -170,7 +170,7 @@ curl http://localhost:54321/health
 Check if the bucket exists:
 ```bash
 source .env.local
-curl -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+curl -H "Authorization: Bearer $SUPABASE_SECRET_KEY" \
   "$SUPABASE_URL/storage/v1/bucket"
 ```
 

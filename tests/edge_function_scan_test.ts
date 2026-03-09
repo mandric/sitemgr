@@ -6,18 +6,18 @@ import { assertEquals, assertExists } from "https://deno.land/std@0.208.0/assert
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "http://localhost:54321";
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_SECRET_KEY = Deno.env.get("SUPABASE_SECRET_KEY")!;
 const STORAGE_S3_URL = Deno.env.get("STORAGE_S3_URL") || "http://localhost:54321/storage/v1/s3";
 const AWS_ACCESS_KEY_ID = Deno.env.get("AWS_ACCESS_KEY_ID")!;
 const AWS_SECRET_ACCESS_KEY = Deno.env.get("AWS_SECRET_ACCESS_KEY")!;
 const ENCRYPTION_KEY = Deno.env.get("ENCRYPTION_KEY") || "test-encryption-key-32-chars!!";
 const TEST_PHONE = "whatsapp:+15555559999";
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+const supabase = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY);
 
 // Set environment for Edge Function
 Deno.env.set("SUPABASE_URL", SUPABASE_URL);
-Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", SUPABASE_SERVICE_ROLE_KEY);
+Deno.env.set("SUPABASE_SECRET_KEY", SUPABASE_SECRET_KEY);
 Deno.env.set("ENCRYPTION_KEY", ENCRYPTION_KEY);
 Deno.env.set("ANTHROPIC_API_KEY", "test-key");
 Deno.env.set("TWILIO_ACCOUNT_SID", "test-sid");
