@@ -308,8 +308,12 @@ async function removeBucket(phoneNumber: string, bucketName: string): Promise<st
 
 // ── S3 bucket operations ────────────────────────────────────────
 
-async function getBucketConfig(phoneNumber: string, bucketName: string) {
-  if (!bucketName) return null;
+type BucketConfigResult =
+  | { ok: true; config: Record<string, unknown> & { secret_access_key: string } }
+  | { ok: false; error: string };
+
+async function getBucketConfig(phoneNumber: string, bucketName: string): Promise<BucketConfigResult> {
+  if (!bucketName) return { ok: false, error: "bucket_name is required" };
   const supabase = getSupabaseClient();
   const { data, error } = await supabase
     .from("bucket_configs")
@@ -318,10 +322,21 @@ async function getBucketConfig(phoneNumber: string, bucketName: string) {
     .eq("bucket_name", bucketName)
     .maybeSingle();
 
-  if (error || !data) return null;
+  if (error || !data) return { ok: false, error: `Bucket "${bucketName}" not found` };
 
-  const decryptedSecret = await decryptSecret(data.secret_access_key);
-  return { ...data, secret_access_key: decryptedSecret };
+  try {
+    const decryptedSecret = await decryptSecret(data.secret_access_key);
+    return { ok: true, config: { ...data, secret_access_key: decryptedSecret } };
+  } catch (err) {
+    console.error(
+      `[getBucketConfig] decrypt failed for "${bucketName}":`,
+      err instanceof Error ? err.message : err
+    );
+    return {
+      ok: false,
+      error: `Failed to decrypt credentials for bucket "${bucketName}". Please remove and re-add the bucket.`,
+    };
+  }
 }
 
 async function testBucket(
@@ -332,10 +347,11 @@ async function testBucket(
     return JSON.stringify({ error: "bucket_name is required" });
   }
 
-  const config = await getBucketConfig(phoneNumber, bucketName);
-  if (!config) {
-    return JSON.stringify({ error: `Bucket "${bucketName}" not found` });
+  const result = await getBucketConfig(phoneNumber, bucketName);
+  if (!result.ok) {
+    return JSON.stringify({ error: result.error });
   }
+  const config = result.config;
 
   try {
     const client = createS3Client({
@@ -386,10 +402,11 @@ async function listObjects(
     return JSON.stringify({ error: "bucket_name is required" });
   }
 
-  const config = await getBucketConfig(phoneNumber, bucketName);
-  if (!config) {
-    return JSON.stringify({ error: `Bucket "${bucketName}" not found` });
+  const result = await getBucketConfig(phoneNumber, bucketName);
+  if (!result.ok) {
+    return JSON.stringify({ error: result.error });
   }
+  const config = result.config;
 
   try {
     const client = createS3Client({
@@ -429,10 +446,11 @@ async function countObjects(
     return JSON.stringify({ error: "bucket_name is required" });
   }
 
-  const config = await getBucketConfig(phoneNumber, bucketName);
-  if (!config) {
-    return JSON.stringify({ error: `Bucket "${bucketName}" not found` });
+  const result = await getBucketConfig(phoneNumber, bucketName);
+  if (!result.ok) {
+    return JSON.stringify({ error: result.error });
   }
+  const config = result.config;
 
   try {
     const client = createS3Client({
@@ -476,10 +494,11 @@ async function indexBucket(
     return JSON.stringify({ error: "bucket_name is required" });
   }
 
-  const config = await getBucketConfig(phoneNumber, bucketName);
-  if (!config) {
-    return JSON.stringify({ error: `Bucket "${bucketName}" not found` });
+  const result = await getBucketConfig(phoneNumber, bucketName);
+  if (!result.ok) {
+    return JSON.stringify({ error: result.error });
   }
+  const config = result.config;
 
   try {
     const client = createS3Client({

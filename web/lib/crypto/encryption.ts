@@ -73,11 +73,19 @@ export async function decryptSecret(ciphertext: string): Promise<string> {
   const encrypted = combined.slice(12);
 
   // Decrypt
-  const decrypted = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv },
-    key,
-    encrypted
-  );
+  let decrypted: ArrayBuffer;
+  try {
+    decrypted = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv },
+      key,
+      encrypted
+    );
+  } catch (err) {
+    throw new Error(
+      "Failed to decrypt secret — the ENCRYPTION_KEY may have changed or the data was encrypted with a different key",
+      { cause: err }
+    );
+  }
 
   return decoder.decode(decrypted);
 }

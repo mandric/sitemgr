@@ -48,13 +48,15 @@ describe("encryption", () => {
     vi.stubEnv("ENCRYPTION_KEY", TEST_KEY);
   });
 
-  it("fails to decrypt with wrong key", async () => {
+  it("fails to decrypt with wrong key and gives actionable message", async () => {
     const encrypted = await encryptSecret("secret-data");
 
     // Switch to a different key
     vi.stubEnv("ENCRYPTION_KEY", "wrong-key-entirely-different");
 
-    await expect(decryptSecret(encrypted)).rejects.toThrow();
+    await expect(decryptSecret(encrypted)).rejects.toThrow(
+      /ENCRYPTION_KEY may have changed/
+    );
 
     // Restore
     vi.stubEnv("ENCRYPTION_KEY", TEST_KEY);
