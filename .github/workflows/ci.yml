@@ -127,12 +127,17 @@ jobs:
       - name: Install Playwright browsers
         run: cd web && npx playwright install --with-deps chromium
 
+      - name: Extract Supabase connection details
+        run: |
+          echo "SUPABASE_URL=$(supabase status -o json | jq -r .API_URL)" >> $GITHUB_ENV
+          echo "SUPABASE_ANON_KEY=$(supabase status -o json | jq -r .ANON_KEY)" >> $GITHUB_ENV
+
       - name: Set up environment
         run: |
           cd web
           cat > .env.local <<EOF
-          NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+          NEXT_PUBLIC_SUPABASE_URL=${{ env.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ env.SUPABASE_ANON_KEY }}
           ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}
           ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
           TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}
@@ -205,101 +210,18 @@ jobs:
           echo "ERROR: Preview deployment did not become ready after $((MAX_ATTEMPTS * DELAY))s"
           exit 1
 
-      - name: Smoke test — health check (GET /api/whatsapp)
-        run: |
-          WEBHOOK_URL="${{ env.PREVIEW_URL }}/api/whatsapp"
-          echo "Testing health check at: $WEBHOOK_URL"
+      - name: Smoke test (health check + POST)
+        uses: ./.github/actions/vercel-smoke-test
+        with:
+          deploy-url: ${{ env.PREVIEW_URL }}
 
-          HTTP_CODE=$(curl -sS -o /tmp/health.json -w '%{http_code}' "$WEBHOOK_URL")
-          echo "HTTP status: $HTTP_CODE"
-          echo "Response:"
-          jq . /tmp/health.json
-
-          # Check overall status
-          STATUS=$(jq -r '.status // empty' /tmp/health.json)
-          if [ "$STATUS" != "ok" ]; then
-            echo ""
-            echo "========================================="
-            echo "  HEALTH CHECK FAILED (status: $STATUS)"
-            echo "========================================="
-
-            # Show individual check results
-            echo ""
-            echo "Check details:"
-            jq -r '.checks | to_entries[] | "  \(.key): \(.value)"' /tmp/health.json
-
-            echo ""
-            echo "The preview deployment has configuration issues."
-            echo "Check Vercel environment variables for this project."
-            exit 1
-          fi
-
-          echo "Health check passed — all checks ok"
-
-      - name: Smoke test — POST webhook
-        run: |
-          WEBHOOK_URL="${{ env.PREVIEW_URL }}/api/whatsapp"
-          echo "Testing POST webhook at: $WEBHOOK_URL"
-
-          HTTP_CODE=$(curl -sS -o /tmp/post-response.txt -w '%{http_code}' \
-            -X POST \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "From=whatsapp%3A%2B15005550006&Body=ping" \
-            "$WEBHOOK_URL")
-          echo "POST HTTP status: $HTTP_CODE"
-          cat /tmp/post-response.txt
-
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "ERROR: POST expected HTTP 200, got $HTTP_CODE"
-            exit 1
-          fi
-
-          echo ""
-          echo "POST smoke test passed"
-
-      - name: Query Vercel runtime logs for errors
+      - name: Check Vercel runtime logs
         if: always() && env.DEPLOY_ID != ''
-        run: |
-          echo "Querying Vercel runtime logs for deployment ${{ env.DEPLOY_ID }}..."
-          echo ""
-
-          # Fetch runtime logs from the last 5 minutes
-          SINCE=$(date -d '5 minutes ago' +%s%3N 2>/dev/null || date -v-5M +%s000)
-
-          LOGS=$(curl -s -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "https://api.vercel.com/v2/deployments/${{ env.DEPLOY_ID }}/events?direction=backward&limit=100&teamId=$VERCEL_TEAM_ID&since=$SINCE" \
-            2>/dev/null || echo "[]")
-
-          # Check if we got valid JSON
-          if ! echo "$LOGS" | jq empty 2>/dev/null; then
-            echo "Warning: Could not parse Vercel logs response"
-            echo "$LOGS"
-            exit 0
-          fi
-
-          LOG_COUNT=$(echo "$LOGS" | jq 'length')
-          echo "Retrieved $LOG_COUNT log entries"
-
-          # Known error patterns to search for
-          ERROR_PATTERNS="Invalid API key|PGRST|AuthApiError|Missing env vars|invalid_api_key|JWT expired|permission denied|relation.*does not exist"
-
-          ERRORS=$(echo "$LOGS" | jq -r '.[].text // empty' 2>/dev/null | grep -iE "$ERROR_PATTERNS" || true)
-
-          if [ -n "$ERRORS" ]; then
-            echo ""
-            echo "========================================="
-            echo "  WARNING: Error patterns found in logs"
-            echo "========================================="
-            echo ""
-            echo "$ERRORS"
-            echo ""
-            echo "These errors may indicate configuration issues."
-            echo "Review the patterns above and check Vercel env vars."
-            # Fail the step so it's visible in the PR checks
-            exit 1
-          else
-            echo "No known error patterns found in runtime logs"
-          fi
+        uses: ./.github/actions/vercel-log-check
+        with:
+          deploy-id: ${{ env.DEPLOY_ID }}
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-team-id: ${{ vars.VERCEL_TEAM_ID }}
 
   deploy:
     name: Deploy to Production
@@ -364,8 +286,10 @@ jobs:
             echo "Attempt $i/$MAX_ATTEMPTS: state=$STATE"
 
             if [ "$STATE" = "READY" ]; then
+              DEPLOY_ID=$(echo "$RESP" | jq -r '.deployments[0].uid // empty')
               echo "Vercel deployment is READY: https://$URL"
               echo "DEPLOY_URL=https://$URL" >> "$GITHUB_ENV"
+              echo "DEPLOY_ID=$DEPLOY_ID" >> "$GITHUB_ENV"
               exit 0
             elif [ "$STATE" = "ERROR" ] || [ "$STATE" = "CANCELED" ]; then
               echo "ERROR: Vercel deployment failed with state: $STATE"
@@ -379,102 +303,18 @@ jobs:
           echo "ERROR: Vercel deployment did not become ready after $((MAX_ATTEMPTS * DELAY))s"
           exit 1
 
-      - name: Smoke test WhatsApp webhook
-        run: |
-          WEBHOOK_URL="${{ vars.VERCEL_APP_URL }}/api/whatsapp"
-          echo "Testing webhook at: $WEBHOOK_URL"
+      - name: Smoke test (health check + POST)
+        uses: ./.github/actions/vercel-smoke-test
+        with:
+          deploy-url: ${{ vars.VERCEL_APP_URL }}
 
-          HTTP_CODE=$(curl -sS -o /tmp/response.json -w '%{http_code}' "$WEBHOOK_URL")
-          echo "HTTP status: $HTTP_CODE"
-          jq . /tmp/response.json
-
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "ERROR: Expected HTTP 200, got $HTTP_CODE"
-            exit 1
-          fi
-
-          STATUS=$(jq -r '.status // empty' /tmp/response.json)
-          if [ "$STATUS" = "ok" ]; then
-            echo "Health check passed — all checks ok"
-          elif [ "$STATUS" = "degraded" ]; then
-            echo "ERROR: Health check returned degraded status"
-            echo "Check details:"
-            jq -r '.checks | to_entries[] | "  \(.key): \(.value)"' /tmp/response.json
-            exit 1
-          else
-            echo "ERROR: Unexpected response status: $STATUS"
-            exit 1
-          fi
-
-          # POST smoke test — send a minimal Twilio-style form body
-          # and verify the endpoint accepts it (returns 200 with TwiML)
-          echo ""
-          echo "Testing POST webhook..."
-          HTTP_CODE=$(curl -sS -o /tmp/post-response.txt -w '%{http_code}' \
-            -X POST \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "From=whatsapp%3A%2B15005550006&Body=ping" \
-            "$WEBHOOK_URL")
-          echo "POST HTTP status: $HTTP_CODE"
-          cat /tmp/post-response.txt
-
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "ERROR: POST expected HTTP 200, got $HTTP_CODE"
-            exit 1
-          fi
-
-          echo "WhatsApp webhook POST smoke test passed!"
-
-      - name: Query Vercel runtime logs for errors
-        if: always() && env.DEPLOY_URL != ''
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
-          VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
-        run: |
-          # Extract deployment ID from the DEPLOY_URL
-          DEPLOY_ID=$(curl -s -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "https://api.vercel.com/v6/deployments?projectId=$VERCEL_PROJECT_ID&target=production&sha=$GITHUB_SHA&limit=1&teamId=$VERCEL_TEAM_ID" \
-            | jq -r '.deployments[0].uid // empty')
-
-          if [ -z "$DEPLOY_ID" ]; then
-            echo "Warning: Could not determine deployment ID, skipping log check"
-            exit 0
-          fi
-
-          echo "Querying Vercel runtime logs for deployment $DEPLOY_ID..."
-
-          SINCE=$(date -d '5 minutes ago' +%s%3N 2>/dev/null || date -v-5M +%s000)
-
-          LOGS=$(curl -s -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "https://api.vercel.com/v2/deployments/$DEPLOY_ID/events?direction=backward&limit=100&teamId=$VERCEL_TEAM_ID&since=$SINCE" \
-            2>/dev/null || echo "[]")
-
-          if ! echo "$LOGS" | jq empty 2>/dev/null; then
-            echo "Warning: Could not parse Vercel logs response"
-            exit 0
-          fi
-
-          LOG_COUNT=$(echo "$LOGS" | jq 'length')
-          echo "Retrieved $LOG_COUNT log entries"
-
-          ERROR_PATTERNS="Invalid API key|PGRST|AuthApiError|Missing env vars|invalid_api_key|JWT expired|permission denied|relation.*does not exist"
-
-          ERRORS=$(echo "$LOGS" | jq -r '.[].text // empty' 2>/dev/null | grep -iE "$ERROR_PATTERNS" || true)
-
-          if [ -n "$ERRORS" ]; then
-            echo ""
-            echo "========================================="
-            echo "  WARNING: Error patterns found in logs"
-            echo "========================================="
-            echo ""
-            echo "$ERRORS"
-            echo ""
-            echo "Review the patterns above and check Vercel env vars."
-            exit 1
-          else
-            echo "No known error patterns found in runtime logs"
-          fi
+      - name: Check Vercel runtime logs
+        if: always() && env.DEPLOY_ID != ''
+        uses: ./.github/actions/vercel-log-check
+        with:
+          deploy-id: ${{ env.DEPLOY_ID }}
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-team-id: ${{ vars.VERCEL_TEAM_ID }}
 
       - name: Deployment summary
         run: |

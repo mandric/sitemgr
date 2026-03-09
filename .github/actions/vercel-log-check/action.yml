@@ -1,0 +1,68 @@
+name: 'Vercel Log Check'
+description: 'Query Vercel runtime logs and fail if error-level entries are found'
+
+inputs:
+  deploy-id:
+    description: 'Vercel deployment ID'
+    required: true
+  vercel-token:
+    description: 'Vercel API token'
+    required: true
+  vercel-team-id:
+    description: 'Vercel team ID'
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Query Vercel runtime logs
+      shell: bash
+      run: |
+        echo "Querying Vercel runtime logs for deployment ${{ inputs.deploy-id }}..."
+        echo ""
+
+        TEAM_PARAM=""
+        if [ -n "${{ inputs.vercel-team-id }}" ]; then
+          TEAM_PARAM="&teamId=${{ inputs.vercel-team-id }}"
+        fi
+
+        # Fetch runtime logs from the last 5 minutes
+        SINCE=$(date -d '5 minutes ago' +%s%3N 2>/dev/null || date -v-5M +%s000)
+
+        LOGS=$(curl -s -H "Authorization: Bearer ${{ inputs.vercel-token }}" \
+          "https://api.vercel.com/v2/deployments/${{ inputs.deploy-id }}/events?direction=backward&limit=100${TEAM_PARAM}&since=$SINCE" \
+          2>/dev/null || echo "[]")
+
+        if ! echo "$LOGS" | jq empty 2>/dev/null; then
+          echo "Warning: Could not parse Vercel logs response"
+          echo "$LOGS"
+          exit 0
+        fi
+
+        LOG_COUNT=$(echo "$LOGS" | jq 'length')
+        echo "Retrieved $LOG_COUNT log entries"
+        echo ""
+
+        # Print all log entries to console for visibility
+        echo "========================================="
+        echo "  All log entries"
+        echo "========================================="
+        echo "$LOGS" | jq -r '.[] | "\(.created // .timestamp // "?") [\(.level // .type // "info")] \(.text // .message // "")"' 2>/dev/null || echo "$LOGS"
+        echo ""
+
+        # Filter for error-level entries
+        ERRORS=$(echo "$LOGS" | jq -r '[.[] | select(.level == "error" or .type == "error")] | length' 2>/dev/null || echo "0")
+
+        if [ "$ERRORS" -gt 0 ]; then
+          echo "========================================="
+          echo "  ERRORS FOUND: $ERRORS error-level log entries"
+          echo "========================================="
+          echo ""
+          echo "$LOGS" | jq -r '.[] | select(.level == "error" or .type == "error") | "\(.created // .timestamp // "?") \(.text // .message // "")"' 2>/dev/null
+          echo ""
+          echo "Review the errors above and check Vercel env vars."
+          exit 1
+        else
+          echo "No error-level log entries found"
+        fi
