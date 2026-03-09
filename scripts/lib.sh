@@ -3,7 +3,7 @@
 # Source this file, then call functions with the required env vars or arguments.
 #
 # Usage:
-#   source scripts/ci-lib.sh
+#   source scripts/lib.sh
 #   smoke_test "https://my-app.vercel.app"
 #   vercel_log_check "dpl_abc123"
 #   wait_for_vercel_deployment --sha abc123 --target production

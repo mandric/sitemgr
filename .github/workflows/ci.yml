@@ -180,20 +180,20 @@ jobs:
 
       - name: Wait for Vercel preview deployment
         run: |
-          source scripts/ci-lib.sh
+          source scripts/lib.sh
           wait_for_vercel_deployment --sha "$COMMIT_SHA"
           echo "DEPLOY_URL=$DEPLOY_URL" >> "$GITHUB_ENV"
           echo "DEPLOY_ID=$DEPLOY_ID" >> "$GITHUB_ENV"
 
       - name: Smoke test (health check + POST)
         run: |
-          source scripts/ci-lib.sh
+          source scripts/lib.sh
           smoke_test "$DEPLOY_URL"
 
       - name: Check Vercel runtime logs
         if: always() && env.DEPLOY_ID != ''
         run: |
-          source scripts/ci-lib.sh
+          source scripts/lib.sh
           vercel_log_check "${{ env.DEPLOY_ID }}"
 
   deploy:
@@ -244,20 +244,20 @@ jobs:
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
           VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
         run: |
-          source scripts/ci-lib.sh
+          source scripts/lib.sh
           wait_for_vercel_deployment --sha "$GITHUB_SHA" --target production
           echo "DEPLOY_URL=$DEPLOY_URL" >> "$GITHUB_ENV"
           echo "DEPLOY_ID=$DEPLOY_ID" >> "$GITHUB_ENV"
 
       - name: Smoke test (health check + POST)
         run: |
-          source scripts/ci-lib.sh
+          source scripts/lib.sh
           smoke_test "${{ vars.VERCEL_APP_URL }}"
 
       - name: Check Vercel runtime logs
         if: always() && env.DEPLOY_ID != ''
         run: |
-          source scripts/ci-lib.sh
+          source scripts/lib.sh
           vercel_log_check "${{ env.DEPLOY_ID }}"
 
       - name: Deployment summary
