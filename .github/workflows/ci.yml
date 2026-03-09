@@ -164,37 +164,9 @@ jobs:
         if: always()
         run: supabase stop
 
-  preview-smoke-test:
-    name: Preview Deployment Smoke Test
-    needs: [lint, unit-tests]
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
-      VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
-      COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Wait for Vercel preview deployment
-        run: |
-          source scripts/lib.sh
-          wait_for_vercel_deployment --sha "$COMMIT_SHA"
-          echo "DEPLOY_URL=$DEPLOY_URL" >> "$GITHUB_ENV"
-          echo "DEPLOY_ID=$DEPLOY_ID" >> "$GITHUB_ENV"
-
-      - name: Smoke test (health check + POST)
-        run: |
-          source scripts/lib.sh
-          smoke_test "$DEPLOY_URL"
-
-      - name: Check Vercel runtime logs
-        if: always() && env.DEPLOY_ID != ''
-        run: |
-          source scripts/lib.sh
-          vercel_log_check "${{ env.DEPLOY_ID }}"
+  # TODO: Add preview-smoke-test job once a Preview environment is configured
+  # in GitHub with VERCEL_TOKEN, VERCEL_PROJECT_ID, and VERCEL_TEAM_ID.
+  # See wait_for_vercel_deployment and smoke_test in scripts/lib.sh.
 
   deploy:
     name: Deploy to Production
