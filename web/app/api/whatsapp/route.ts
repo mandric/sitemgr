@@ -13,6 +13,7 @@ import {
   getConversationHistory,
   saveConversationHistory,
 } from "@/lib/agent/core";
+import { getSupabaseClient } from "@/lib/media/db";
 
 // ── Twilio helpers ─────────────────────────────────────────────
 
@@ -79,11 +80,43 @@ async function sendWhatsApp(to: string, message: string): Promise<void> {
 // ── Route handlers ─────────────────────────────────────────────
 
 export async function GET() {
-  return NextResponse.json({
-    status: "ok",
-    service: "smgr-whatsapp-bot",
-    timestamp: new Date().toISOString(),
-  });
+  const checks: Record<string, string> = {};
+
+  // Check required env vars
+  const requiredEnvVars = [
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+    "TWILIO_ACCOUNT_SID",
+    "TWILIO_AUTH_TOKEN",
+    "TWILIO_WHATSAPP_FROM",
+    "ANTHROPIC_API_KEY",
+  ];
+  const missingEnv = requiredEnvVars.filter((k) => !process.env[k]);
+  checks.env_vars = missingEnv.length === 0 ? "ok" : `missing: ${missingEnv.join(", ")}`;
+
+  // Check Supabase DB connectivity
+  try {
+    const supabase = getSupabaseClient();
+    const { error } = await supabase
+      .from("conversations")
+      .select("phone", { count: "exact", head: true })
+      .limit(0);
+    checks.supabase = error ? `error: ${error.message}` : "ok";
+  } catch (e) {
+    checks.supabase = `error: ${e instanceof Error ? e.message : String(e)}`;
+  }
+
+  const allOk = Object.values(checks).every((v) => v === "ok");
+
+  return NextResponse.json(
+    {
+      status: allOk ? "ok" : "degraded",
+      service: "smgr-whatsapp-bot",
+      timestamp: new Date().toISOString(),
+      checks,
+    },
+    { status: allOk ? 200 : 503 },
+  );
 }
 
 export async function POST(req: NextRequest) {
