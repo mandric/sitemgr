@@ -175,53 +175,22 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Wait for Vercel preview deployment
-        id: wait-preview
         run: |
-          echo "Waiting for Vercel preview deployment for SHA ${{ github.event.pull_request.head.sha }}..."
-
-          MAX_ATTEMPTS=60
-          DELAY=10
-          API_URL="https://api.vercel.com/v6/deployments"
-          SHA="${{ github.event.pull_request.head.sha }}"
-
-          for i in $(seq 1 $MAX_ATTEMPTS); do
-            RESP=$(curl -s -H "Authorization: Bearer $VERCEL_TOKEN" \
-              "$API_URL?projectId=$VERCEL_PROJECT_ID&sha=$SHA&limit=1&teamId=$VERCEL_TEAM_ID")
-            STATE=$(echo "$RESP" | jq -r '.deployments[0].state // "NOT_FOUND"')
-            URL=$(echo "$RESP" | jq -r '.deployments[0].url // empty')
-            DEPLOY_ID=$(echo "$RESP" | jq -r '.deployments[0].uid // empty')
-
-            echo "Attempt $i/$MAX_ATTEMPTS: state=$STATE"
-
-            if [ "$STATE" = "READY" ]; then
-              echo "Preview deployment is READY: https://$URL"
-              echo "PREVIEW_URL=https://$URL" >> "$GITHUB_ENV"
-              echo "DEPLOY_ID=$DEPLOY_ID" >> "$GITHUB_ENV"
-              exit 0
-            elif [ "$STATE" = "ERROR" ] || [ "$STATE" = "CANCELED" ]; then
-              echo "ERROR: Preview deployment failed with state: $STATE"
-              echo "$RESP" | jq .
-              exit 1
-            fi
-
-            sleep $DELAY
-          done
-
-          echo "ERROR: Preview deployment did not become ready after $((MAX_ATTEMPTS * DELAY))s"
-          exit 1
+          source scripts/ci-lib.sh
+          eval "$(wait_for_vercel_deployment --sha "${{ github.event.pull_request.head.sha }}")"
+          echo "PREVIEW_URL=$DEPLOY_URL" >> "$GITHUB_ENV"
+          echo "DEPLOY_ID=$DEPLOY_ID" >> "$GITHUB_ENV"
 
       - name: Smoke test (health check + POST)
-        uses: ./.github/actions/vercel-smoke-test
-        with:
-          deploy-url: ${{ env.PREVIEW_URL }}
+        run: |
+          source scripts/ci-lib.sh
+          smoke_test "${{ env.PREVIEW_URL }}"
 
       - name: Check Vercel runtime logs
         if: always() && env.DEPLOY_ID != ''
-        uses: ./.github/actions/vercel-log-check
-        with:
-          deploy-id: ${{ env.DEPLOY_ID }}
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-team-id: ${{ vars.VERCEL_TEAM_ID }}
+        run: |
+          source scripts/ci-lib.sh
+          vercel_log_check "${{ env.DEPLOY_ID }}"
 
   deploy:
     name: Deploy to Production
@@ -271,50 +240,21 @@ jobs:
           VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
           VERCEL_TEAM_ID: ${{ vars.VERCEL_TEAM_ID }}
         run: |
-          echo "Waiting for Vercel to deploy commit $GITHUB_SHA..."
-
-          MAX_ATTEMPTS=60
-          DELAY=10
-          API_URL="https://api.vercel.com/v6/deployments"
-
-          for i in $(seq 1 $MAX_ATTEMPTS); do
-            RESP=$(curl -s -H "Authorization: Bearer $VERCEL_TOKEN" \
-              "$API_URL?projectId=$VERCEL_PROJECT_ID&target=production&sha=$GITHUB_SHA&limit=1&teamId=$VERCEL_TEAM_ID")
-            STATE=$(echo "$RESP" | jq -r '.deployments[0].state // "NOT_FOUND"')
-            URL=$(echo "$RESP" | jq -r '.deployments[0].url // empty')
-
-            echo "Attempt $i/$MAX_ATTEMPTS: state=$STATE"
-
-            if [ "$STATE" = "READY" ]; then
-              DEPLOY_ID=$(echo "$RESP" | jq -r '.deployments[0].uid // empty')
-              echo "Vercel deployment is READY: https://$URL"
-              echo "DEPLOY_URL=https://$URL" >> "$GITHUB_ENV"
-              echo "DEPLOY_ID=$DEPLOY_ID" >> "$GITHUB_ENV"
-              exit 0
-            elif [ "$STATE" = "ERROR" ] || [ "$STATE" = "CANCELED" ]; then
-              echo "ERROR: Vercel deployment failed with state: $STATE"
-              echo "$RESP" | jq .
-              exit 1
-            fi
-
-            sleep $DELAY
-          done
-
-          echo "ERROR: Vercel deployment did not become ready after $((MAX_ATTEMPTS * DELAY))s"
-          exit 1
+          source scripts/ci-lib.sh
+          eval "$(wait_for_vercel_deployment --sha "$GITHUB_SHA" --target production)"
+          echo "DEPLOY_URL=$DEPLOY_URL" >> "$GITHUB_ENV"
+          echo "DEPLOY_ID=$DEPLOY_ID" >> "$GITHUB_ENV"
 
       - name: Smoke test (health check + POST)
-        uses: ./.github/actions/vercel-smoke-test
-        with:
-          deploy-url: ${{ vars.VERCEL_APP_URL }}
+        run: |
+          source scripts/ci-lib.sh
+          smoke_test "${{ vars.VERCEL_APP_URL }}"
 
       - name: Check Vercel runtime logs
         if: always() && env.DEPLOY_ID != ''
-        uses: ./.github/actions/vercel-log-check
-        with:
-          deploy-id: ${{ env.DEPLOY_ID }}
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-team-id: ${{ vars.VERCEL_TEAM_ID }}
+        run: |
+          source scripts/ci-lib.sh
+          vercel_log_check "${{ env.DEPLOY_ID }}"
 
       - name: Deployment summary
         run: |
