@@ -157,7 +157,7 @@ Same tests as local:
 
 ```bash
 SUPABASE_URL                  # http://localhost:54321
-SUPABASE_SERVICE_ROLE_KEY     # From supabase status
+SUPABASE_SECRET_KEY     # From supabase status
 SMGR_S3_ENDPOINT              # Storage API endpoint
 SMGR_S3_BUCKET                # media
 ```

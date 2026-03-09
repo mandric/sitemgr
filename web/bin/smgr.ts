@@ -343,7 +343,7 @@ Usage:
 
 Environment:
   NEXT_PUBLIC_SUPABASE_URL     Supabase project URL
-  SUPABASE_SERVICE_ROLE_KEY    Supabase service role key
+  SUPABASE_SECRET_KEY    Supabase service role key
   SMGR_S3_BUCKET               S3 bucket name
   SMGR_S3_ENDPOINT             Custom S3 endpoint (for Supabase Storage)
   SMGR_S3_REGION               AWS region (default: us-east-1)

@@ -434,7 +434,7 @@ All via environment variables (12-factor friendly):
 ```bash
 # Supabase (required for v1)
 export SUPABASE_URL=https://<ref>.supabase.co
-export SUPABASE_SERVICE_ROLE_KEY=eyJ...
+export SUPABASE_SECRET_KEY=eyJ...
 
 # S3 bucket (where media lives)
 export SMGR_S3_BUCKET=my-photos

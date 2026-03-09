@@ -4,18 +4,26 @@
 #
 # Usage:
 #   source scripts/lib.sh
-#   smoke_test "https://my-app.vercel.app"
+#   smoke_test                              # uses $VERCEL_APP_URL
+#   smoke_test "https://my-app.vercel.app"  # or pass explicitly
 #   vercel_log_check "dpl_abc123"
 #   wait_for_vercel_deployment --sha abc123 --target production
 
-set -euo pipefail
+# NOTE: Do NOT set -euo pipefail here. This file is sourced by other scripts
+# and setting shell options would affect the caller. Each calling script should
+# set its own shell options.
 
 # ---------------------------------------------------------------------------
-# smoke_test <deploy_url>
+# smoke_test [deploy_url]
 #   Run health check (GET /api/health) and POST smoke test (/api/whatsapp)
+#   Falls back to $VERCEL_APP_URL if no argument is provided.
 # ---------------------------------------------------------------------------
 smoke_test() {
-  local deploy_url="${1:?Usage: smoke_test <deploy_url>}"
+  local deploy_url="${1:-${VERCEL_APP_URL:-}}"
+  if [ -z "$deploy_url" ]; then
+    echo "Usage: smoke_test <deploy_url> (or set VERCEL_APP_URL)" >&2
+    return 1
+  fi
   local health_url="${deploy_url}/api/health"
   local webhook_url="${deploy_url}/api/whatsapp"
 

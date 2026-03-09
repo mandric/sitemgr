@@ -43,7 +43,7 @@ STATUS_JSON=$(supabase status -o json 2>/dev/null)
 if [ -n "$STATUS_JSON" ]; then
     SUPABASE_URL=$(echo "$STATUS_JSON" | jq -r '.API_URL // "http://localhost:54321"')
     SUPABASE_ANON_KEY=$(echo "$STATUS_JSON" | jq -r '.ANON_KEY')
-    SUPABASE_SERVICE_ROLE_KEY=$(echo "$STATUS_JSON" | jq -r '.SERVICE_ROLE_KEY')
+    SUPABASE_SECRET_KEY=$(echo "$STATUS_JSON" | jq -r '.SERVICE_ROLE_KEY')
     DB_URL=$(echo "$STATUS_JSON" | jq -r '.DB_URL')
     STORAGE_S3_URL=$(echo "$STATUS_JSON" | jq -r '.STORAGE_S3_URL // .API_URL + "/storage/v1/s3"')
 
@@ -55,7 +55,7 @@ else
     echo "Warning: Could not get supabase status, using defaults"
     SUPABASE_URL="http://localhost:54321"
     SUPABASE_ANON_KEY=""
-    SUPABASE_SERVICE_ROLE_KEY=""
+    SUPABASE_SECRET_KEY=""
     DB_URL=""
     STORAGE_S3_URL="http://localhost:54321/storage/v1/s3"
     AWS_ACCESS_KEY_ID="local-access-key"
@@ -68,7 +68,7 @@ STORAGE_ENDPOINT="$SUPABASE_URL/storage/v1"
 echo ""
 echo "Creating storage bucket 'media'..."
 curl -sf -X POST "$STORAGE_ENDPOINT/bucket" \
-  -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+  -H "Authorization: Bearer $SUPABASE_SECRET_KEY" \
   -H "Content-Type: application/json" \
   -d '{"id":"media","name":"media","public":false}' \
   2>/dev/null || echo "  (Bucket may already exist)"
@@ -81,7 +81,7 @@ cat > "$ENV_FILE" << EOF
 
 SUPABASE_URL=$SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$SUPABASE_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY=$SUPABASE_SERVICE_ROLE_KEY
+SUPABASE_SECRET_KEY=$SUPABASE_SECRET_KEY
 
 # smgr CLI configuration
 SMGR_S3_ENDPOINT=$STORAGE_S3_URL

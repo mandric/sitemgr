@@ -5,29 +5,31 @@ import { getSupabaseClient } from "@/lib/media/db";
 // TODO: Add Twilio API connectivity check (e.g. fetch account info)
 
 export async function GET() {
-  const checks: Record<string, string> = {};
+  let ok = true;
 
   // Check Supabase DB connectivity
   try {
     const supabase = getSupabaseClient();
     const { error } = await supabase
-      .from("conversations")
-      .select("phone", { count: "exact", head: true })
+      .from("events")
+      .select("id", { count: "exact", head: true })
       .limit(0);
-    checks.supabase = error ? `error: ${error.message}` : "ok";
+    if (error) {
+      console.error("[health] supabase check error:", error.message || error.code || JSON.stringify(error));
+      ok = false;
+    }
   } catch (e) {
-    checks.supabase = `error: ${e instanceof Error ? e.message : String(e)}`;
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[health] supabase check failed:", msg);
+    ok = false;
   }
-
-  const allOk = Object.values(checks).every((v) => v === "ok");
 
   return NextResponse.json(
     {
-      status: allOk ? "ok" : "degraded",
+      status: ok ? "ok" : "degraded",
       service: "smgr",
       timestamp: new Date().toISOString(),
-      checks,
     },
-    { status: allOk ? 200 : 503 },
+    { status: ok ? 200 : 503 },
   );
 }
