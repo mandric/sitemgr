@@ -7,30 +7,30 @@
  * - No user impact during key changes
  *
  * Usage:
- *   // Encrypting (always uses current version)
+ *   // Encrypting (always uses current key)
  *   const encrypted = await encryptSecretVersioned("my-secret");
- *   // Result: "v2:base64ciphertext..."
+ *   // Result: "current:base64ciphertext..."
  *
- *   // Decrypting (auto-detects version)
+ *   // Decrypting (auto-detects key)
  *   const plaintext = await decryptSecretVersioned(encrypted);
  *
  * Environment Variables:
- *   ENCRYPTION_KEY_V1=<key>      (optional, for backward compatibility during rotation)
- *   ENCRYPTION_KEY_V2=<key>      (current - required)
- *   ENCRYPTION_KEY_V3=<key>      (optional, for gradual rollout)
+ *   ENCRYPTION_KEY_PREVIOUS=<key>  (optional, old key for decryption during rotation)
+ *   ENCRYPTION_KEY_CURRENT=<key>   (required, active key for new encryptions)
+ *   ENCRYPTION_KEY_NEXT=<key>      (optional, for gradual rollout before making it current)
  *
  * Key Rotation Process:
- *   1. Set ENCRYPTION_KEY_V2 in production (keep V1 active)
- *   2. Update CURRENT_VERSION to 2
- *   3. Deploy (new encryptions use V2, old ones still readable with V1)
- *   4. Run background migration to re-encrypt V1 → V2
- *   5. Once migration complete, remove ENCRYPTION_KEY_V1
+ *   1. Set ENCRYPTION_KEY_NEXT in production (keep CURRENT active)
+ *   2. Deploy (new encryptions still use CURRENT, but NEXT is ready)
+ *   3. Rename: CURRENT → PREVIOUS, NEXT → CURRENT
+ *   4. Lazy migration automatically re-encrypts PREVIOUS → CURRENT on access
+ *   5. Once migration complete, remove ENCRYPTION_KEY_PREVIOUS
  */
 
 import { encryptSecret, decryptSecret } from "./encryption";
 
 interface EncryptionKeyConfig {
-  version: number;
+  label: string;
   key: string;
 }
 
@@ -41,49 +41,45 @@ interface EncryptionKeyConfig {
 function getAvailableKeys(): EncryptionKeyConfig[] {
   const keys: EncryptionKeyConfig[] = [];
 
-  // V1: Original key (backward compatibility)
-  if (process.env.ENCRYPTION_KEY_V1) {
-    keys.push({ version: 1, key: process.env.ENCRYPTION_KEY_V1 });
+  // Previous key (for backward compatibility during rotation)
+  if (process.env.ENCRYPTION_KEY_PREVIOUS) {
+    keys.push({ label: "previous", key: process.env.ENCRYPTION_KEY_PREVIOUS });
   }
 
-  // V2: Current key
-  if (process.env.ENCRYPTION_KEY_V2) {
-    keys.push({
-      version: 2,
-      key: process.env.ENCRYPTION_KEY_V2,
-    });
+  // Current key (active for new encryptions)
+  if (process.env.ENCRYPTION_KEY_CURRENT) {
+    keys.push({ label: "current", key: process.env.ENCRYPTION_KEY_CURRENT });
   }
 
-  // V3: Future key (for gradual rollout)
-  if (process.env.ENCRYPTION_KEY_V3) {
-    keys.push({ version: 3, key: process.env.ENCRYPTION_KEY_V3 });
+  // Next key (for gradual rollout before making it current)
+  if (process.env.ENCRYPTION_KEY_NEXT) {
+    keys.push({ label: "next", key: process.env.ENCRYPTION_KEY_NEXT });
   }
 
   return keys;
 }
 
 /**
- * Current version to use for new encryptions
- * Update this when rotating keys
+ * Current encryption key label
  */
-const CURRENT_VERSION = 2;
+const CURRENT_KEY_LABEL = "current";
 
 /**
- * Encrypt a secret with the current encryption key version
+ * Encrypt a secret with the current encryption key
  *
  * @param plaintext - The secret to encrypt
- * @returns Versioned ciphertext (format: "v{version}:{base64}")
+ * @returns Labeled ciphertext (format: "{label}:{base64}")
  */
 export async function encryptSecretVersioned(
   plaintext: string,
 ): Promise<string> {
   const keys = getAvailableKeys();
-  const currentKey = keys.find((k) => k.version === CURRENT_VERSION);
+  const currentKey = keys.find((k) => k.label === CURRENT_KEY_LABEL);
 
   if (!currentKey) {
     throw new Error(
-      `Encryption key version ${CURRENT_VERSION} not configured. ` +
-        `Set ENCRYPTION_KEY_V${CURRENT_VERSION} environment variable.`,
+      `Encryption key "${CURRENT_KEY_LABEL}" not configured. ` +
+        `Set ENCRYPTION_KEY_CURRENT environment variable.`,
     );
   }
 
@@ -94,8 +90,8 @@ export async function encryptSecretVersioned(
   try {
     const ciphertext = await encryptSecret(plaintext);
 
-    // Prepend version to ciphertext
-    return `v${CURRENT_VERSION}:${ciphertext}`;
+    // Prepend label to ciphertext
+    return `${CURRENT_KEY_LABEL}:${ciphertext}`;
   } finally {
     // Restore original key
     if (originalKey) {
@@ -107,9 +103,9 @@ export async function encryptSecretVersioned(
 }
 
 /**
- * Decrypt a secret, auto-detecting the key version
+ * Decrypt a secret, auto-detecting the key label
  *
- * @param versionedCiphertext - Ciphertext with version prefix (or legacy without prefix)
+ * @param versionedCiphertext - Ciphertext with label prefix (or legacy without prefix)
  * @returns Decrypted plaintext
  */
 export async function decryptSecretVersioned(
@@ -119,21 +115,21 @@ export async function decryptSecretVersioned(
 
   if (keys.length === 0) {
     throw new Error(
-      "No encryption keys configured. Set ENCRYPTION_KEY or ENCRYPTION_KEY_V{N} environment variables.",
+      "No encryption keys configured. Set ENCRYPTION_KEY_CURRENT, ENCRYPTION_KEY_PREVIOUS, or ENCRYPTION_KEY_NEXT.",
     );
   }
 
-  // Parse version from ciphertext
-  const versionMatch = versionedCiphertext.match(/^v(\d+):(.+)$/);
+  // Parse label from ciphertext
+  const labelMatch = versionedCiphertext.match(
+    /^(previous|current|next):(.+)$/,
+  );
 
-  if (!versionMatch) {
-    // Legacy format (no version prefix) - try version 1 first, then fallback to current
-    const attemptVersions = [1, CURRENT_VERSION].filter(
-      (v, i, arr) => arr.indexOf(v) === i,
-    );
+  if (!labelMatch) {
+    // Legacy format (no label prefix) - try all keys in priority order
+    const attemptOrder = ["current", "previous", "next"];
 
-    for (const version of attemptVersions) {
-      const keyConfig = keys.find((k) => k.version === version);
+    for (const label of attemptOrder) {
+      const keyConfig = keys.find((k) => k.label === label);
       if (!keyConfig) continue;
 
       try {
@@ -151,7 +147,7 @@ export async function decryptSecretVersioned(
           }
         }
       } catch {
-        // Try next version
+        // Try next key
         continue;
       }
     }
@@ -162,16 +158,16 @@ export async function decryptSecretVersioned(
     );
   }
 
-  const version = parseInt(versionMatch[1], 10);
-  const ciphertext = versionMatch[2];
+  const label = labelMatch[1];
+  const ciphertext = labelMatch[2];
 
-  const keyConfig = keys.find((k) => k.version === version);
+  const keyConfig = keys.find((k) => k.label === label);
 
   if (!keyConfig) {
     throw new Error(
-      `Encryption key version ${version} not available. ` +
-        `Set ENCRYPTION_KEY_V${version} environment variable. ` +
-        `Available versions: ${keys.map((k) => k.version).join(", ")}`,
+      `Encryption key "${label}" not available. ` +
+        `Set ENCRYPTION_KEY_${label.toUpperCase()} environment variable. ` +
+        `Available keys: ${keys.map((k) => k.label).join(", ")}`,
     );
   }
 
@@ -182,8 +178,8 @@ export async function decryptSecretVersioned(
     return await decryptSecret(ciphertext);
   } catch (err: unknown) {
     throw new Error(
-      `Failed to decrypt secret with version ${version} key. ` +
-        `The ENCRYPTION_KEY_V${version} may be incorrect.`,
+      `Failed to decrypt secret with "${label}" key. ` +
+        `The ENCRYPTION_KEY_${label.toUpperCase()} may be incorrect.`,
       { cause: err },
     );
   } finally {
@@ -196,22 +192,22 @@ export async function decryptSecretVersioned(
 }
 
 /**
- * Get the version of an encrypted value
+ * Get the label of an encrypted value
  *
- * @param versionedCiphertext - Ciphertext (with or without version prefix)
- * @returns Version number, or 1 if legacy format
+ * @param versionedCiphertext - Ciphertext (with or without label prefix)
+ * @returns Label string, or "previous" if legacy format
  */
-export function getEncryptionVersion(versionedCiphertext: string): number {
-  const match = versionedCiphertext.match(/^v(\d+):/);
-  return match ? parseInt(match[1], 10) : 1; // Legacy = v1
+export function getEncryptionVersion(versionedCiphertext: string): string {
+  const match = versionedCiphertext.match(/^(previous|current|next):/);
+  return match ? match[1] : "previous"; // Legacy = previous
 }
 
 /**
- * Check if a ciphertext needs migration to current version
+ * Check if a ciphertext needs migration to current key
  *
  * @param versionedCiphertext - Ciphertext to check
  * @returns True if migration is needed
  */
 export function needsMigration(versionedCiphertext: string): boolean {
-  return getEncryptionVersion(versionedCiphertext) < CURRENT_VERSION;
+  return getEncryptionVersion(versionedCiphertext) !== CURRENT_KEY_LABEL;
 }
