@@ -23,6 +23,9 @@ jobs:
       - name: Lint JavaScript/TypeScript
         run: cd web && npm run lint
 
+      - name: TypeScript type check
+        run: cd web && npm run typecheck
+
       - name: Lint shell scripts
         run: shellcheck scripts/*.sh tests/*.sh
 
