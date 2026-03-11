@@ -50,6 +50,7 @@ vi.mock("@/lib/media/enrichment", () => ({
 }));
 
 import { executeAction } from "@/lib/agent/core";
+import { encryptSecret, decryptSecret } from "@/lib/crypto/encryption";
 import { listS3Objects, downloadS3Object } from "@/lib/media/s3";
 import { getWatchedKeys, insertEvent, upsertWatchedKey, insertEnrichment } from "@/lib/media/db";
 
@@ -211,6 +212,153 @@ describe("S3 action handlers", () => {
       expect(parsed.total).toBe(4);
       expect(parsed.by_type.photo).toBe(2);
       expect(parsed.by_type.video).toBe(1);
+    });
+  });
+
+  describe("add_bucket", () => {
+    it("returns error when required fields are missing", async () => {
+      const result = await executeAction(
+        { action: "add_bucket", params: { bucket_name: "b" } },
+        PHONE
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed.error).toContain("Missing required fields");
+    });
+
+    it("encrypts secret and inserts config", async () => {
+      const mockSelect = vi.fn().mockReturnValue({
+        single: () =>
+          Promise.resolve({
+            data: { id: "new-id", bucket_name: "my-bucket" },
+            error: null,
+          }),
+      });
+      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
+      mockFrom.mockReturnValue({ insert: mockInsert });
+
+      const result = await executeAction(
+        {
+          action: "add_bucket",
+          params: {
+            bucket_name: "my-bucket",
+            endpoint_url: "https://s3.example.com",
+            access_key_id: "AKID",
+            secret_access_key: "my-secret",
+          },
+        },
+        PHONE
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed.success).toBe(true);
+      expect(parsed.bucket.bucket_name).toBe("my-bucket");
+
+      // Verify encryption was called with the plaintext secret
+      expect(encryptSecret).toHaveBeenCalledWith("my-secret");
+
+      // Verify the encrypted value was stored, not the plaintext
+      const insertedRow = mockInsert.mock.calls[0][0];
+      expect(insertedRow.secret_access_key).toBe("encrypted");
+      expect(insertedRow.phone_number).toBe(PHONE);
+    });
+
+    it("returns error on duplicate bucket", async () => {
+      const mockSelect = vi.fn().mockReturnValue({
+        single: () =>
+          Promise.resolve({
+            data: null,
+            error: { code: "23505", message: "unique violation" },
+          }),
+      });
+      mockFrom.mockReturnValue({
+        insert: vi.fn().mockReturnValue({ select: mockSelect }),
+      });
+
+      const result = await executeAction(
+        {
+          action: "add_bucket",
+          params: {
+            bucket_name: "dup-bucket",
+            endpoint_url: "https://s3.example.com",
+            access_key_id: "AKID",
+            secret_access_key: "secret",
+          },
+        },
+        PHONE
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed.error).toContain("already configured");
+    });
+  });
+
+  describe("remove_bucket", () => {
+    it("returns error when bucket_name is missing", async () => {
+      const result = await executeAction(
+        { action: "remove_bucket", params: {} },
+        PHONE
+      );
+      expect(JSON.parse(result)).toEqual({ error: "bucket_name is required" });
+    });
+
+    it("deletes bucket config and returns success", async () => {
+      mockFrom.mockReturnValue({
+        delete: () => ({
+          eq: () => ({
+            eq: () => Promise.resolve({ error: null }),
+          }),
+        }),
+      });
+
+      const result = await executeAction(
+        { action: "remove_bucket", params: { bucket_name: "my-bucket" } },
+        PHONE
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed.success).toBe(true);
+      expect(parsed.message).toContain("my-bucket");
+    });
+
+    it("returns error on database failure", async () => {
+      mockFrom.mockReturnValue({
+        delete: () => ({
+          eq: () => ({
+            eq: () =>
+              Promise.resolve({ error: { message: "connection lost" } }),
+          }),
+        }),
+      });
+
+      const result = await executeAction(
+        { action: "remove_bucket", params: { bucket_name: "my-bucket" } },
+        PHONE
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed.error).toBe("Failed to remove bucket");
+    });
+  });
+
+  describe("getBucketConfig error discrimination", () => {
+    it("returns not-found error when bucket does not exist", async () => {
+      mockBucketLookup(null);
+      const result = await executeAction(
+        { action: "test_bucket", params: { bucket_name: "ghost" } },
+        PHONE
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed.error).toContain("not found");
+    });
+
+    it("returns decrypt error when decryption fails", async () => {
+      mockBucketLookup(fakeBucketConfig);
+      vi.mocked(decryptSecret).mockRejectedValueOnce(
+        new Error("ENCRYPTION_KEY may have changed")
+      );
+
+      const result = await executeAction(
+        { action: "test_bucket", params: { bucket_name: "my-bucket" } },
+        PHONE
+      );
+      const parsed = JSON.parse(result);
+      expect(parsed.error).toContain("ENCRYPTION_KEY may have changed");
     });
   });
 
