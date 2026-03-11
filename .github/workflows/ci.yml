@@ -110,6 +110,7 @@ jobs:
   e2e-tests:
     name: Web E2E Tests
     runs-on: ubuntu-latest
+    environment: Production
     steps:
       - uses: actions/checkout@v4
 
