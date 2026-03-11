@@ -139,27 +139,22 @@ jobs:
           echo "SUPABASE_URL=$(supabase status -o json | jq -r .API_URL)" >> $GITHUB_ENV
           echo "SUPABASE_PUBLISHABLE_KEY=$(supabase status -o json | jq -r .ANON_KEY)" >> $GITHUB_ENV
 
-      - name: Pull runtime secrets from Vercel
+      - name: Set up environment for E2E tests
         run: |
           cd web
-          # Pull production environment variables from Vercel
-          npx vercel env pull .env.ci \
-            --token=${{ secrets.VERCEL_TOKEN }} \
-            --environment=production \
-            --yes
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-
-      - name: Set up environment (merge test and production config)
-        run: |
-          cd web
-          # Start with Vercel env (has ENCRYPTION_KEY, ANTHROPIC_API_KEY, TWILIO_*, etc.)
-          cp .env.ci .env.local
-
-          # Override Supabase URLs to use local test instance
-          cat >> .env.local <<EOF
+          cat > .env.local <<EOF
+          # Supabase (local test instance)
           NEXT_PUBLIC_SUPABASE_URL=${{ env.SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ env.SUPABASE_PUBLISHABLE_KEY }}
+
+          # Encryption (from GitHub environment secrets)
+          ENCRYPTION_KEY_CURRENT=${{ secrets.ENCRYPTION_KEY_CURRENT }}
+          ENCRYPTION_KEY_PREVIOUS=${{ secrets.ENCRYPTION_KEY_PREVIOUS }}
+
+          # Other secrets (from GitHub environment secrets)
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+          TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}
+          TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}
           EOF
 
       - name: Run E2E tests
