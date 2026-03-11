@@ -439,24 +439,33 @@ async function getBucketConfig(
       const newVersion = getEncryptionVersion(newCiphertext);
 
       // Update in background (non-blocking, fire-and-forget)
-      supabase
-        .from("bucket_configs")
-        .update({
-          secret_access_key: newCiphertext,
-          encryption_key_version: newVersion,
-        })
-        .eq("id", data.id)
-        .then(() => {
-          console.log(
-            `[Lazy Migration] ✅ Migrated "${bucketName}" to encryption key v${newVersion}`,
-          );
-        })
-        .catch((err) => {
+      void (async () => {
+        try {
+          const { error } = await supabase
+            .from("bucket_configs")
+            .update({
+              secret_access_key: newCiphertext,
+              encryption_key_version: newVersion,
+            })
+            .eq("id", data.id);
+
+          if (error) {
+            console.error(
+              `[Lazy Migration] ❌ Failed to migrate "${bucketName}":`,
+              error,
+            );
+          } else {
+            console.log(
+              `[Lazy Migration] ✅ Migrated "${bucketName}" to encryption key v${newVersion}`,
+            );
+          }
+        } catch (err) {
           console.error(
-            `[Lazy Migration] ❌ Failed to migrate "${bucketName}":`,
+            `[Lazy Migration] ❌ Exception during migration of "${bucketName}":`,
             err,
           );
-        });
+        }
+      })();
     }
 
     return {
