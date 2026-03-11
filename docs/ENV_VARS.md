@@ -4,47 +4,54 @@
 
 ## Encryption Keys (Status-Based)
 
-| Variable | Required | Purpose | Where |
-|----------|----------|---------|-------|
-| `ENCRYPTION_KEY_CURRENT` | ✅ Yes | Active key for encrypting new data | Vercel Prod, GitHub Prod Env |
-| `ENCRYPTION_KEY_PREVIOUS` | ⚠️ During rotation | Old key for decrypting legacy data | Vercel Prod, GitHub Prod Env |
-| `ENCRYPTION_KEY_NEXT` | ⚠️ Pre-rotation | Future key (staged before making it current) | Vercel Prod, GitHub Prod Env |
+| Variable | Required | Vercel Prod | GitHub Prod Env | Purpose |
+|----------|----------|-------------|-----------------|---------|
+| `ENCRYPTION_KEY_CURRENT` | ✅ Yes | ✅ | ✅ | Active key for encrypting new data |
+| `ENCRYPTION_KEY_PREVIOUS` | ⚠️ During rotation | ✅ | ✅ | Old key for decrypting legacy data |
+| `ENCRYPTION_KEY_NEXT` | ⚠️ Pre-rotation | ✅ | ✅ | Future key (staged before making it current) |
 
 **Deprecated (DO NOT USE):**
 - ❌ `ENCRYPTION_KEY` - Non-versioned, removed
 - ❌ `ENCRYPTION_KEY_V1`, `ENCRYPTION_KEY_V2`, `ENCRYPTION_KEY_V3` - Version-based naming, replaced by status-based
 
-## Application Secrets
+## Application Secrets (Runtime + CI)
 
-| Variable | Purpose | Where |
-|----------|---------|-------|
-| `ANTHROPIC_API_KEY` | Claude API access | Vercel Prod, GitHub Prod Env |
-| `TWILIO_ACCOUNT_SID` | Twilio account identifier | Vercel Prod, GitHub Prod Env |
-| `TWILIO_AUTH_TOKEN` | Twilio authentication | Vercel Prod, GitHub Prod Env |
-| `TWILIO_WHATSAPP_FROM` | WhatsApp sender number | Vercel Prod |
-| `SUPABASE_SECRET_KEY` | Supabase service role key | Vercel Prod |
-| `SUPABASE_PROJECT_REF` | Supabase project identifier | Vercel Prod |
+These secrets are needed for both production runtime AND CI tests:
 
-## Public Environment Variables
+| Variable | Vercel Prod | GitHub Prod Env | Purpose |
+|----------|-------------|-----------------|---------|
+| `ANTHROPIC_API_KEY` | ✅ | ✅ | Claude API access for agent |
+| `TWILIO_ACCOUNT_SID` | ✅ | ✅ | Twilio account identifier |
+| `TWILIO_AUTH_TOKEN` | ✅ | ✅ | Twilio authentication |
 
-| Variable | Purpose | Where |
-|----------|---------|-------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase API endpoint | Vercel Prod |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase anon/public key | Vercel Prod |
+## Runtime-Only Secrets
 
-## CI/CD Only Secrets
+These secrets are ONLY needed for production runtime (NOT in CI):
 
-| Variable | Purpose | Where |
-|----------|---------|-------|
-| `VERCEL_TOKEN` | Vercel API access for deployments | GitHub Prod Env |
-| `SUPABASE_ACCESS_TOKEN` | Supabase CLI access for migrations | GitHub Prod Env |
+| Variable | Vercel Prod | Purpose |
+|----------|-------------|---------|
+| `TWILIO_WHATSAPP_FROM` | ✅ | WhatsApp sender number |
+| `SUPABASE_SECRET_KEY` | ✅ | Supabase service role key |
+| `SUPABASE_PROJECT_REF` | ✅ | Supabase project identifier |
+| `NEXT_PUBLIC_SUPABASE_URL` | ✅ | Supabase API endpoint (public) |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | ✅ | Supabase anon/public key |
+
+## CI/CD-Only Secrets
+
+These secrets are ONLY needed for CI/CD (NOT in runtime):
+
+| Variable | GitHub Prod Env | Purpose |
+|----------|-----------------|---------|
+| `VERCEL_TOKEN` | ✅ | Vercel API access for deployments |
+| `SUPABASE_ACCESS_TOKEN` | ✅ | Supabase CLI access for migrations |
 
 ## Secret Management Rules
 
-1. **Single Source of Truth:** Vercel Production for runtime, GitHub Production Environment for CI
-2. **No Duplication:** Each secret exists in exactly two places (Vercel + GitHub env)
-3. **No Repository Secrets:** GitHub repository-level secrets NOT used (except deployment tokens)
-4. **Sync Requirement:** When updating encryption keys, update BOTH Vercel AND GitHub
+1. **Separation of Concerns:** Runtime secrets in Vercel, CI secrets in GitHub Production Environment
+2. **Intentional Mirroring:** Some secrets exist in BOTH places (encryption keys, API keys needed for tests)
+3. **No Repository Secrets:** GitHub repository-level secrets NOT used (only environment-level secrets)
+4. **Sync Requirement:** When updating shared secrets (encryption, API keys), update BOTH Vercel AND GitHub
+5. **Least Privilege:** CI only has access to secrets it actually uses in tests
 
 ## Encryption Data Format
 
@@ -59,21 +66,31 @@
 vercel env add ENCRYPTION_KEY_NEXT production  # paste new key
 gh secret set ENCRYPTION_KEY_NEXT --env Production  # paste same key
 
-# Step 2: Deploy (validates NEXT key works)
+# Step 2: Validate NEXT key works (test in staging or locally)
+cd web
+# Temporarily test with NEXT key
+ENCRYPTION_KEY_CURRENT=$(vercel env pull --environment=production | grep NEXT | cut -d= -f2) npm test
+# If tests pass, NEXT key is valid
 
-# Step 3: Promote NEXT to CURRENT
+# Step 3: Promote NEXT to CURRENT (makes it active)
+# Save old CURRENT as PREVIOUS first
 vercel env add ENCRYPTION_KEY_PREVIOUS production  # paste old CURRENT value
 gh secret set ENCRYPTION_KEY_PREVIOUS --env Production  # paste old CURRENT value
 
+# Replace CURRENT with NEXT value
 vercel env add ENCRYPTION_KEY_CURRENT production  # paste NEXT value
 gh secret set ENCRYPTION_KEY_CURRENT --env Production  # paste NEXT value
 
+# Remove NEXT (no longer needed)
 vercel env rm ENCRYPTION_KEY_NEXT production
 gh secret remove ENCRYPTION_KEY_NEXT --env Production
 
-# Step 4: Wait for lazy migration (monitor logs)
+# Step 4: Deploy and monitor lazy migration
+# Watch application logs for migration messages:
+# "[Lazy Migration] ✅ Migrated <bucket> to encryption key current"
 
-# Step 5: Clean up old key
+# Step 5: After all data migrated, clean up old PREVIOUS key
+# Verify no more migration messages in logs, then:
 vercel env rm ENCRYPTION_KEY_PREVIOUS production
 gh secret remove ENCRYPTION_KEY_PREVIOUS --env Production
 ```

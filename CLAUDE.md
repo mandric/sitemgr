@@ -17,10 +17,12 @@
 - **DO NOT USE**: `ENCRYPTION_KEY`, `ENCRYPTION_KEY_V1`, `ENCRYPTION_KEY_V2`, `ENCRYPTION_KEY_V3` (legacy, removed)
 
 **Where Secrets Live:**
-- **Vercel Production**: Runtime secrets for deployed app (source of truth for production)
-- **GitHub Production Environment**: Secrets for CI/CD tests (mirrors Vercel for testing)
-- **NO duplication**: Each secret exists in exactly two places (Vercel + GitHub env)
-- **NO repository secrets**: GitHub repository-level secrets are NOT used (except `VERCEL_TOKEN` and `SUPABASE_ACCESS_TOKEN` for deployment)
+- **Vercel Production**: All runtime secrets for deployed app
+- **GitHub Production Environment**: Secrets needed for CI/CD (encryption keys, test API keys, deployment tokens)
+- **Intentional mirroring**: Some secrets exist in BOTH (encryption keys, API keys used in tests)
+- **Runtime-only secrets**: Only in Vercel (WhatsApp number, Supabase project config)
+- **CI-only secrets**: Only in GitHub (VERCEL_TOKEN, SUPABASE_ACCESS_TOKEN for deployment)
+- **NO repository secrets**: GitHub repository-level secrets NOT used (only environment-level)
 
 **Encryption Format:**
 - Current format: `current:base64ciphertext` (label-prefixed)
@@ -28,11 +30,13 @@
 - Lazy migration: Data auto-migrates to current key on access (non-blocking background update)
 
 **Key Rotation Process:**
-1. Set `ENCRYPTION_KEY_NEXT` in both Vercel and GitHub
-2. Deploy (new encryptions still use CURRENT)
-3. Rename: CURRENT → PREVIOUS, NEXT → CURRENT in both places
-4. Lazy migration handles the rest automatically
-5. Remove PREVIOUS after migration completes
+1. Add `ENCRYPTION_KEY_NEXT` in both Vercel and GitHub
+2. Validate NEXT key works (run tests with it locally)
+3. Promote NEXT to CURRENT (save old CURRENT as PREVIOUS first)
+4. Deploy and monitor logs for lazy migration messages
+5. After migration completes, remove PREVIOUS from both places
+
+**See `docs/ENV_VARS.md` for detailed secret management procedures**
 
 ### Backlog items (not v1 scope)
 
