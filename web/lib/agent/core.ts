@@ -395,11 +395,16 @@ async function requireS3Client(
       ok: false,
       errorJson: JSON.stringify({ error: `Bucket "${bucketName}" not found` }),
     };
-  if (result.error)
+  if (result.error) {
+    console.error(
+      `[testS3Connection] ❌ Bucket config error for "${bucketName}":`,
+      result.error.message,
+    );
     return {
       ok: false,
       errorJson: JSON.stringify({ error: result.error.message }),
     };
+  }
 
   const config = result.config!;
   const client = createS3Client({
@@ -473,9 +478,14 @@ async function getBucketConfig(
       config: { ...data, secret_access_key: decryptedSecret },
     };
   } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    console.error(
+      `[getBucketConfig] ❌ Failed to decrypt bucket "${bucketName}" for ${phoneNumber}:`,
+      error.message,
+    );
     return {
       exists: true,
-      error: err instanceof Error ? err : new Error(String(err)),
+      error,
     };
   }
 }
