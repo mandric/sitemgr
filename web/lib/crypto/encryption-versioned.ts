@@ -150,7 +150,7 @@ export async function decryptSecretVersioned(
             delete process.env.ENCRYPTION_KEY;
           }
         }
-      } catch (err) {
+      } catch {
         // Try next version
         continue;
       }
