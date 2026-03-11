@@ -18,7 +18,6 @@ import {
   upsertWatchedKey,
   getWatchedKeys,
 } from "@/lib/media/db";
-import { encryptSecret, decryptSecret } from "@/lib/crypto/encryption";
 import {
   encryptSecretVersioned,
   decryptSecretVersioned,

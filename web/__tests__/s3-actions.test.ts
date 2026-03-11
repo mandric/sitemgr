@@ -62,7 +62,6 @@ vi.mock("@/lib/media/enrichment", () => ({
 // ── Imports (after mocks) ───────────────────────────────────────
 
 import { executeAction } from "@/lib/agent/core";
-import { encryptSecret, decryptSecret } from "@/lib/crypto/encryption";
 import {
   encryptSecretVersioned,
   decryptSecretVersioned,

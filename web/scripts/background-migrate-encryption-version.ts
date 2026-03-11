@@ -32,8 +32,11 @@ import {
   needsMigration,
 } from "../lib/crypto/encryption-versioned";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:54321";
-const SUPABASE_KEY = process.env.SUPABASE_SECRET_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
+const SUPABASE_URL =
+  process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:54321";
+const SUPABASE_KEY =
+  process.env.SUPABASE_SECRET_KEY ||
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU";
 
 const BATCH_SIZE = 10; // Process 10 configs at a time
 const DELAY_MS = 1000; // Wait 1 second between batches
@@ -69,8 +72,11 @@ async function showStatus() {
   };
 
   for (const config of configs) {
-    const version = config.encryption_key_version || getEncryptionVersion(config.secret_access_key);
-    stats.versionDistribution[version] = (stats.versionDistribution[version] || 0) + 1;
+    const version =
+      config.encryption_key_version ||
+      getEncryptionVersion(config.secret_access_key);
+    stats.versionDistribution[version] =
+      (stats.versionDistribution[version] || 0) + 1;
   }
 
   console.log(`Total configs: ${stats.total}`);
@@ -82,8 +88,8 @@ async function showStatus() {
       console.log(`  v${version}: ${count} (${percentage}%)`);
     });
 
-  const needingMigration = configs.filter(c =>
-    needsMigration(c.secret_access_key)
+  const needingMigration = configs.filter((c) =>
+    needsMigration(c.secret_access_key),
   ).length;
 
   console.log(`\nNeeding migration: ${needingMigration}`);
@@ -91,8 +97,13 @@ async function showStatus() {
   if (needingMigration === 0) {
     console.log("✅ All configs are on the current version!");
   } else {
-    console.log(`⏳ Progress: ${stats.total - needingMigration}/${stats.total} migrated`);
-    const progress = ((stats.total - needingMigration) / stats.total * 100).toFixed(1);
+    console.log(
+      `⏳ Progress: ${stats.total - needingMigration}/${stats.total} migrated`,
+    );
+    const progress = (
+      ((stats.total - needingMigration) / stats.total) *
+      100
+    ).toFixed(1);
     console.log(`   ${progress}% complete`);
   }
 }
@@ -106,13 +117,15 @@ async function migrateInBackground(dryRun = true) {
   let totalProcessed = 0;
   let totalMigrated = 0;
   let totalFailed = 0;
-  let totalSkipped = 0;
+  const totalSkipped = 0;
 
   while (true) {
     // Fetch batch of configs needing migration
     const { data: configs, error } = await supabase
       .from("bucket_configs")
-      .select("id, bucket_name, phone_number, user_id, secret_access_key, encryption_key_version")
+      .select(
+        "id, bucket_name, phone_number, user_id, secret_access_key, encryption_key_version",
+      )
       .limit(BATCH_SIZE);
 
     if (error) {
@@ -125,14 +138,18 @@ async function migrateInBackground(dryRun = true) {
     }
 
     // Filter to only those needing migration
-    const needingMigration = configs.filter(c => needsMigration(c.secret_access_key));
+    const needingMigration = configs.filter((c) =>
+      needsMigration(c.secret_access_key),
+    );
 
     if (needingMigration.length === 0) {
       console.log("✅ No more configs need migration");
       break;
     }
 
-    console.log(`\nProcessing batch of ${needingMigration.length} config(s)...`);
+    console.log(
+      `\nProcessing batch of ${needingMigration.length} config(s)...`,
+    );
 
     for (const config of needingMigration) {
       const identifier = config.phone_number || config.user_id || config.id;
@@ -140,14 +157,18 @@ async function migrateInBackground(dryRun = true) {
 
       try {
         // Decrypt with old version
-        const plaintext = await decryptSecretVersioned(config.secret_access_key);
+        const plaintext = await decryptSecretVersioned(
+          config.secret_access_key,
+        );
 
         // Re-encrypt with new version
         const newCiphertext = await encryptSecretVersioned(plaintext);
         const newVersion = getEncryptionVersion(newCiphertext);
 
         if (dryRun) {
-          console.log(`  [DRY RUN] Would migrate ${config.bucket_name} (${identifier}): v${currentVersion} → v${newVersion}`);
+          console.log(
+            `  [DRY RUN] Would migrate ${config.bucket_name} (${identifier}): v${currentVersion} → v${newVersion}`,
+          );
           totalMigrated++;
         } else {
           // Update in database
@@ -160,16 +181,24 @@ async function migrateInBackground(dryRun = true) {
             .eq("id", config.id);
 
           if (updateError) {
-            console.error(`  ❌ Failed to update ${config.bucket_name}:`, updateError.message);
+            console.error(
+              `  ❌ Failed to update ${config.bucket_name}:`,
+              updateError.message,
+            );
             totalFailed++;
           } else {
-            console.log(`  ✅ Migrated ${config.bucket_name} (${identifier}): v${currentVersion} → v${newVersion}`);
+            console.log(
+              `  ✅ Migrated ${config.bucket_name} (${identifier}): v${currentVersion} → v${newVersion}`,
+            );
             totalMigrated++;
           }
         }
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        console.error(`  ❌ Failed ${config.bucket_name} (${identifier}):`, message);
+        console.error(
+          `  ❌ Failed ${config.bucket_name} (${identifier}):`,
+          message,
+        );
         totalFailed++;
       }
 
@@ -179,7 +208,7 @@ async function migrateInBackground(dryRun = true) {
     // Rate limiting
     if (!dryRun) {
       console.log(`  Waiting ${DELAY_MS}ms...`);
-      await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+      await new Promise((resolve) => setTimeout(resolve, DELAY_MS));
     }
 
     // Check if we've processed all
@@ -199,12 +228,16 @@ async function migrateInBackground(dryRun = true) {
     console.log("\n🧪 DRY RUN - No changes made");
     console.log("\nTo perform migration, run:");
     console.log("  ENCRYPTION_KEY_V1=<old> ENCRYPTION_KEY_V2=<new> \\");
-    console.log("  npx tsx scripts/background-migrate-encryption-version.ts --live");
+    console.log(
+      "  npx tsx scripts/background-migrate-encryption-version.ts --live",
+    );
   } else if (totalFailed === 0) {
     console.log("\n✅ Migration complete!");
     console.log("\nNext steps:");
     console.log("  1. Verify all configs can be decrypted");
-    console.log("  2. Remove old encryption key environment variable (ENCRYPTION_KEY_V1)");
+    console.log(
+      "  2. Remove old encryption key environment variable (ENCRYPTION_KEY_V1)",
+    );
     console.log("  3. Monitor for any decryption errors");
   } else {
     console.log("\n⚠️  Migration completed with errors");

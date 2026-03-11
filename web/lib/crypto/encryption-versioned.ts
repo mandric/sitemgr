@@ -50,7 +50,7 @@ function getAvailableKeys(): EncryptionKeyConfig[] {
   if (process.env.ENCRYPTION_KEY_V2 || process.env.ENCRYPTION_KEY) {
     keys.push({
       version: 2,
-      key: process.env.ENCRYPTION_KEY_V2 || process.env.ENCRYPTION_KEY || ""
+      key: process.env.ENCRYPTION_KEY_V2 || process.env.ENCRYPTION_KEY || "",
     });
   }
 
@@ -74,14 +74,16 @@ const CURRENT_VERSION = 2;
  * @param plaintext - The secret to encrypt
  * @returns Versioned ciphertext (format: "v{version}:{base64}")
  */
-export async function encryptSecretVersioned(plaintext: string): Promise<string> {
+export async function encryptSecretVersioned(
+  plaintext: string,
+): Promise<string> {
   const keys = getAvailableKeys();
-  const currentKey = keys.find(k => k.version === CURRENT_VERSION);
+  const currentKey = keys.find((k) => k.version === CURRENT_VERSION);
 
   if (!currentKey) {
     throw new Error(
       `Encryption key version ${CURRENT_VERSION} not configured. ` +
-      `Set ENCRYPTION_KEY_V${CURRENT_VERSION} environment variable.`
+        `Set ENCRYPTION_KEY_V${CURRENT_VERSION} environment variable.`,
     );
   }
 
@@ -110,12 +112,14 @@ export async function encryptSecretVersioned(plaintext: string): Promise<string>
  * @param versionedCiphertext - Ciphertext with version prefix (or legacy without prefix)
  * @returns Decrypted plaintext
  */
-export async function decryptSecretVersioned(versionedCiphertext: string): Promise<string> {
+export async function decryptSecretVersioned(
+  versionedCiphertext: string,
+): Promise<string> {
   const keys = getAvailableKeys();
 
   if (keys.length === 0) {
     throw new Error(
-      "No encryption keys configured. Set ENCRYPTION_KEY or ENCRYPTION_KEY_V{N} environment variables."
+      "No encryption keys configured. Set ENCRYPTION_KEY or ENCRYPTION_KEY_V{N} environment variables.",
     );
   }
 
@@ -124,10 +128,12 @@ export async function decryptSecretVersioned(versionedCiphertext: string): Promi
 
   if (!versionMatch) {
     // Legacy format (no version prefix) - try version 1 first, then fallback to current
-    const attemptVersions = [1, CURRENT_VERSION].filter((v, i, arr) => arr.indexOf(v) === i);
+    const attemptVersions = [1, CURRENT_VERSION].filter(
+      (v, i, arr) => arr.indexOf(v) === i,
+    );
 
     for (const version of attemptVersions) {
-      const keyConfig = keys.find(k => k.version === version);
+      const keyConfig = keys.find((k) => k.version === version);
       if (!keyConfig) continue;
 
       try {
@@ -152,20 +158,20 @@ export async function decryptSecretVersioned(versionedCiphertext: string): Promi
 
     throw new Error(
       "Failed to decrypt secret with legacy format. " +
-      "The encryption key may have changed or the data is corrupted."
+        "The encryption key may have changed or the data is corrupted.",
     );
   }
 
   const version = parseInt(versionMatch[1], 10);
   const ciphertext = versionMatch[2];
 
-  const keyConfig = keys.find(k => k.version === version);
+  const keyConfig = keys.find((k) => k.version === version);
 
   if (!keyConfig) {
     throw new Error(
       `Encryption key version ${version} not available. ` +
-      `Set ENCRYPTION_KEY_V${version} environment variable. ` +
-      `Available versions: ${keys.map(k => k.version).join(", ")}`
+        `Set ENCRYPTION_KEY_V${version} environment variable. ` +
+        `Available versions: ${keys.map((k) => k.version).join(", ")}`,
     );
   }
 
@@ -174,11 +180,11 @@ export async function decryptSecretVersioned(versionedCiphertext: string): Promi
 
   try {
     return await decryptSecret(ciphertext);
-  } catch (err) {
+  } catch (err: unknown) {
     throw new Error(
       `Failed to decrypt secret with version ${version} key. ` +
-      `The ENCRYPTION_KEY_V${version} may be incorrect.`,
-      { cause: err }
+        `The ENCRYPTION_KEY_V${version} may be incorrect.`,
+      { cause: err },
     );
   } finally {
     if (originalKey) {
