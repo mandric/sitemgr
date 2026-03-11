@@ -5,7 +5,17 @@
 ## Core Principle
 
 **Tests use fixtures, production uses secrets.**
-- Unit/integration/E2E tests use `vi.stubEnv()` with test fixture values
+
+**When to use `vi.stubEnv()` (fixtures) vs setting in CI:**
+- **Use fixtures**: When testing logic that uses the env var internally
+  - The value doesn't need to connect to a real service
+  - Example: `ENCRYPTION_KEY_CURRENT` - tests the encryption algorithm, not a remote service
+  - Example: `ANTHROPIC_API_KEY` - if test mocks the API, use fixture
+- **Set in CI**: When the test connects to an actual running service
+  - The value must match the service instance
+  - Example: `NEXT_PUBLIC_SUPABASE_URL` - E2E test connects to real local Supabase instance
+
+**Rules:**
 - Never add production secrets to GitHub for tests
 - GitHub Production Environment only contains deployment secrets
 

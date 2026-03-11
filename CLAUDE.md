@@ -25,15 +25,30 @@
 - **NO repository secrets**: GitHub repository-level secrets NOT used (only environment-level)
 
 **Testing Pattern (IMPORTANT):**
-- **Unit tests**: Always use `vi.stubEnv()` with test fixture keys
+
+When to use `vi.stubEnv()` (fixtures) vs setting in CI:
+- **Use fixtures**: When testing logic that uses the env var internally (encryption, business logic, API clients)
+  - The value doesn't need to connect to a real service
+  - Example: `ENCRYPTION_KEY_CURRENT` - tests the encryption algorithm, not a remote service
+- **Set in CI**: When the test connects to an actual running service
+  - The value must match the service instance
+  - Example: `NEXT_PUBLIC_SUPABASE_URL` - E2E test connects to real local Supabase instance
+
+**Unit/Integration Tests:**
+- Always use `vi.stubEnv()` with test fixture values
   ```typescript
   beforeEach(() => {
     vi.stubEnv("ENCRYPTION_KEY_CURRENT", "test-fixture-key");
   });
   ```
-- **Integration tests**: Same pattern - stub environment, don't use real secrets
-- **E2E tests**: Only set env vars that the test actually exercises (currently just Supabase URL/key)
-- **Never add production secrets to GitHub for tests** - use fixtures instead
+
+**E2E Tests:**
+- Only set env vars for services the test actually connects to
+- Current: Supabase URL/key (because E2E connects to local Supabase)
+- Not encryption keys (E2E doesn't exercise encryption paths)
+- Not API keys (E2E doesn't call external APIs)
+
+**Never add production secrets to GitHub for tests** - use fixtures instead
 
 **Encryption Format:**
 - Current format: `current:base64ciphertext` (label-prefixed)
