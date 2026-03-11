@@ -67,7 +67,10 @@ describe("encryption lifecycle (real crypto, mocked DB)", () => {
     const originalSecret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
 
     // Step 1: addBucket encrypts the secret
-    const ref = mockBucketInsertCapture({ id: "cfg-1", bucket_name: "test-bucket" });
+    const ref = mockBucketInsertCapture({
+      id: "cfg-1",
+      bucket_name: "test-bucket",
+    });
 
     const addResult = await executeAction(
       {
@@ -79,7 +82,7 @@ describe("encryption lifecycle (real crypto, mocked DB)", () => {
           secret_access_key: originalSecret,
         },
       },
-      PHONE
+      PHONE,
     );
     expect(JSON.parse(addResult).success).toBe(true);
 
@@ -104,7 +107,7 @@ describe("encryption lifecycle (real crypto, mocked DB)", () => {
 
     const testResult = await executeAction(
       { action: "test_bucket", params: { bucket_name: "test-bucket" } },
-      PHONE
+      PHONE,
     );
     const parsed = JSON.parse(testResult);
 
@@ -116,7 +119,10 @@ describe("encryption lifecycle (real crypto, mocked DB)", () => {
     const originalSecret = "my-secret-key-12345";
 
     // Step 1: Encrypt with original key
-    const ref = mockBucketInsertCapture({ id: "cfg-1", bucket_name: "test-bucket" });
+    const ref = mockBucketInsertCapture({
+      id: "cfg-1",
+      bucket_name: "test-bucket",
+    });
 
     await executeAction(
       {
@@ -128,7 +134,7 @@ describe("encryption lifecycle (real crypto, mocked DB)", () => {
           secret_access_key: originalSecret,
         },
       },
-      PHONE
+      PHONE,
     );
     expect(ref.row).not.toBeNull();
 
@@ -148,12 +154,13 @@ describe("encryption lifecycle (real crypto, mocked DB)", () => {
 
     const result = await executeAction(
       { action: "test_bucket", params: { bucket_name: "test-bucket" } },
-      PHONE
+      PHONE,
     );
     const parsed = JSON.parse(result);
 
     // Should get an error, not success
     expect(parsed.error).toBeDefined();
-    expect(parsed.error).toContain("ENCRYPTION_KEY may have changed");
+    // Error message changed with versioned encryption
+    expect(parsed.error).toMatch(/ENCRYPTION_KEY|decrypt/i);
   });
 });

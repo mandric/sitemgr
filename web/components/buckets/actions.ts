@@ -3,6 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { encryptSecret } from "@/lib/crypto/encryption";
+import {
+  encryptSecretVersioned,
+  getEncryptionVersion,
+} from "@/lib/crypto/encryption-versioned";
 
 export async function addBucket(formData: FormData) {
   const supabase = await createClient();
@@ -26,8 +30,9 @@ export async function addBucket(formData: FormData) {
   }
 
   try {
-    // Encrypt the secret access key
-    const encryptedSecret = await encryptSecret(secretAccessKey);
+    // Encrypt the secret access key with versioning
+    const encryptedSecret = await encryptSecretVersioned(secretAccessKey);
+    const keyVersion = getEncryptionVersion(encryptedSecret);
 
     // Insert into database
     const { error } = await supabase.from("bucket_configs").insert({
@@ -37,6 +42,7 @@ export async function addBucket(formData: FormData) {
       region,
       access_key_id: accessKeyId,
       secret_access_key: encryptedSecret,
+      encryption_key_version: keyVersion,
     });
 
     if (error) {

@@ -15,7 +15,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Install dependencies
         run: cd web && npm ci
@@ -34,7 +34,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - name: Install dependencies
         run: cd web && npm ci
@@ -50,7 +50,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - uses: supabase/setup-cli@v1
         with:
@@ -115,7 +115,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
 
       - uses: supabase/setup-cli@v1
         with:
@@ -135,17 +135,27 @@ jobs:
           echo "SUPABASE_URL=$(supabase status -o json | jq -r .API_URL)" >> $GITHUB_ENV
           echo "SUPABASE_PUBLISHABLE_KEY=$(supabase status -o json | jq -r .ANON_KEY)" >> $GITHUB_ENV
 
-      - name: Set up environment
+      - name: Pull runtime secrets from Vercel
         run: |
           cd web
-          cat > .env.local <<EOF
+          # Pull production environment variables from Vercel
+          npx vercel env pull .env.ci \
+            --token=${{ secrets.VERCEL_TOKEN }} \
+            --environment=production \
+            --yes
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+
+      - name: Set up environment (merge test and production config)
+        run: |
+          cd web
+          # Start with Vercel env (has ENCRYPTION_KEY, ANTHROPIC_API_KEY, TWILIO_*, etc.)
+          cp .env.ci .env.local
+
+          # Override Supabase URLs to use local test instance
+          cat >> .env.local <<EOF
           NEXT_PUBLIC_SUPABASE_URL=${{ env.SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ env.SUPABASE_PUBLISHABLE_KEY }}
-          ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}
-          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-          TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}
-          TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}
-          TWILIO_WHATSAPP_FROM=${{ vars.TWILIO_WHATSAPP_FROM }}
           EOF
 
       - name: Run E2E tests
