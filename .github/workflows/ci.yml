@@ -146,15 +146,6 @@ jobs:
           # Supabase (local test instance)
           NEXT_PUBLIC_SUPABASE_URL=${{ env.SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ env.SUPABASE_PUBLISHABLE_KEY }}
-
-          # Encryption (from GitHub environment secrets)
-          ENCRYPTION_KEY_CURRENT=${{ secrets.ENCRYPTION_KEY_CURRENT }}
-          ENCRYPTION_KEY_PREVIOUS=${{ secrets.ENCRYPTION_KEY_PREVIOUS }}
-
-          # Other secrets (from GitHub environment secrets)
-          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
-          TWILIO_ACCOUNT_SID=${{ secrets.TWILIO_ACCOUNT_SID }}
-          TWILIO_AUTH_TOKEN=${{ secrets.TWILIO_AUTH_TOKEN }}
           EOF
 
       - name: Run E2E tests
