@@ -396,8 +396,9 @@ async function requireS3Client(
       errorJson: JSON.stringify({ error: `Bucket "${bucketName}" not found` }),
     };
   if (result.error) {
+    // Decryption failed - this is a SYSTEM error (our encryption is broken)
     console.error(
-      `[testS3Connection] ❌ Bucket config error for "${bucketName}":`,
+      `[requireS3Client] ❌ SYSTEM ERROR - Cannot decrypt bucket "${bucketName}":`,
       result.error.message,
     );
     return {
@@ -479,8 +480,9 @@ async function getBucketConfig(
     };
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
+    // Decryption failed - this is a SYSTEM error (encryption key misconfigured)
     console.error(
-      `[getBucketConfig] ❌ Failed to decrypt bucket "${bucketName}" for ${phoneNumber}:`,
+      `[getBucketConfig] ❌ SYSTEM ERROR - Cannot decrypt bucket "${bucketName}" for ${phoneNumber}:`,
       error.message,
     );
     return {
@@ -522,6 +524,11 @@ async function testBucket(
       });
     }
   } catch (err) {
+    // User's S3 credentials are wrong - this is expected/user config issue
+    console.info(
+      `[testBucket] ℹ️ S3 access failed for "${bucketName}":`,
+      (err as Error).message,
+    );
     return JSON.stringify({
       success: false,
       error: `Cannot read bucket "${bucketName}": ${(err as Error).message}`,
