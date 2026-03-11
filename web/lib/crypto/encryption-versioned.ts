@@ -15,9 +15,9 @@
  *   const plaintext = await decryptSecretVersioned(encrypted);
  *
  * Environment Variables:
- *   ENCRYPTION_KEY_V1=<old-key>  (optional, for backward compatibility)
- *   ENCRYPTION_KEY_V2=<new-key>  (current)
- *   ENCRYPTION_KEY_V3=<future>   (optional, for gradual rollout)
+ *   ENCRYPTION_KEY_V1=<key>      (optional, for backward compatibility during rotation)
+ *   ENCRYPTION_KEY_V2=<key>      (current - required)
+ *   ENCRYPTION_KEY_V3=<key>      (optional, for gradual rollout)
  *
  * Key Rotation Process:
  *   1. Set ENCRYPTION_KEY_V2 in production (keep V1 active)
@@ -47,10 +47,10 @@ function getAvailableKeys(): EncryptionKeyConfig[] {
   }
 
   // V2: Current key
-  if (process.env.ENCRYPTION_KEY_V2 || process.env.ENCRYPTION_KEY) {
+  if (process.env.ENCRYPTION_KEY_V2) {
     keys.push({
       version: 2,
-      key: process.env.ENCRYPTION_KEY_V2 || process.env.ENCRYPTION_KEY || "",
+      key: process.env.ENCRYPTION_KEY_V2,
     });
   }
 
