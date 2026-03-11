@@ -1,14 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import {
+  mockFrom,
+  mockS3Send,
+  mockBucketLookup,
+  mockBucketInsert,
+  mockBucketDelete,
+  PHONE,
+  fakeBucketConfig,
+} from "./helpers/agent-test-setup";
 
-// Mock Anthropic SDK (required by core.ts import)
+// ── vi.mock() blocks (hoisted by vitest) ────────────────────────
+
 vi.mock("@anthropic-ai/sdk", () => ({
   default: class MockAnthropic {
     messages = { create: vi.fn() };
   },
 }));
-
-// Mock Supabase
-const mockFrom = vi.fn();
 
 vi.mock("@/lib/media/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/media/db")>();
@@ -22,21 +29,17 @@ vi.mock("@/lib/media/db", async (importOriginal) => {
   };
 });
 
-// Mock S3
-const mockS3Send = vi.fn();
 vi.mock("@/lib/media/s3", () => ({
   createS3Client: () => ({ send: mockS3Send }),
   listS3Objects: vi.fn(),
   downloadS3Object: vi.fn(),
 }));
 
-// Mock encryption
 vi.mock("@/lib/crypto/encryption", () => ({
   encryptSecret: vi.fn().mockResolvedValue("encrypted"),
   decryptSecret: vi.fn().mockResolvedValue("decrypted-secret"),
 }));
 
-// Mock enrichment
 vi.mock("@/lib/media/enrichment", () => ({
   enrichImage: vi.fn().mockResolvedValue({
     description: "A test image",
@@ -49,34 +52,14 @@ vi.mock("@/lib/media/enrichment", () => ({
   }),
 }));
 
+// ── Imports (after mocks) ───────────────────────────────────────
+
 import { executeAction } from "@/lib/agent/core";
 import { encryptSecret, decryptSecret } from "@/lib/crypto/encryption";
 import { listS3Objects, downloadS3Object } from "@/lib/media/s3";
 import { getWatchedKeys, insertEvent, upsertWatchedKey, insertEnrichment } from "@/lib/media/db";
 
-const PHONE = "+1234567890";
-
-const fakeBucketConfig = {
-  id: "cfg-1",
-  phone_number: PHONE,
-  bucket_name: "my-bucket",
-  endpoint_url: "https://s3.example.com",
-  region: "us-east-1",
-  access_key_id: "AKID",
-  secret_access_key: "encrypted-secret",
-};
-
-function mockBucketLookup(config: typeof fakeBucketConfig | null) {
-  mockFrom.mockReturnValue({
-    select: () => ({
-      eq: () => ({
-        eq: () => ({
-          maybeSingle: () => Promise.resolve({ data: config, error: null }),
-        }),
-      }),
-    }),
-  });
-}
+// ── Tests ───────────────────────────────────────────────────────
 
 describe("S3 action handlers", () => {
   beforeEach(() => {
@@ -94,6 +77,8 @@ describe("S3 action handlers", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
+
+  // ── test_bucket ─────────────────────────────────────────────
 
   describe("test_bucket", () => {
     it("returns error when bucket_name is missing", async () => {
@@ -156,6 +141,8 @@ describe("S3 action handlers", () => {
     });
   });
 
+  // ── list_objects ────────────────────────────────────────────
+
   describe("list_objects", () => {
     it("lists objects from bucket", async () => {
       mockBucketLookup(fakeBucketConfig);
@@ -194,6 +181,8 @@ describe("S3 action handlers", () => {
     });
   });
 
+  // ── count_objects ───────────────────────────────────────────
+
   describe("count_objects", () => {
     it("counts objects grouped by type", async () => {
       mockBucketLookup(fakeBucketConfig);
@@ -215,6 +204,8 @@ describe("S3 action handlers", () => {
     });
   });
 
+  // ── add_bucket ──────────────────────────────────────────────
+
   describe("add_bucket", () => {
     it("returns error when required fields are missing", async () => {
       const result = await executeAction(
@@ -226,15 +217,7 @@ describe("S3 action handlers", () => {
     });
 
     it("encrypts secret and inserts config", async () => {
-      const mockSelect = vi.fn().mockReturnValue({
-        single: () =>
-          Promise.resolve({
-            data: { id: "new-id", bucket_name: "my-bucket" },
-            error: null,
-          }),
-      });
-      const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
-      mockFrom.mockReturnValue({ insert: mockInsert });
+      const mockInsert = mockBucketInsert({ id: "new-id", bucket_name: "my-bucket" });
 
       const result = await executeAction(
         {
@@ -252,26 +235,18 @@ describe("S3 action handlers", () => {
       expect(parsed.success).toBe(true);
       expect(parsed.bucket.bucket_name).toBe("my-bucket");
 
-      // Verify encryption was called with the plaintext secret
       expect(encryptSecret).toHaveBeenCalledWith("my-secret");
 
-      // Verify the encrypted value was stored, not the plaintext
       const insertedRow = mockInsert.mock.calls[0][0];
       expect(insertedRow.secret_access_key).toBe("encrypted");
       expect(insertedRow.phone_number).toBe(PHONE);
     });
 
     it("returns error on duplicate bucket", async () => {
-      const mockSelect = vi.fn().mockReturnValue({
-        single: () =>
-          Promise.resolve({
-            data: null,
-            error: { code: "23505", message: "unique violation" },
-          }),
-      });
-      mockFrom.mockReturnValue({
-        insert: vi.fn().mockReturnValue({ select: mockSelect }),
-      });
+      mockBucketInsert(
+        null as unknown as Record<string, unknown>,
+        { code: "23505", message: "unique violation" },
+      );
 
       const result = await executeAction(
         {
@@ -290,6 +265,8 @@ describe("S3 action handlers", () => {
     });
   });
 
+  // ── remove_bucket ───────────────────────────────────────────
+
   describe("remove_bucket", () => {
     it("returns error when bucket_name is missing", async () => {
       const result = await executeAction(
@@ -300,13 +277,7 @@ describe("S3 action handlers", () => {
     });
 
     it("deletes bucket config and returns success", async () => {
-      mockFrom.mockReturnValue({
-        delete: () => ({
-          eq: () => ({
-            eq: () => Promise.resolve({ error: null }),
-          }),
-        }),
-      });
+      mockBucketDelete();
 
       const result = await executeAction(
         { action: "remove_bucket", params: { bucket_name: "my-bucket" } },
@@ -318,14 +289,7 @@ describe("S3 action handlers", () => {
     });
 
     it("returns error on database failure", async () => {
-      mockFrom.mockReturnValue({
-        delete: () => ({
-          eq: () => ({
-            eq: () =>
-              Promise.resolve({ error: { message: "connection lost" } }),
-          }),
-        }),
-      });
+      mockBucketDelete({ message: "connection lost" });
 
       const result = await executeAction(
         { action: "remove_bucket", params: { bucket_name: "my-bucket" } },
@@ -335,6 +299,8 @@ describe("S3 action handlers", () => {
       expect(parsed.error).toBe("Failed to remove bucket");
     });
   });
+
+  // ── getBucketConfig error discrimination ────────────────────
 
   describe("getBucketConfig error discrimination", () => {
     it("returns not-found error when bucket does not exist", async () => {
@@ -361,6 +327,8 @@ describe("S3 action handlers", () => {
       expect(parsed.error).toContain("ENCRYPTION_KEY may have changed");
     });
   });
+
+  // ── index_bucket ────────────────────────────────────────────
 
   describe("index_bucket", () => {
     it("indexes new objects and skips already-watched keys", async () => {
