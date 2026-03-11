@@ -11,8 +11,8 @@ describe("encryption-versioned", () => {
   const V2_KEY = "test-encryption-key-v2-for-unit-tests";
 
   beforeEach(() => {
-    vi.stubEnv("ENCRYPTION_KEY_V1", V1_KEY);
-    vi.stubEnv("ENCRYPTION_KEY_V2", V2_KEY);
+    vi.stubEnv("ENCRYPTION_KEY_PREVIOUS", V1_KEY);
+    vi.stubEnv("ENCRYPTION_KEY_CURRENT", V2_KEY);
     vi.stubEnv("ENCRYPTION_KEY", V2_KEY); // Fallback to V2
   });
 
@@ -26,7 +26,7 @@ describe("encryption-versioned", () => {
       const encrypted = await encryptSecretVersioned(plaintext);
 
       // Should start with version prefix
-      expect(encrypted).toMatch(/^v2:/);
+      expect(encrypted).toMatch(/^current:/);
 
       // Should be valid base64 after the prefix
       const ciphertext = encrypted.split(":")[1];
@@ -43,13 +43,13 @@ describe("encryption-versioned", () => {
       expect(await decryptSecretVersioned(b)).toBe("same-value");
     });
 
-    it("throws without ENCRYPTION_KEY_V2", async () => {
+    it("throws without ENCRYPTION_KEY_CURRENT", async () => {
       vi.unstubAllEnvs();
-      vi.stubEnv("ENCRYPTION_KEY_V1", V1_KEY);
-      // V2 not set
+      vi.stubEnv("ENCRYPTION_KEY_PREVIOUS", V1_KEY);
+      // CURRENT not set
 
       await expect(encryptSecretVersioned("test")).rejects.toThrow(
-        /Encryption key version 2 not configured/
+        /Encryption key "current" not configured/,
       );
     });
   });
@@ -78,20 +78,20 @@ describe("encryption-versioned", () => {
       vi.stubEnv("ENCRYPTION_KEY", V1_KEY);
       const { encryptSecret } = await import("@/lib/crypto/encryption");
       const v1Ciphertext = await encryptSecret("v1-secret");
-      const v1Versioned = `v1:${v1Ciphertext}`;
+      const v1Versioned = `previous:${v1Ciphertext}`;
 
       const decrypted = await decryptSecretVersioned(v1Versioned);
       expect(decrypted).toBe("v1-secret");
     });
 
-    it("throws when encryption key version is not available", async () => {
+    it("throws when encryption key is not available", async () => {
       vi.unstubAllEnvs();
-      vi.stubEnv("ENCRYPTION_KEY_V2", V2_KEY);
-      // V1 not available
+      vi.stubEnv("ENCRYPTION_KEY_CURRENT", V2_KEY);
+      // PREVIOUS not available
 
-      const v1Data = "v1:someciphertext";
-      await expect(decryptSecretVersioned(v1Data)).rejects.toThrow(
-        /Encryption key version 1 not available/
+      const previousData = "previous:someciphertext";
+      await expect(decryptSecretVersioned(previousData)).rejects.toThrow(
+        /Encryption key "previous" not available/,
       );
     });
 
@@ -99,65 +99,67 @@ describe("encryption-versioned", () => {
       const encrypted = await encryptSecretVersioned("correct-data");
 
       // Change the key (simulate wrong key)
-      vi.stubEnv("ENCRYPTION_KEY_V2", "wrong-key-entirely-different");
+      vi.stubEnv("ENCRYPTION_KEY_CURRENT", "wrong-key-entirely-different");
 
       await expect(decryptSecretVersioned(encrypted)).rejects.toThrow(
-        /Failed to decrypt secret with version 2/
+        /Failed to decrypt secret with "current" key/,
       );
     });
   });
 
   describe("getEncryptionVersion", () => {
-    it("returns 2 for v2-prefixed data", () => {
-      expect(getEncryptionVersion("v2:ciphertext")).toBe(2);
+    it("returns 'current' for current-prefixed data", () => {
+      expect(getEncryptionVersion("current:ciphertext")).toBe("current");
     });
 
-    it("returns 1 for v1-prefixed data", () => {
-      expect(getEncryptionVersion("v1:ciphertext")).toBe(1);
+    it("returns 'previous' for previous-prefixed data", () => {
+      expect(getEncryptionVersion("previous:ciphertext")).toBe("previous");
     });
 
-    it("returns 1 for legacy data (no prefix)", () => {
-      expect(getEncryptionVersion("ciphertext-without-version")).toBe(1);
+    it("returns 'previous' for legacy data (no prefix)", () => {
+      expect(getEncryptionVersion("ciphertext-without-version")).toBe(
+        "previous",
+      );
     });
   });
 
   describe("needsMigration", () => {
-    it("returns true for v1 data", () => {
-      expect(needsMigration("v1:ciphertext")).toBe(true);
+    it("returns true for previous data", () => {
+      expect(needsMigration("previous:ciphertext")).toBe(true);
     });
 
     it("returns true for legacy data (no prefix)", () => {
       expect(needsMigration("ciphertext-without-version")).toBe(true);
     });
 
-    it("returns false for v2 data", () => {
-      expect(needsMigration("v2:ciphertext")).toBe(false);
+    it("returns false for current data", () => {
+      expect(needsMigration("current:ciphertext")).toBe(false);
     });
   });
 
   describe("roundtrip with multiple versions", () => {
-    it("v1 → v2 migration scenario", async () => {
-      // Step 1: Encrypt with V1 (simulate old data)
+    it("previous → current migration scenario", async () => {
+      // Step 1: Encrypt with PREVIOUS (simulate old data)
       vi.stubEnv("ENCRYPTION_KEY", V1_KEY);
       const { encryptSecret } = await import("@/lib/crypto/encryption");
-      const v1Encrypted = await encryptSecret("secret-to-migrate");
+      const previousEncrypted = await encryptSecret("secret-to-migrate");
 
       // Step 2: Verify it's old and needs migration
-      expect(needsMigration(v1Encrypted)).toBe(true);
+      expect(needsMigration(previousEncrypted)).toBe(true);
 
       // Step 3: Decrypt (should still work)
-      const decrypted = await decryptSecretVersioned(v1Encrypted);
+      const decrypted = await decryptSecretVersioned(previousEncrypted);
       expect(decrypted).toBe("secret-to-migrate");
 
       // Step 4: Re-encrypt with new version
-      const v2Encrypted = await encryptSecretVersioned(decrypted);
+      const currentEncrypted = await encryptSecretVersioned(decrypted);
 
       // Step 5: Verify new version
-      expect(getEncryptionVersion(v2Encrypted)).toBe(2);
-      expect(needsMigration(v2Encrypted)).toBe(false);
+      expect(getEncryptionVersion(currentEncrypted)).toBe("current");
+      expect(needsMigration(currentEncrypted)).toBe(false);
 
       // Step 6: Verify can still decrypt
-      const finalDecrypted = await decryptSecretVersioned(v2Encrypted);
+      const finalDecrypted = await decryptSecretVersioned(currentEncrypted);
       expect(finalDecrypted).toBe("secret-to-migrate");
     });
   });

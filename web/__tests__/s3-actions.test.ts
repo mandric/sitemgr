@@ -352,7 +352,7 @@ describe("S3 action handlers", () => {
       mockBucketLookup(fakeBucketConfig);
       vi.mocked(decryptSecretVersioned).mockRejectedValueOnce(
         new Error(
-          "Failed to decrypt secret with version 2 key. The ENCRYPTION_KEY_V2 may be incorrect.",
+          "Failed to decrypt secret with version 2 key. The ENCRYPTION_KEY_CURRENT may be incorrect.",
         ),
       );
 
