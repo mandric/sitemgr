@@ -308,8 +308,40 @@ async function removeBucket(phoneNumber: string, bucketName: string): Promise<st
 
 // ── S3 bucket operations ────────────────────────────────────────
 
-async function getBucketConfig(phoneNumber: string, bucketName: string) {
-  if (!bucketName) return null;
+type BucketConfig = {
+  id: string;
+  endpoint_url: string;
+  region?: string;
+  access_key_id: string;
+  secret_access_key: string;
+  [key: string]: unknown;
+};
+type BucketConfigResult = { exists: boolean; config?: BucketConfig; error?: Error };
+
+type S3ClientResult =
+  | { ok: true; client: ReturnType<typeof createS3Client>; config: BucketConfig }
+  | { ok: false; errorJson: string };
+
+async function requireS3Client(phoneNumber: string, bucketName: string): Promise<S3ClientResult> {
+  if (!bucketName) return { ok: false, errorJson: JSON.stringify({ error: "bucket_name is required" }) };
+
+  const result = await getBucketConfig(phoneNumber, bucketName);
+  if (!result.exists) return { ok: false, errorJson: JSON.stringify({ error: `Bucket "${bucketName}" not found` }) };
+  if (result.error) return { ok: false, errorJson: JSON.stringify({ error: result.error.message }) };
+
+  const config = result.config!;
+  const client = createS3Client({
+    endpoint: config.endpoint_url,
+    region: config.region ?? undefined,
+    accessKeyId: config.access_key_id,
+    secretAccessKey: config.secret_access_key,
+  });
+
+  return { ok: true, client, config };
+}
+
+async function getBucketConfig(phoneNumber: string, bucketName: string): Promise<BucketConfigResult> {
+  if (!bucketName) return { exists: false };
   const supabase = getSupabaseClient();
   const { data, error } = await supabase
     .from("bucket_configs")
@@ -318,36 +350,27 @@ async function getBucketConfig(phoneNumber: string, bucketName: string) {
     .eq("bucket_name", bucketName)
     .maybeSingle();
 
-  if (error || !data) return null;
+  if (error || !data) return { exists: false };
 
-  const decryptedSecret = await decryptSecret(data.secret_access_key);
-  return { ...data, secret_access_key: decryptedSecret };
+  try {
+    const decryptedSecret = await decryptSecret(data.secret_access_key);
+    return { exists: true, config: { ...data, secret_access_key: decryptedSecret } };
+  } catch (err) {
+    return { exists: true, error: err instanceof Error ? err : new Error(String(err)) };
+  }
 }
 
 async function testBucket(
   phoneNumber: string,
   bucketName: string
 ): Promise<string> {
-  if (!bucketName) {
-    return JSON.stringify({ error: "bucket_name is required" });
-  }
-
-  const config = await getBucketConfig(phoneNumber, bucketName);
-  if (!config) {
-    return JSON.stringify({ error: `Bucket "${bucketName}" not found` });
-  }
+  const s3 = await requireS3Client(phoneNumber, bucketName);
+  if (!s3.ok) return s3.errorJson;
 
   try {
-    const client = createS3Client({
-      endpoint: config.endpoint_url,
-      region: config.region ?? undefined,
-      accessKeyId: config.access_key_id,
-      secretAccessKey: config.secret_access_key,
-    });
-
     // Try listing up to 1 object to verify read access
     try {
-      const response = await client.send(
+      const response = await s3.client.send(
         new ListObjectsV2Command({ Bucket: bucketName, MaxKeys: 1 })
       );
       const count = response.KeyCount ?? 0;
@@ -358,7 +381,7 @@ async function testBucket(
       });
     } catch {
       // Fallback to v1 for providers that don't support v2
-      const response = await client.send(
+      const response = await s3.client.send(
         new ListObjectsCommand({ Bucket: bucketName, MaxKeys: 1 })
       );
       const count = (response.Contents ?? []).length;
@@ -382,24 +405,11 @@ async function listObjects(
   prefix?: string,
   limit = 100
 ): Promise<string> {
-  if (!bucketName) {
-    return JSON.stringify({ error: "bucket_name is required" });
-  }
-
-  const config = await getBucketConfig(phoneNumber, bucketName);
-  if (!config) {
-    return JSON.stringify({ error: `Bucket "${bucketName}" not found` });
-  }
+  const s3 = await requireS3Client(phoneNumber, bucketName);
+  if (!s3.ok) return s3.errorJson;
 
   try {
-    const client = createS3Client({
-      endpoint: config.endpoint_url,
-      region: config.region ?? undefined,
-      accessKeyId: config.access_key_id,
-      secretAccessKey: config.secret_access_key,
-    });
-
-    const allObjects = await listS3Objects(client, bucketName, prefix ?? "");
+    const allObjects = await listS3Objects(s3.client, bucketName, prefix ?? "");
     const objects = allObjects.slice(0, limit);
 
     return JSON.stringify({
@@ -425,24 +435,11 @@ async function countObjects(
   bucketName: string,
   prefix?: string
 ): Promise<string> {
-  if (!bucketName) {
-    return JSON.stringify({ error: "bucket_name is required" });
-  }
-
-  const config = await getBucketConfig(phoneNumber, bucketName);
-  if (!config) {
-    return JSON.stringify({ error: `Bucket "${bucketName}" not found` });
-  }
+  const s3 = await requireS3Client(phoneNumber, bucketName);
+  if (!s3.ok) return s3.errorJson;
 
   try {
-    const client = createS3Client({
-      endpoint: config.endpoint_url,
-      region: config.region ?? undefined,
-      accessKeyId: config.access_key_id,
-      secretAccessKey: config.secret_access_key,
-    });
-
-    const allObjects = await listS3Objects(client, bucketName, prefix ?? "");
+    const allObjects = await listS3Objects(s3.client, bucketName, prefix ?? "");
 
     // Group by content type
     const byType: Record<string, number> = {};
@@ -472,25 +469,12 @@ async function indexBucket(
   prefix?: string,
   batchSize = 10
 ): Promise<string> {
-  if (!bucketName) {
-    return JSON.stringify({ error: "bucket_name is required" });
-  }
-
-  const config = await getBucketConfig(phoneNumber, bucketName);
-  if (!config) {
-    return JSON.stringify({ error: `Bucket "${bucketName}" not found` });
-  }
+  const s3 = await requireS3Client(phoneNumber, bucketName);
+  if (!s3.ok) return s3.errorJson;
 
   try {
-    const client = createS3Client({
-      endpoint: config.endpoint_url,
-      region: config.region ?? undefined,
-      accessKeyId: config.access_key_id,
-      secretAccessKey: config.secret_access_key,
-    });
-
     // List all objects in bucket
-    const allObjects = await listS3Objects(client, bucketName, prefix ?? "");
+    const allObjects = await listS3Objects(s3.client, bucketName, prefix ?? "");
 
     // Get already-watched keys to find new ones
     const watchedKeys = await getWatchedKeys();
@@ -520,7 +504,7 @@ async function indexBucket(
           remote_path: `s3://${bucketName}/${obj.key}`,
           metadata: s3Metadata(obj.key, obj.size, obj.etag),
           parent_id: null,
-          bucket_config_id: config.id,
+          bucket_config_id: s3.config.id,
         });
 
         // Track watched key
@@ -530,7 +514,7 @@ async function indexBucket(
         // Enrich if it's an image we can analyze
         if (IMAGE_MIME_PREFIXES.includes(mimeType)) {
           try {
-            const imageBytes = await downloadS3Object(client, bucketName, obj.key);
+            const imageBytes = await downloadS3Object(s3.client, bucketName, obj.key);
             const result = await enrichImage(imageBytes, mimeType);
             await insertEnrichment(eventId, result);
             enriched++;
