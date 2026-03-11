@@ -54,7 +54,7 @@ const TEST_KEY = "integration-test-encryption-key";
 
 describe("encryption lifecycle (real crypto, mocked DB)", () => {
   beforeEach(() => {
-    vi.stubEnv("ENCRYPTION_KEY", TEST_KEY);
+    vi.stubEnv("ENCRYPTION_KEY_CURRENT", TEST_KEY);
     mockFrom.mockReset();
     mockS3Send.mockReset();
   });
@@ -67,7 +67,10 @@ describe("encryption lifecycle (real crypto, mocked DB)", () => {
     const originalSecret = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
 
     // Step 1: addBucket encrypts the secret
-    const ref = mockBucketInsertCapture({ id: "cfg-1", bucket_name: "test-bucket" });
+    const ref = mockBucketInsertCapture({
+      id: "cfg-1",
+      bucket_name: "test-bucket",
+    });
 
     const addResult = await executeAction(
       {
@@ -79,7 +82,7 @@ describe("encryption lifecycle (real crypto, mocked DB)", () => {
           secret_access_key: originalSecret,
         },
       },
-      PHONE
+      PHONE,
     );
     expect(JSON.parse(addResult).success).toBe(true);
 
@@ -104,7 +107,7 @@ describe("encryption lifecycle (real crypto, mocked DB)", () => {
 
     const testResult = await executeAction(
       { action: "test_bucket", params: { bucket_name: "test-bucket" } },
-      PHONE
+      PHONE,
     );
     const parsed = JSON.parse(testResult);
 
@@ -112,11 +115,14 @@ describe("encryption lifecycle (real crypto, mocked DB)", () => {
     expect(parsed.success).toBe(true);
   });
 
-  it("returns error when ENCRYPTION_KEY changes between encrypt and decrypt", async () => {
+  it("returns error when ENCRYPTION_KEY_CURRENT changes between encrypt and decrypt", async () => {
     const originalSecret = "my-secret-key-12345";
 
     // Step 1: Encrypt with original key
-    const ref = mockBucketInsertCapture({ id: "cfg-1", bucket_name: "test-bucket" });
+    const ref = mockBucketInsertCapture({
+      id: "cfg-1",
+      bucket_name: "test-bucket",
+    });
 
     await executeAction(
       {
@@ -128,12 +134,12 @@ describe("encryption lifecycle (real crypto, mocked DB)", () => {
           secret_access_key: originalSecret,
         },
       },
-      PHONE
+      PHONE,
     );
     expect(ref.row).not.toBeNull();
 
     // Step 2: Change the encryption key (simulating key rotation or misconfiguration)
-    vi.stubEnv("ENCRYPTION_KEY", "completely-different-key");
+    vi.stubEnv("ENCRYPTION_KEY_CURRENT", "completely-different-key");
 
     // Step 3: Try to retrieve — decryption should fail
     mockBucketLookup({
@@ -148,12 +154,13 @@ describe("encryption lifecycle (real crypto, mocked DB)", () => {
 
     const result = await executeAction(
       { action: "test_bucket", params: { bucket_name: "test-bucket" } },
-      PHONE
+      PHONE,
     );
     const parsed = JSON.parse(result);
 
     // Should get an error, not success
     expect(parsed.error).toBeDefined();
-    expect(parsed.error).toContain("ENCRYPTION_KEY may have changed");
+    // Error message changed with versioned encryption
+    expect(parsed.error).toMatch(/ENCRYPTION_KEY_CURRENT|decrypt/i);
   });
 });

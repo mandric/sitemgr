@@ -40,6 +40,13 @@ vi.mock("@/lib/crypto/encryption", () => ({
   decryptSecret: vi.fn().mockResolvedValue("decrypted-secret"),
 }));
 
+vi.mock("@/lib/crypto/encryption-versioned", () => ({
+  encryptSecretVersioned: vi.fn().mockResolvedValue("v2:encrypted"),
+  decryptSecretVersioned: vi.fn().mockResolvedValue("decrypted-secret"),
+  getEncryptionVersion: vi.fn().mockReturnValue(2),
+  needsMigration: vi.fn().mockReturnValue(false),
+}));
+
 vi.mock("@/lib/media/enrichment", () => ({
   enrichImage: vi.fn().mockResolvedValue({
     description: "A test image",
@@ -55,9 +62,17 @@ vi.mock("@/lib/media/enrichment", () => ({
 // ── Imports (after mocks) ───────────────────────────────────────
 
 import { executeAction } from "@/lib/agent/core";
-import { encryptSecret, decryptSecret } from "@/lib/crypto/encryption";
+import {
+  encryptSecretVersioned,
+  decryptSecretVersioned,
+} from "@/lib/crypto/encryption-versioned";
 import { listS3Objects, downloadS3Object } from "@/lib/media/s3";
-import { getWatchedKeys, insertEvent, upsertWatchedKey, insertEnrichment } from "@/lib/media/db";
+import {
+  getWatchedKeys,
+  insertEvent,
+  upsertWatchedKey,
+  insertEnrichment,
+} from "@/lib/media/db";
 
 // ── Tests ───────────────────────────────────────────────────────
 
@@ -84,7 +99,7 @@ describe("S3 action handlers", () => {
     it("returns error when bucket_name is missing", async () => {
       const result = await executeAction(
         { action: "test_bucket", params: {} },
-        PHONE
+        PHONE,
       );
       expect(JSON.parse(result)).toEqual({ error: "bucket_name is required" });
     });
@@ -93,7 +108,7 @@ describe("S3 action handlers", () => {
       mockBucketLookup(null);
       const result = await executeAction(
         { action: "test_bucket", params: { bucket_name: "nonexistent" } },
-        PHONE
+        PHONE,
       );
       expect(JSON.parse(result)).toEqual({
         error: 'Bucket "nonexistent" not found',
@@ -106,7 +121,7 @@ describe("S3 action handlers", () => {
 
       const result = await executeAction(
         { action: "test_bucket", params: { bucket_name: "my-bucket" } },
-        PHONE
+        PHONE,
       );
       const parsed = JSON.parse(result);
       expect(parsed.success).toBe(true);
@@ -121,7 +136,7 @@ describe("S3 action handlers", () => {
 
       const result = await executeAction(
         { action: "test_bucket", params: { bucket_name: "my-bucket" } },
-        PHONE
+        PHONE,
       );
       const parsed = JSON.parse(result);
       expect(parsed.success).toBe(true);
@@ -133,7 +148,7 @@ describe("S3 action handlers", () => {
 
       const result = await executeAction(
         { action: "test_bucket", params: { bucket_name: "my-bucket" } },
-        PHONE
+        PHONE,
       );
       const parsed = JSON.parse(result);
       expect(parsed.success).toBe(false);
@@ -147,13 +162,26 @@ describe("S3 action handlers", () => {
     it("lists objects from bucket", async () => {
       mockBucketLookup(fakeBucketConfig);
       vi.mocked(listS3Objects).mockResolvedValue([
-        { key: "photo1.jpg", size: 1024, etag: "abc", lastModified: "2026-01-01" },
-        { key: "photo2.jpg", size: 2048, etag: "def", lastModified: "2026-01-02" },
+        {
+          key: "photo1.jpg",
+          size: 1024,
+          etag: "abc",
+          lastModified: "2026-01-01",
+        },
+        {
+          key: "photo2.jpg",
+          size: 2048,
+          etag: "def",
+          lastModified: "2026-01-02",
+        },
       ]);
 
       const result = await executeAction(
-        { action: "list_objects", params: { bucket_name: "my-bucket", limit: 10 } },
-        PHONE
+        {
+          action: "list_objects",
+          params: { bucket_name: "my-bucket", limit: 10 },
+        },
+        PHONE,
       );
       const parsed = JSON.parse(result);
       expect(parsed.returned).toBe(2);
@@ -172,8 +200,11 @@ describe("S3 action handlers", () => {
       vi.mocked(listS3Objects).mockResolvedValue(objects);
 
       const result = await executeAction(
-        { action: "list_objects", params: { bucket_name: "my-bucket", limit: 5 } },
-        PHONE
+        {
+          action: "list_objects",
+          params: { bucket_name: "my-bucket", limit: 5 },
+        },
+        PHONE,
       );
       const parsed = JSON.parse(result);
       expect(parsed.returned).toBe(5);
@@ -195,7 +226,7 @@ describe("S3 action handlers", () => {
 
       const result = await executeAction(
         { action: "count_objects", params: { bucket_name: "my-bucket" } },
-        PHONE
+        PHONE,
       );
       const parsed = JSON.parse(result);
       expect(parsed.total).toBe(4);
@@ -210,14 +241,17 @@ describe("S3 action handlers", () => {
     it("returns error when required fields are missing", async () => {
       const result = await executeAction(
         { action: "add_bucket", params: { bucket_name: "b" } },
-        PHONE
+        PHONE,
       );
       const parsed = JSON.parse(result);
       expect(parsed.error).toContain("Missing required fields");
     });
 
     it("encrypts secret and inserts config", async () => {
-      const mockInsert = mockBucketInsert({ id: "new-id", bucket_name: "my-bucket" });
+      const mockInsert = mockBucketInsert({
+        id: "new-id",
+        bucket_name: "my-bucket",
+      });
 
       const result = await executeAction(
         {
@@ -229,24 +263,25 @@ describe("S3 action handlers", () => {
             secret_access_key: "my-secret",
           },
         },
-        PHONE
+        PHONE,
       );
       const parsed = JSON.parse(result);
       expect(parsed.success).toBe(true);
       expect(parsed.bucket.bucket_name).toBe("my-bucket");
 
-      expect(encryptSecret).toHaveBeenCalledWith("my-secret");
+      expect(encryptSecretVersioned).toHaveBeenCalledWith("my-secret");
 
       const insertedRow = mockInsert.mock.calls[0][0];
-      expect(insertedRow.secret_access_key).toBe("encrypted");
+      expect(insertedRow.secret_access_key).toBe("v2:encrypted");
+      expect(insertedRow.encryption_key_version).toBe(2);
       expect(insertedRow.phone_number).toBe(PHONE);
     });
 
     it("returns error on duplicate bucket", async () => {
-      mockBucketInsert(
-        null as unknown as Record<string, unknown>,
-        { code: "23505", message: "unique violation" },
-      );
+      mockBucketInsert(null as unknown as Record<string, unknown>, {
+        code: "23505",
+        message: "unique violation",
+      });
 
       const result = await executeAction(
         {
@@ -258,7 +293,7 @@ describe("S3 action handlers", () => {
             secret_access_key: "secret",
           },
         },
-        PHONE
+        PHONE,
       );
       const parsed = JSON.parse(result);
       expect(parsed.error).toContain("already configured");
@@ -271,7 +306,7 @@ describe("S3 action handlers", () => {
     it("returns error when bucket_name is missing", async () => {
       const result = await executeAction(
         { action: "remove_bucket", params: {} },
-        PHONE
+        PHONE,
       );
       expect(JSON.parse(result)).toEqual({ error: "bucket_name is required" });
     });
@@ -281,7 +316,7 @@ describe("S3 action handlers", () => {
 
       const result = await executeAction(
         { action: "remove_bucket", params: { bucket_name: "my-bucket" } },
-        PHONE
+        PHONE,
       );
       const parsed = JSON.parse(result);
       expect(parsed.success).toBe(true);
@@ -293,7 +328,7 @@ describe("S3 action handlers", () => {
 
       const result = await executeAction(
         { action: "remove_bucket", params: { bucket_name: "my-bucket" } },
-        PHONE
+        PHONE,
       );
       const parsed = JSON.parse(result);
       expect(parsed.error).toBe("Failed to remove bucket");
@@ -307,7 +342,7 @@ describe("S3 action handlers", () => {
       mockBucketLookup(null);
       const result = await executeAction(
         { action: "test_bucket", params: { bucket_name: "ghost" } },
-        PHONE
+        PHONE,
       );
       const parsed = JSON.parse(result);
       expect(parsed.error).toContain("not found");
@@ -315,16 +350,18 @@ describe("S3 action handlers", () => {
 
     it("returns decrypt error when decryption fails", async () => {
       mockBucketLookup(fakeBucketConfig);
-      vi.mocked(decryptSecret).mockRejectedValueOnce(
-        new Error("ENCRYPTION_KEY may have changed")
+      vi.mocked(decryptSecretVersioned).mockRejectedValueOnce(
+        new Error(
+          "Failed to decrypt secret with version 2 key. The ENCRYPTION_KEY_CURRENT may be incorrect.",
+        ),
       );
 
       const result = await executeAction(
         { action: "test_bucket", params: { bucket_name: "my-bucket" } },
-        PHONE
+        PHONE,
       );
       const parsed = JSON.parse(result);
-      expect(parsed.error).toContain("ENCRYPTION_KEY may have changed");
+      expect(parsed.error).toBeDefined();
     });
   });
 
@@ -341,8 +378,11 @@ describe("S3 action handlers", () => {
       vi.mocked(getWatchedKeys).mockResolvedValue(new Set(["old.jpg"]));
 
       const result = await executeAction(
-        { action: "index_bucket", params: { bucket_name: "my-bucket", batch_size: 10 } },
-        PHONE
+        {
+          action: "index_bucket",
+          params: { bucket_name: "my-bucket", batch_size: 10 },
+        },
+        PHONE,
       );
       const parsed = JSON.parse(result);
       expect(parsed.total_objects).toBe(3);
@@ -363,8 +403,11 @@ describe("S3 action handlers", () => {
       vi.mocked(getWatchedKeys).mockResolvedValue(new Set());
 
       const result = await executeAction(
-        { action: "index_bucket", params: { bucket_name: "my-bucket", batch_size: 5 } },
-        PHONE
+        {
+          action: "index_bucket",
+          params: { bucket_name: "my-bucket", batch_size: 5 },
+        },
+        PHONE,
       );
       const parsed = JSON.parse(result);
       expect(parsed.batch_indexed).toBe(5);
@@ -380,8 +423,11 @@ describe("S3 action handlers", () => {
       vi.mocked(downloadS3Object).mockResolvedValue(Buffer.from("fake-image"));
 
       const result = await executeAction(
-        { action: "index_bucket", params: { bucket_name: "my-bucket", batch_size: 10 } },
-        PHONE
+        {
+          action: "index_bucket",
+          params: { bucket_name: "my-bucket", batch_size: 10 },
+        },
+        PHONE,
       );
       const parsed = JSON.parse(result);
       expect(parsed.batch_indexed).toBe(1);

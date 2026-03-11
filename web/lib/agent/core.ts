@@ -9,12 +9,32 @@ import Anthropic from "@anthropic-ai/sdk";
 import { AGENT_SYSTEM_PROMPT, WHATSAPP_PLANNER_PROMPT } from "./system-prompt";
 import { getSupabaseClient } from "@/lib/media/db";
 import {
-  queryEvents, showEvent, getStats, getEnrichStatus,
-  insertEvent, insertEnrichment, upsertWatchedKey, getWatchedKeys,
+  queryEvents,
+  showEvent,
+  getStats,
+  getEnrichStatus,
+  insertEvent,
+  insertEnrichment,
+  upsertWatchedKey,
+  getWatchedKeys,
 } from "@/lib/media/db";
-import { encryptSecret, decryptSecret } from "@/lib/crypto/encryption";
-import { createS3Client, listS3Objects, downloadS3Object } from "@/lib/media/s3";
-import { newEventId, detectContentType, getMimeType, s3Metadata } from "@/lib/media/utils";
+import {
+  encryptSecretVersioned,
+  decryptSecretVersioned,
+  getEncryptionVersion,
+  needsMigration,
+} from "@/lib/crypto/encryption-versioned";
+import {
+  createS3Client,
+  listS3Objects,
+  downloadS3Object,
+} from "@/lib/media/s3";
+import {
+  newEventId,
+  detectContentType,
+  getMimeType,
+  s3Metadata,
+} from "@/lib/media/utils";
 import { enrichImage } from "@/lib/media/enrichment";
 import { ListObjectsV2Command, ListObjectsCommand } from "@aws-sdk/client-s3";
 
@@ -40,7 +60,7 @@ interface AgentPlan {
 
 export async function sendMessageToAgent(
   message: string,
-  conversationHistory?: Message[]
+  conversationHistory?: Message[],
 ): Promise<AgentResponse> {
   try {
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -84,7 +104,7 @@ export async function sendMessageToAgent(
 
 export async function planAction(
   userMessage: string,
-  history: Message[]
+  history: Message[],
 ): Promise<AgentPlan> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY not configured");
@@ -106,7 +126,8 @@ export async function planAction(
     messages,
   });
 
-  let text = response.content[0].type === "text" ? response.content[0].text.trim() : "";
+  let text =
+    response.content[0].type === "text" ? response.content[0].text.trim() : "";
 
   // Strip markdown fences
   if (text.startsWith("```")) {
@@ -119,7 +140,7 @@ export async function planAction(
 
 export async function executeAction(
   plan: AgentPlan,
-  phoneNumber: string
+  phoneNumber: string,
 ): Promise<string> {
   switch (plan.action) {
     case "direct":
@@ -132,13 +153,20 @@ export async function executeAction(
       return await listBuckets(phoneNumber);
 
     case "remove_bucket":
-      return await removeBucket(phoneNumber, plan.params?.bucket_name as string);
+      return await removeBucket(
+        phoneNumber,
+        plan.params?.bucket_name as string,
+      );
 
     case "stats":
       return JSON.stringify(await getStats());
 
     case "show":
-      return JSON.stringify(await showEvent(plan.params?.id as string) ?? { error: "Event not found" });
+      return JSON.stringify(
+        (await showEvent(plan.params?.id as string)) ?? {
+          error: "Event not found",
+        },
+      );
 
     case "enrich_status":
       return JSON.stringify(await getEnrichStatus());
@@ -163,14 +191,14 @@ export async function executeAction(
         phoneNumber,
         plan.params?.bucket_name as string,
         plan.params?.prefix as string | undefined,
-        (plan.params?.limit as number) ?? 100
+        (plan.params?.limit as number) ?? 100,
       );
 
     case "count_objects":
       return await countObjects(
         phoneNumber,
         plan.params?.bucket_name as string,
-        plan.params?.prefix as string | undefined
+        plan.params?.prefix as string | undefined,
       );
 
     case "index_bucket":
@@ -178,7 +206,7 @@ export async function executeAction(
         phoneNumber,
         plan.params?.bucket_name as string,
         plan.params?.prefix as string | undefined,
-        (plan.params?.batch_size as number) ?? 10
+        (plan.params?.batch_size as number) ?? 10,
       );
 
     default:
@@ -188,7 +216,7 @@ export async function executeAction(
 
 export async function summarizeResult(
   userMessage: string,
-  actionResult: string
+  actionResult: string,
 ): Promise<string> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY not configured");
@@ -217,14 +245,16 @@ Summarize conversationally. Keep it short — this is a chat message.
   });
 
   const content = response.content[0];
-  return content.type === "text" ? content.text.trim() : "Sorry, I couldn't process that.";
+  return content.type === "text"
+    ? content.text.trim()
+    : "Sorry, I couldn't process that.";
 }
 
 // ── Bucket management (phone-number scoped, for WhatsApp) ──────
 
 async function addBucket(
   phoneNumber: string,
-  params: Record<string, unknown>
+  params: Record<string, unknown>,
 ): Promise<string> {
   const bucketName = params.bucket_name as string;
   const endpointUrl = params.endpoint_url as string;
@@ -234,11 +264,14 @@ async function addBucket(
 
   if (!bucketName || !endpointUrl || !accessKeyId || !secretAccessKey) {
     return JSON.stringify({
-      error: "Missing required fields: bucket_name, endpoint_url, access_key_id, secret_access_key",
+      error:
+        "Missing required fields: bucket_name, endpoint_url, access_key_id, secret_access_key",
     });
   }
 
-  const encryptedSecret = await encryptSecret(secretAccessKey);
+  // Use versioned encryption for new buckets
+  const encryptedSecret = await encryptSecretVersioned(secretAccessKey);
+  const keyVersion = getEncryptionVersion(encryptedSecret);
   const supabase = getSupabaseClient();
 
   const { data, error } = await supabase
@@ -250,13 +283,16 @@ async function addBucket(
       endpoint_url: endpointUrl,
       access_key_id: accessKeyId,
       secret_access_key: encryptedSecret,
+      encryption_key_version: keyVersion,
     })
     .select()
     .single();
 
   if (error) {
     if (error.code === "23505") {
-      return JSON.stringify({ error: `Bucket "${bucketName}" is already configured` });
+      return JSON.stringify({
+        error: `Bucket "${bucketName}" is already configured`,
+      });
     }
     console.error("Database error:", error);
     return JSON.stringify({ error: "Failed to save bucket configuration" });
@@ -264,7 +300,12 @@ async function addBucket(
 
   return JSON.stringify({
     success: true,
-    bucket: { id: data.id, bucket_name: bucketName, region, endpoint_url: endpointUrl },
+    bucket: {
+      id: data.id,
+      bucket_name: bucketName,
+      region,
+      endpoint_url: endpointUrl,
+    },
   });
 }
 
@@ -273,7 +314,9 @@ async function listBuckets(phoneNumber: string): Promise<string> {
 
   const { data, error } = await supabase
     .from("bucket_configs")
-    .select("id, bucket_name, region, endpoint_url, created_at, last_synced_key")
+    .select(
+      "id, bucket_name, region, endpoint_url, created_at, last_synced_key",
+    )
     .eq("phone_number", phoneNumber)
     .order("created_at", { ascending: false });
 
@@ -285,7 +328,10 @@ async function listBuckets(phoneNumber: string): Promise<string> {
   return JSON.stringify({ buckets: data ?? [], count: data?.length ?? 0 });
 }
 
-async function removeBucket(phoneNumber: string, bucketName: string): Promise<string> {
+async function removeBucket(
+  phoneNumber: string,
+  bucketName: string,
+): Promise<string> {
   if (!bucketName) {
     return JSON.stringify({ error: "bucket_name is required" });
   }
@@ -303,7 +349,10 @@ async function removeBucket(phoneNumber: string, bucketName: string): Promise<st
     return JSON.stringify({ error: "Failed to remove bucket" });
   }
 
-  return JSON.stringify({ success: true, message: `Bucket "${bucketName}" removed` });
+  return JSON.stringify({
+    success: true,
+    message: `Bucket "${bucketName}" removed`,
+  });
 }
 
 // ── S3 bucket operations ────────────────────────────────────────
@@ -316,18 +365,41 @@ type BucketConfig = {
   secret_access_key: string;
   [key: string]: unknown;
 };
-type BucketConfigResult = { exists: boolean; config?: BucketConfig; error?: Error };
+type BucketConfigResult = {
+  exists: boolean;
+  config?: BucketConfig;
+  error?: Error;
+};
 
 type S3ClientResult =
-  | { ok: true; client: ReturnType<typeof createS3Client>; config: BucketConfig }
+  | {
+      ok: true;
+      client: ReturnType<typeof createS3Client>;
+      config: BucketConfig;
+    }
   | { ok: false; errorJson: string };
 
-async function requireS3Client(phoneNumber: string, bucketName: string): Promise<S3ClientResult> {
-  if (!bucketName) return { ok: false, errorJson: JSON.stringify({ error: "bucket_name is required" }) };
+async function requireS3Client(
+  phoneNumber: string,
+  bucketName: string,
+): Promise<S3ClientResult> {
+  if (!bucketName)
+    return {
+      ok: false,
+      errorJson: JSON.stringify({ error: "bucket_name is required" }),
+    };
 
   const result = await getBucketConfig(phoneNumber, bucketName);
-  if (!result.exists) return { ok: false, errorJson: JSON.stringify({ error: `Bucket "${bucketName}" not found` }) };
-  if (result.error) return { ok: false, errorJson: JSON.stringify({ error: result.error.message }) };
+  if (!result.exists)
+    return {
+      ok: false,
+      errorJson: JSON.stringify({ error: `Bucket "${bucketName}" not found` }),
+    };
+  if (result.error)
+    return {
+      ok: false,
+      errorJson: JSON.stringify({ error: result.error.message }),
+    };
 
   const config = result.config!;
   const client = createS3Client({
@@ -340,7 +412,10 @@ async function requireS3Client(phoneNumber: string, bucketName: string): Promise
   return { ok: true, client, config };
 }
 
-async function getBucketConfig(phoneNumber: string, bucketName: string): Promise<BucketConfigResult> {
+async function getBucketConfig(
+  phoneNumber: string,
+  bucketName: string,
+): Promise<BucketConfigResult> {
   if (!bucketName) return { exists: false };
   const supabase = getSupabaseClient();
   const { data, error } = await supabase
@@ -353,16 +428,61 @@ async function getBucketConfig(phoneNumber: string, bucketName: string): Promise
   if (error || !data) return { exists: false };
 
   try {
-    const decryptedSecret = await decryptSecret(data.secret_access_key);
-    return { exists: true, config: { ...data, secret_access_key: decryptedSecret } };
+    // Use versioned decryption (supports both old and new encryption keys)
+    const decryptedSecret = await decryptSecretVersioned(
+      data.secret_access_key,
+    );
+
+    // 🔑 Lazy migration: Re-encrypt with current version if needed
+    if (needsMigration(data.secret_access_key)) {
+      const newCiphertext = await encryptSecretVersioned(decryptedSecret);
+      const newVersion = getEncryptionVersion(newCiphertext);
+
+      // Update in background (non-blocking, fire-and-forget)
+      void (async () => {
+        try {
+          const { error } = await supabase
+            .from("bucket_configs")
+            .update({
+              secret_access_key: newCiphertext,
+              encryption_key_version: newVersion,
+            })
+            .eq("id", data.id);
+
+          if (error) {
+            console.error(
+              `[Lazy Migration] ❌ Failed to migrate "${bucketName}":`,
+              error,
+            );
+          } else {
+            console.log(
+              `[Lazy Migration] ✅ Migrated "${bucketName}" to encryption key v${newVersion}`,
+            );
+          }
+        } catch (err) {
+          console.error(
+            `[Lazy Migration] ❌ Exception during migration of "${bucketName}":`,
+            err,
+          );
+        }
+      })();
+    }
+
+    return {
+      exists: true,
+      config: { ...data, secret_access_key: decryptedSecret },
+    };
   } catch (err) {
-    return { exists: true, error: err instanceof Error ? err : new Error(String(err)) };
+    return {
+      exists: true,
+      error: err instanceof Error ? err : new Error(String(err)),
+    };
   }
 }
 
 async function testBucket(
   phoneNumber: string,
-  bucketName: string
+  bucketName: string,
 ): Promise<string> {
   const s3 = await requireS3Client(phoneNumber, bucketName);
   if (!s3.ok) return s3.errorJson;
@@ -371,7 +491,7 @@ async function testBucket(
     // Try listing up to 1 object to verify read access
     try {
       const response = await s3.client.send(
-        new ListObjectsV2Command({ Bucket: bucketName, MaxKeys: 1 })
+        new ListObjectsV2Command({ Bucket: bucketName, MaxKeys: 1 }),
       );
       const count = response.KeyCount ?? 0;
       return JSON.stringify({
@@ -382,7 +502,7 @@ async function testBucket(
     } catch {
       // Fallback to v1 for providers that don't support v2
       const response = await s3.client.send(
-        new ListObjectsCommand({ Bucket: bucketName, MaxKeys: 1 })
+        new ListObjectsCommand({ Bucket: bucketName, MaxKeys: 1 }),
       );
       const count = (response.Contents ?? []).length;
       return JSON.stringify({
@@ -403,7 +523,7 @@ async function listObjects(
   phoneNumber: string,
   bucketName: string,
   prefix?: string,
-  limit = 100
+  limit = 100,
 ): Promise<string> {
   const s3 = await requireS3Client(phoneNumber, bucketName);
   if (!s3.ok) return s3.errorJson;
@@ -433,7 +553,7 @@ async function listObjects(
 async function countObjects(
   phoneNumber: string,
   bucketName: string,
-  prefix?: string
+  prefix?: string,
 ): Promise<string> {
   const s3 = await requireS3Client(phoneNumber, bucketName);
   if (!s3.ok) return s3.errorJson;
@@ -461,13 +581,18 @@ async function countObjects(
   }
 }
 
-const IMAGE_MIME_PREFIXES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+const IMAGE_MIME_PREFIXES = [
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+];
 
 async function indexBucket(
   phoneNumber: string,
   bucketName: string,
   prefix?: string,
-  batchSize = 10
+  batchSize = 10,
 ): Promise<string> {
   const s3 = await requireS3Client(phoneNumber, bucketName);
   if (!s3.ok) return s3.errorJson;
@@ -514,7 +639,11 @@ async function indexBucket(
         // Enrich if it's an image we can analyze
         if (IMAGE_MIME_PREFIXES.includes(mimeType)) {
           try {
-            const imageBytes = await downloadS3Object(s3.client, bucketName, obj.key);
+            const imageBytes = await downloadS3Object(
+              s3.client,
+              bucketName,
+              obj.key,
+            );
             const result = await enrichImage(imageBytes, mimeType);
             await insertEnrichment(eventId, result);
             enriched++;
@@ -556,7 +685,9 @@ async function indexBucket(
 
 // ── Conversation history ───────────────────────────────────────
 
-export async function getConversationHistory(phone: string): Promise<Message[]> {
+export async function getConversationHistory(
+  phone: string,
+): Promise<Message[]> {
   const supabase = getSupabaseClient();
 
   const { data } = await supabase
@@ -570,7 +701,7 @@ export async function getConversationHistory(phone: string): Promise<Message[]> 
 
 export async function saveConversationHistory(
   phone: string,
-  history: Message[]
+  history: Message[],
 ): Promise<void> {
   const supabase = getSupabaseClient();
   const trimmed = history.slice(-20);
