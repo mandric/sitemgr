@@ -184,7 +184,10 @@ export async function executeAction(
     }
 
     case "test_bucket":
-      return await testBucket(phoneNumber, plan.params?.bucket_name as string);
+      return await verifyBucketConfig(
+        phoneNumber,
+        plan.params?.bucket_name as string,
+      );
 
     case "list_objects":
       return await listObjects(
@@ -490,7 +493,7 @@ async function getBucketConfig(
   }
 }
 
-async function testBucket(
+async function verifyBucketConfig(
   phoneNumber: string,
   bucketName: string,
 ): Promise<string> {
@@ -523,7 +526,7 @@ async function testBucket(
     }
   } catch (err) {
     console.info(
-      `[testBucket] S3 access failed for "${bucketName}":`,
+      `[verifyBucketConfig] S3 access failed for "${bucketName}":`,
       (err as Error).message,
     );
     return JSON.stringify({
