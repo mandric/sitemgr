@@ -12,12 +12,18 @@
     ]
   },
   "enabledPlugins": {
-    "deep-project@piercelamb-plugins": true,
-    "deep-plan@piercelamb-plugins": true,
+    "deep-project@piercelamb-deep-project": true,
+    "deep-plan@piercelamb-deep-plan": true,
     "deep-implement@piercelamb-deep-implement": true
   },
   "extraKnownMarketplaces": {
-    "piercelamb-plugins": {
+    "piercelamb-deep-project": {
+      "source": {
+        "source": "github",
+        "repo": "piercelamb/deep-project"
+      }
+    },
+    "piercelamb-deep-plan": {
       "source": {
         "source": "github",
         "repo": "piercelamb/deep-plan"
