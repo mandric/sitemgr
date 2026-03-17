@@ -18,7 +18,28 @@
     "section-09-event-id",
     "section-10-documentation"
   ],
-  "sections_state": {},
+  "sections_state": {
+    "section-01-encryption-fix": {
+      "status": "complete",
+      "commit_hash": "2243f06"
+    },
+    "section-09-event-id": {
+      "status": "complete",
+      "commit_hash": "11ba66b"
+    },
+    "section-07-migration-tests": {
+      "status": "complete",
+      "commit_hash": "b75e047"
+    },
+    "section-05-encryption-tests": {
+      "status": "complete",
+      "commit_hash": "c13fe3c"
+    },
+    "section-02-rls-audit": {
+      "status": "complete",
+      "commit_hash": "fa3d6cd"
+    }
+  },
   "pre_commit": {
     "present": false,
     "type": "none",
