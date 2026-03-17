@@ -64,6 +64,32 @@ When to use `vi.stubEnv()` (fixtures) vs setting in CI:
 
 **See `docs/ENV_VARS.md` for detailed procedures**
 
+### Development & Deployment Workflow
+
+**Three environments: Local → Preview → Production**
+
+**Local (dev):**
+- `supabase start` — local Postgres, Auth, Storage, etc. (Docker)
+- `vercel dev` or `next dev` — local frontend + API routes
+- All services run on your machine; no cloud dependencies
+- This is the primary development loop — get things working here first
+
+**Preview:**
+- Vercel auto-creates preview deployments on PRs
+- Separate Supabase project for preview (not yet set up — backlog)
+- Preview environment is fully isolated from production
+- DB migrations must be applied to preview Supabase project separately
+
+**Production:**
+- Merge to `main` triggers Vercel production deploy (frontend + API routes)
+- DB migrations deploy via GitHub Actions using `SUPABASE_ACCESS_TOKEN`
+- These are two separate deploy pipelines — Vercel owns app, GitHub owns DB
+
+**Known gaps / CI-CD backlog:**
+- Preview Supabase environment not yet configured
+- App and DB deploy pipelines are decoupled (Vercel vs GitHub Actions) — works but fragile
+- No automated rollback if DB migration succeeds but app deploy fails (or vice versa)
+
 ### Planning Artifacts
 
 - `project-manifest.md` — Split structure, dependencies, and execution order
