@@ -10,5 +10,24 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "deep-project@piercelamb-plugins": true,
+    "deep-plan@piercelamb-plugins": true,
+    "deep-implement@piercelamb-deep-implement": true
+  },
+  "extraKnownMarketplaces": {
+    "piercelamb-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "piercelamb/deep-plan"
+      }
+    },
+    "piercelamb-deep-implement": {
+      "source": {
+        "source": "github",
+        "repo": "piercelamb/deep-implement"
+      }
+    }
   }
 }
