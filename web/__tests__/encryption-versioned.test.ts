@@ -5,6 +5,7 @@ import {
   getEncryptionVersion,
   needsMigration,
 } from "@/lib/crypto/encryption-versioned";
+import { encryptSecret } from "@/lib/crypto/encryption";
 
 describe("encryption-versioned", () => {
   const V1_KEY = "test-encryption-key-v1-for-unit-tests";
@@ -13,7 +14,6 @@ describe("encryption-versioned", () => {
   beforeEach(() => {
     vi.stubEnv("ENCRYPTION_KEY_PREVIOUS", V1_KEY);
     vi.stubEnv("ENCRYPTION_KEY_CURRENT", V2_KEY);
-    vi.stubEnv("ENCRYPTION_KEY", V2_KEY); // Fallback to V2
   });
 
   afterEach(() => {
@@ -21,7 +21,7 @@ describe("encryption-versioned", () => {
   });
 
   describe("encryptSecretVersioned", () => {
-    it("encrypts with current version (v2) and adds version prefix", async () => {
+    it("encrypts with current version and adds version prefix", async () => {
       const plaintext = "my-secret-access-key-12345";
       const encrypted = await encryptSecretVersioned(plaintext);
 
@@ -55,29 +55,25 @@ describe("encryption-versioned", () => {
   });
 
   describe("decryptSecretVersioned", () => {
-    it("decrypts v2-encrypted data", async () => {
+    it("decrypts current-encrypted data", async () => {
       const plaintext = "secret-data-v2";
       const encrypted = await encryptSecretVersioned(plaintext);
       const decrypted = await decryptSecretVersioned(encrypted);
       expect(decrypted).toBe(plaintext);
     });
 
-    it("decrypts legacy v1 data (no version prefix)", async () => {
-      // Simulate old data encrypted with V1 (no version prefix)
-      vi.stubEnv("ENCRYPTION_KEY", V1_KEY);
-      const { encryptSecret } = await import("@/lib/crypto/encryption");
-      const legacyEncrypted = await encryptSecret("legacy-secret");
+    it("decrypts legacy data (no version prefix)", async () => {
+      // Create legacy ciphertext using the base module directly with V1 key
+      const legacyEncrypted = await encryptSecret("legacy-secret", V1_KEY);
 
-      // Now decrypt with versioned function (should use V1 key)
+      // Now decrypt with versioned function (should try keys and find V1)
       const decrypted = await decryptSecretVersioned(legacyEncrypted);
       expect(decrypted).toBe("legacy-secret");
     });
 
-    it("decrypts explicitly versioned v1 data", async () => {
-      // Manually create v1-prefixed data
-      vi.stubEnv("ENCRYPTION_KEY", V1_KEY);
-      const { encryptSecret } = await import("@/lib/crypto/encryption");
-      const v1Ciphertext = await encryptSecret("v1-secret");
+    it("decrypts explicitly versioned previous data", async () => {
+      // Create ciphertext with V1 key and add previous: prefix
+      const v1Ciphertext = await encryptSecret("v1-secret", V1_KEY);
       const v1Versioned = `previous:${v1Ciphertext}`;
 
       const decrypted = await decryptSecretVersioned(v1Versioned);
@@ -104,6 +100,29 @@ describe("encryption-versioned", () => {
       await expect(decryptSecretVersioned(encrypted)).rejects.toThrow(
         /Failed to decrypt secret with "current" key/,
       );
+    });
+  });
+
+  describe("no longer mutates process.env.ENCRYPTION_KEY", () => {
+    it("encryptSecretVersioned does not touch process.env.ENCRYPTION_KEY", async () => {
+      const sentinel = "sentinel-value-should-not-change";
+      process.env.ENCRYPTION_KEY = sentinel;
+
+      await encryptSecretVersioned("some-data");
+
+      expect(process.env.ENCRYPTION_KEY).toBe(sentinel);
+      delete process.env.ENCRYPTION_KEY;
+    });
+
+    it("decryptSecretVersioned does not touch process.env.ENCRYPTION_KEY", async () => {
+      const encrypted = await encryptSecretVersioned("some-data");
+      const sentinel = "sentinel-value-should-not-change";
+      process.env.ENCRYPTION_KEY = sentinel;
+
+      await decryptSecretVersioned(encrypted);
+
+      expect(process.env.ENCRYPTION_KEY).toBe(sentinel);
+      delete process.env.ENCRYPTION_KEY;
     });
   });
 
@@ -139,10 +158,11 @@ describe("encryption-versioned", () => {
 
   describe("roundtrip with multiple versions", () => {
     it("previous → current migration scenario", async () => {
-      // Step 1: Encrypt with PREVIOUS (simulate old data)
-      vi.stubEnv("ENCRYPTION_KEY", V1_KEY);
-      const { encryptSecret } = await import("@/lib/crypto/encryption");
-      const previousEncrypted = await encryptSecret("secret-to-migrate");
+      // Step 1: Create legacy ciphertext with V1 key (no prefix)
+      const previousEncrypted = await encryptSecret(
+        "secret-to-migrate",
+        V1_KEY,
+      );
 
       // Step 2: Verify it's old and needs migration
       expect(needsMigration(previousEncrypted)).toBe(true);

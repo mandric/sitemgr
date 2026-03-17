@@ -83,23 +83,8 @@ export async function encryptSecretVersioned(
     );
   }
 
-  // Temporarily set ENCRYPTION_KEY for the base encryptSecret function
-  const originalKey = process.env.ENCRYPTION_KEY;
-  process.env.ENCRYPTION_KEY = currentKey.key;
-
-  try {
-    const ciphertext = await encryptSecret(plaintext);
-
-    // Prepend label to ciphertext
-    return `${CURRENT_KEY_LABEL}:${ciphertext}`;
-  } finally {
-    // Restore original key
-    if (originalKey) {
-      process.env.ENCRYPTION_KEY = originalKey;
-    } else {
-      delete process.env.ENCRYPTION_KEY;
-    }
-  }
+  const ciphertext = await encryptSecret(plaintext, currentKey.key);
+  return `${CURRENT_KEY_LABEL}:${ciphertext}`;
 }
 
 /**
@@ -133,19 +118,7 @@ export async function decryptSecretVersioned(
       if (!keyConfig) continue;
 
       try {
-        const originalKey = process.env.ENCRYPTION_KEY;
-        process.env.ENCRYPTION_KEY = keyConfig.key;
-
-        try {
-          const plaintext = await decryptSecret(versionedCiphertext);
-          return plaintext;
-        } finally {
-          if (originalKey) {
-            process.env.ENCRYPTION_KEY = originalKey;
-          } else {
-            delete process.env.ENCRYPTION_KEY;
-          }
-        }
+        return await decryptSecret(versionedCiphertext, keyConfig.key);
       } catch {
         // Try next key
         continue;
@@ -171,23 +144,14 @@ export async function decryptSecretVersioned(
     );
   }
 
-  const originalKey = process.env.ENCRYPTION_KEY;
-  process.env.ENCRYPTION_KEY = keyConfig.key;
-
   try {
-    return await decryptSecret(ciphertext);
+    return await decryptSecret(ciphertext, keyConfig.key);
   } catch (err: unknown) {
     throw new Error(
       `Failed to decrypt secret with "${label}" key. ` +
         `The ENCRYPTION_KEY_${label.toUpperCase()} may be incorrect.`,
       { cause: err },
     );
-  } finally {
-    if (originalKey) {
-      process.env.ENCRYPTION_KEY = originalKey;
-    } else {
-      delete process.env.ENCRYPTION_KEY;
-    }
   }
 }
 

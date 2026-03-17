@@ -1,0 +1,31 @@
+{
+  "plugin_root": "/root/.claude/plugins/cache/piercelamb-plugins/deep-implement/0.2.1",
+  "sections_dir": "/home/user/sitemgr/01-data-foundation/sections",
+  "target_dir": "/home/user/sitemgr",
+  "state_dir": "/home/user/sitemgr/01-data-foundation/implementation",
+  "git_root": "/home/user/sitemgr",
+  "commit_style": "simple",
+  "test_command": "uv run pytest",
+  "sections": [
+    "section-01-encryption-fix",
+    "section-02-rls-audit",
+    "section-03-client-refactor",
+    "section-04-rpc-user-isolation",
+    "section-05-encryption-tests",
+    "section-06-rls-tests",
+    "section-07-migration-tests",
+    "section-08-phone-migration",
+    "section-09-event-id",
+    "section-10-documentation"
+  ],
+  "sections_state": {},
+  "pre_commit": {
+    "present": false,
+    "type": "none",
+    "config_file": null,
+    "native_hook": null,
+    "may_modify_files": false,
+    "detected_formatters": []
+  },
+  "created_at": "2026-03-17T19:09:22.041032+00:00"
+}

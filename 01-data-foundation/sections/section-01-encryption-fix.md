@@ -149,3 +149,21 @@ After implementation, run:
 - `npx vitest run web/__tests__/s3-actions.test.ts` — S3 actions that use encryption
 
 All must pass. The concurrency test (two parallel encrypts with different keys) is the critical regression test that would have failed before this fix and must pass after.
+
+## What Was Built
+
+**Implemented as planned.** All changes match the spec with minor deviations noted below.
+
+### Files Modified
+- `web/lib/crypto/encryption.ts` — Changed `encryptSecret(plaintext)` → `encryptSecret(plaintext, key)` and `decryptSecret(ciphertext)` → `decryptSecret(ciphertext, key)`. Removed all `process.env.ENCRYPTION_KEY` reads. Renamed internal `key` variable to `cryptoKey` to avoid shadowing the parameter.
+- `web/lib/crypto/encryption-versioned.ts` — Removed all 3 instances of the save/mutate/restore `process.env.ENCRYPTION_KEY` pattern. Now passes `keyConfig.key` directly as second argument.
+- `web/__tests__/encryption.test.ts` — Rewrote: removed all `vi.stubEnv("ENCRYPTION_KEY", ...)` calls, passes keys directly. Added concurrency regression test and empty-key guard tests (9 tests total).
+- `web/__tests__/encryption-versioned.test.ts` — Rewrote: removed `vi.stubEnv("ENCRYPTION_KEY", ...)`, uses direct `encryptSecret(text, key)` for legacy fixture creation instead of dynamic import. Added sentinel tests verifying `process.env.ENCRYPTION_KEY` is not mutated (20 tests total).
+
+### Deviations from Plan
+- Renamed local variable `key` → `cryptoKey` in `encryption.ts` to avoid shadowing the new `key` parameter (esbuild rejects duplicate declarations).
+- Error message in `decryptSecret` changed from "the ENCRYPTION_KEY may have changed" to "the encryption key may have changed" (removed env var reference since the function no longer reads env vars).
+
+### Test Results
+- 74 tests pass across all 7 test files (full suite: `npm test`)
+- Concurrency regression test confirms parallel encrypts with different keys produce correct, non-cross-contaminated ciphertext
