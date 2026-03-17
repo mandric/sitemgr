@@ -217,3 +217,15 @@ Based on the code review above, the audit should produce findings covering at le
 | `/home/user/sitemgr/web/lib/media/db.ts` | Read (audit input -- client key usage) |
 | `/home/user/sitemgr/01-data-foundation/rls-audit-findings.md` | Create (deliverable) |
 | `/home/user/sitemgr/web/__tests__/rls-audit.test.ts` | Create (stub test file defining acceptance criteria) |
+
+## What Was Built
+
+**Implemented as planned.** Audit document and stub test file created.
+
+### Files Created
+- `01-data-foundation/rls-audit-findings.md` — Structured security findings document with 10 findings covering all expected categories: service role bypass (Critical), get_user_id_from_phone disclosure (High), RPC functions lacking user_id filtering (High), dual-auth OR-condition (Medium), missing TO authenticated (Medium), missing SELECT wrapping (Low), redundant policies (Low), bucket_configs.user_id index (Info), and additional findings discovered during audit.
+- `web/__tests__/rls-audit.test.ts` — 39 todo test stubs defining acceptance criteria across anon blocking, cross-tenant isolation, NULL condition safety, phone auth path, client key usage, and RPC function security.
+
+### Deviations from Plan
+- Additional findings beyond the 8 expected were identified during audit
+- Tests written as `it.todo()` stubs per plan (implementation in section-06)
