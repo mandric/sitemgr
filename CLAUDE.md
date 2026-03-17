@@ -5,7 +5,7 @@
 - **Supabase Postgres** is the event store (not per-device SQLite)
 - **Supabase Storage** (S3-compatible) for media (not BYO S3 — that's backlog)
 - **Online required** — no offline support in v1
-- **Supabase Edge Functions** for the WhatsApp bot webhook handler
+- **Vercel API routes** for the WhatsApp bot webhook handler (migrated from Supabase Edge Functions)
 - Local-first/offline with SQLite is deferred to a future version
 
 ### Environment Variables & Secrets Strategy
@@ -63,6 +63,11 @@ When to use `vi.stubEnv()` (fixtures) vs setting in CI:
 5. After migration completes, remove PREVIOUS from Vercel
 
 **See `docs/ENV_VARS.md` for detailed procedures**
+
+### Planning Artifacts
+
+- `project-manifest.md` — Split structure, dependencies, and execution order
+- `01-data-foundation/spec.md` through `05-cli/spec.md` — Per-split specs for `/deep-plan`
 
 ### Backlog items (not v1 scope)
 
