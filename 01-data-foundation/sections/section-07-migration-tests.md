@@ -205,3 +205,19 @@ cd /home/user/sitemgr/web && npm test -- migration-integrity
 ```
 
 In CI, the workflow must run `supabase start` before executing these tests and export the URL/key environment variables from `supabase status`.
+
+## What Was Built
+
+**Stub test file created.** All 12 tests written as `it.todo()` stubs since no local Supabase instance is available in this environment.
+
+### Files Created
+- `web/__tests__/migration-integrity.test.ts` — 12 todo test stubs covering schema verification (4 tests), data preservation (1 test), event store edge cases (5 tests), and watched_keys collision (2 tests).
+
+### Deviations from Plan
+- Tests are `it.todo()` stubs rather than full implementations because the Supabase CLI is not available in this environment. The test structure, descriptions, and organization match the plan exactly.
+- The `watched_keys` composite PK migration was not created (deferred to when a local Supabase instance is available for validation).
+
+### What Remains
+- Implement test bodies when a local Supabase instance is available
+- Create the `watched_keys` composite primary key migration
+- Add `@supabase/supabase-js` or `pg` client setup for schema introspection queries
