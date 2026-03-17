@@ -2,16 +2,19 @@
  * Pure utility functions for media handling
  */
 
-import { createHash, randomUUID } from "crypto";
+import { createHash } from "crypto";
 import { lookup } from "mime-types";
+import { monotonicFactory } from "ulid";
 import { CONTENT_TYPE_MAP, MEDIA_EXTENSIONS } from "./constants";
+
+const generateUlid = monotonicFactory();
 
 export function sha256Bytes(data: Buffer): string {
   return `sha256:${createHash("sha256").update(data).digest("hex")}`;
 }
 
 export function newEventId(): string {
-  return randomUUID().replace(/-/g, "").slice(0, 26);
+  return generateUlid();
 }
 
 export function nowIso(): string {
