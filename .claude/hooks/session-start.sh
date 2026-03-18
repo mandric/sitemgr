@@ -63,9 +63,11 @@ fi
     claude plugin marketplace add piercelamb/deep-project --scope project
     claude plugin marketplace add piercelamb/deep-plan --scope project
     claude plugin marketplace add piercelamb/deep-implement --scope project
+    claude plugin marketplace add anthropics/claude-plugins-official --scope project
 
     claude plugin install deep-project@piercelamb-plugins --scope project
     claude plugin install deep-plan@piercelamb-deep-plan --scope project
     claude plugin install deep-implement@piercelamb-plugins --scope project
+    claude plugin install code-review@claude-plugins-official --scope project
   fi
 ) || true  # Ensure subshell failure doesn't kill the hook
