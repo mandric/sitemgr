@@ -52,14 +52,25 @@ else
   fail "Could not detect GH_REPO from git remote."
 fi
 
-# --- Supabase CLI ---
+# --- Supabase CLI (direct binary — npm install -g is not supported) ---
 if ! command -v supabase &>/dev/null; then
-  log "Installing Supabase CLI..."
-  if npm install -g supabase 2>&1; then
+  SUPABASE_VERSION="2.78.1"
+  log "Installing Supabase CLI v${SUPABASE_VERSION}..."
+  if (
+    set -e
+    mkdir -p /tmp/supabase-install && cd /tmp/supabase-install
+    curl -sL "https://github.com/supabase/cli/releases/download/v${SUPABASE_VERSION}/supabase_linux_amd64.tar.gz" -o supabase.tar.gz
+    tar xzf supabase.tar.gz
+    cp supabase /usr/local/bin/supabase 2>/dev/null \
+      || { mkdir -p "$HOME/.local/bin" && cp supabase "$HOME/.local/bin/supabase" \
+           && [ -n "${CLAUDE_ENV_FILE:-}" ] \
+           && echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"; }
+  ); then
     log "Supabase CLI installed."
   else
-    fail "Supabase CLI installation failed (npm install -g supabase)."
+    fail "Supabase CLI installation failed."
   fi
+  rm -rf /tmp/supabase-install
 else
   log "Supabase CLI already present."
 fi
