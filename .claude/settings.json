@@ -14,7 +14,8 @@
   "enabledPlugins": {
     "deep-project@piercelamb-deep-project": true,
     "deep-plan@piercelamb-deep-plan": true,
-    "deep-implement@piercelamb-deep-implement": true
+    "deep-implement@piercelamb-deep-implement": true,
+    "deep-implement@piercelamb-plugins": true
   },
   "extraKnownMarketplaces": {
     "piercelamb-deep-project": {
