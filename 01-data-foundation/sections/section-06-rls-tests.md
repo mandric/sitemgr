@@ -274,3 +274,27 @@ The integration vitest config should be identical to the main config but with an
 | `/home/user/sitemgr/web/__tests__/rls-policies.test.ts` | Create — main RLS integration test file |
 | `/home/user/sitemgr/web/vitest.integration.config.ts` | Create — vitest config for integration tests |
 | `/home/user/sitemgr/web/package.json` | Modify — add `test:integration` script |
+| `/home/user/sitemgr/web/vitest.config.ts` | Modify — exclude integration tests from default run |
+
+---
+
+## Implementation Notes (Post-Implementation)
+
+### Files Created
+- `web/__tests__/rls-policies.test.ts` — 22 integration tests covering cross-tenant isolation, anon blocking, insert restrictions, NULL safety, phone-based access, SECURITY DEFINER restrictions
+- `web/vitest.integration.config.ts` — Separate vitest config for integration tests (includes rls-policies, rpc-user-isolation, migration-integrity)
+
+### Files Modified
+- `web/package.json` — Added `test:integration` script
+- `web/vitest.config.ts` — Excluded integration test files from default `vitest run`
+
+### Deviations from Plan
+- Phone-based access test cannot fully verify the phone JWT path because test users are created with email auth, not phone auth. Test verifies the safe behavior (non-matching user can't see records) but can't verify the positive case (matching phone grants access)
+- Uses `describe.skipIf(!canRun)` pattern with env var check instead of a separate naming convention
+- Integration tests also excluded from main vitest config (not just separated into integration config)
+- Added error checking on all seed inserts in beforeAll (reviewer recommendation)
+
+### Test Results
+- 22 new integration tests in rls-policies.test.ts (skipped without local Supabase)
+- 97 unit tests still passing across 9 suites
+- Integration tests run via `npm run test:integration` when Supabase is available
