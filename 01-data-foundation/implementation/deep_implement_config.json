@@ -42,6 +42,10 @@
     "section-03-client-refactor": {
       "status": "complete",
       "commit_hash": "e93ea66487e089c7b45cee8d5043bf50341b23b3"
+    },
+    "section-04-rpc-user-isolation": {
+      "status": "complete",
+      "commit_hash": "7283ca29210a8541c300b0827f4b26f97ee5dbe6"
     }
   },
   "pre_commit": {
