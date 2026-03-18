@@ -307,7 +307,8 @@ describe.skipIf(!canRun)("RLS Policy Integration Tests", () => {
       });
 
       // User A (whose JWT has phone claim) should see it
-      const { data: aData } = await userAClient.from("bucket_configs").select("bucket_name").eq("bucket_name", "rls-phone-test-bucket");
+      // User A query (result not asserted — see comment below)
+      await userAClient.from("bucket_configs").select("bucket_name").eq("bucket_name", "rls-phone-test-bucket");
 
       // User B should NOT see it
       const { data: bData } = await userBClient.from("bucket_configs").select("bucket_name").eq("bucket_name", "rls-phone-test-bucket");
@@ -315,7 +316,7 @@ describe.skipIf(!canRun)("RLS Policy Integration Tests", () => {
       // Note: This test may fail if the JWT doesn't include a phone claim,
       // which depends on how the test users were created. The phone path
       // is only active during the dual-auth transition period.
-      // If aData is empty, it means the JWT doesn't have the phone claim,
+      // If User A's result is empty, it means the JWT doesn't have the phone claim,
       // which is still safe (phone path doesn't grant access without claim).
       expect(bData).toHaveLength(0);
 
