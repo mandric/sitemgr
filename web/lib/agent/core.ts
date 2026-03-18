@@ -7,7 +7,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { AGENT_SYSTEM_PROMPT, WHATSAPP_PLANNER_PROMPT } from "./system-prompt";
-import { getSupabaseClient } from "@/lib/media/db";
+import { getAdminClient } from "@/lib/media/db";
 import {
   queryEvents,
   showEvent,
@@ -275,7 +275,7 @@ async function addBucket(
   // Use versioned encryption for new buckets
   const encryptedSecret = await encryptSecretVersioned(secretAccessKey);
   const keyVersion = getEncryptionVersion(encryptedSecret);
-  const supabase = getSupabaseClient();
+  const supabase = getAdminClient();
 
   const { data, error } = await supabase
     .from("bucket_configs")
@@ -313,7 +313,7 @@ async function addBucket(
 }
 
 async function listBuckets(phoneNumber: string): Promise<string> {
-  const supabase = getSupabaseClient();
+  const supabase = getAdminClient();
 
   const { data, error } = await supabase
     .from("bucket_configs")
@@ -339,7 +339,7 @@ async function removeBucket(
     return JSON.stringify({ error: "bucket_name is required" });
   }
 
-  const supabase = getSupabaseClient();
+  const supabase = getAdminClient();
 
   const { error } = await supabase
     .from("bucket_configs")
@@ -425,7 +425,7 @@ async function getBucketConfig(
   bucketName: string,
 ): Promise<BucketConfigResult> {
   if (!bucketName) return { exists: false };
-  const supabase = getSupabaseClient();
+  const supabase = getAdminClient();
   const { data, error } = await supabase
     .from("bucket_configs")
     .select("*")
@@ -705,7 +705,7 @@ async function indexBucket(
 export async function getConversationHistory(
   phone: string,
 ): Promise<Message[]> {
-  const supabase = getSupabaseClient();
+  const supabase = getAdminClient();
 
   const { data } = await supabase
     .from("conversations")
@@ -720,7 +720,7 @@ export async function saveConversationHistory(
   phone: string,
   history: Message[],
 ): Promise<void> {
-  const supabase = getSupabaseClient();
+  const supabase = getAdminClient();
   const trimmed = history.slice(-20);
 
   await supabase.from("conversations").upsert({

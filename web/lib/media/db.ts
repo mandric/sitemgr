@@ -4,16 +4,28 @@
 
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
-export function getSupabaseClient() {
+/** Creates a Supabase client with the service role key (bypasses RLS). */
+export function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const key = (
-    process.env.SUPABASE_SECRET_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-  )?.replace(/\s+/g, "");
-  if (!url || !key) {
-    throw new Error(
-      "Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY (or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)"
-    );
+  const key = process.env.SUPABASE_SECRET_KEY?.replace(/\s+/g, "");
+  if (!url) {
+    throw new Error("NEXT_PUBLIC_SUPABASE_URL is required");
+  }
+  if (!key) {
+    throw new Error("SUPABASE_SECRET_KEY is required for admin client");
+  }
+  return createSupabaseClient(url, key);
+}
+
+/** Creates a Supabase client with the publishable key (respects RLS). */
+export function getUserClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.replace(/\s+/g, "");
+  if (!url) {
+    throw new Error("NEXT_PUBLIC_SUPABASE_URL is required");
+  }
+  if (!key) {
+    throw new Error("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required for user client");
   }
   return createSupabaseClient(url, key);
 }
@@ -46,7 +58,7 @@ export interface QueryOptions {
 }
 
 export async function queryEvents(opts: QueryOptions) {
-  const supabase = getSupabaseClient();
+  const supabase = getUserClient();
 
   // Full-text search via RPC
   if (opts.search) {
@@ -96,7 +108,7 @@ export async function queryEvents(opts: QueryOptions) {
 // ── Show ───────────────────────────────────────────────────────
 
 export async function showEvent(eventId: string) {
-  const supabase = getSupabaseClient();
+  const supabase = getUserClient();
 
   const { data: event, error } = await supabase
     .from("events")
@@ -124,7 +136,7 @@ export async function showEvent(eventId: string) {
 // ── Stats ──────────────────────────────────────────────────────
 
 export async function getStats() {
-  const supabase = getSupabaseClient();
+  const supabase = getUserClient();
 
   const [byContentType, byEventType, totalRes, enrichedRes, watchedRes] =
     await Promise.all([
@@ -170,7 +182,7 @@ export async function getStats() {
 // ── Enrich Status ──────────────────────────────────────────────
 
 export async function getEnrichStatus() {
-  const supabase = getSupabaseClient();
+  const supabase = getUserClient();
 
   const [totalRes, enrichedRes] = await Promise.all([
     supabase
@@ -196,7 +208,7 @@ export async function getEnrichStatus() {
 // ── Insert Event ───────────────────────────────────────────────
 
 export async function insertEvent(event: Omit<EventRow, "timestamp"> & { timestamp?: string }) {
-  const supabase = getSupabaseClient();
+  const supabase = getAdminClient();
   const { error } = await supabase.from("events").insert({
     ...event,
     timestamp: event.timestamp ?? new Date().toISOString(),
@@ -210,7 +222,7 @@ export async function insertEnrichment(
   eventId: string,
   result: { description: string; objects: string[]; context: string; suggested_tags: string[] }
 ) {
-  const supabase = getSupabaseClient();
+  const supabase = getAdminClient();
   const { error } = await supabase.from("enrichments").insert({
     event_id: eventId,
     description: result.description,
@@ -229,7 +241,7 @@ export async function upsertWatchedKey(
   etag: string,
   sizeBytes: number
 ) {
-  const supabase = getSupabaseClient();
+  const supabase = getAdminClient();
   const { error } = await supabase.from("watched_keys").upsert(
     {
       s3_key: s3Key,
@@ -246,7 +258,7 @@ export async function upsertWatchedKey(
 // ── Get Watched Keys ──────────────────────────────────────────
 
 export async function getWatchedKeys(): Promise<Set<string>> {
-  const supabase = getSupabaseClient();
+  const supabase = getAdminClient();
   const { data, error } = await supabase
     .from("watched_keys")
     .select("s3_key");
@@ -257,7 +269,7 @@ export async function getWatchedKeys(): Promise<Set<string>> {
 // ── Check Duplicate by Hash ───────────────────────────────────
 
 export async function findEventByHash(hash: string): Promise<string | null> {
-  const supabase = getSupabaseClient();
+  const supabase = getUserClient();
   const { data } = await supabase
     .from("events")
     .select("id")
@@ -271,7 +283,7 @@ export async function findEventByHash(hash: string): Promise<string | null> {
 // ── Get Pending Enrichments ───────────────────────────────────
 
 export async function getPendingEnrichments() {
-  const supabase = getSupabaseClient();
+  const supabase = getAdminClient();
 
   // Get photo events that don't have enrichments
   const { data: photos, error: photosErr } = await supabase

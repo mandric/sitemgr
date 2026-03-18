@@ -21,7 +21,8 @@ vi.mock("@/lib/media/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/media/db")>();
   return {
     ...actual,
-    getSupabaseClient: () => ({ from: mockFrom }),
+    getAdminClient: () => ({ from: mockFrom }),
+    getUserClient: () => ({ from: mockFrom }),
     getWatchedKeys: vi.fn().mockResolvedValue(new Set()),
     insertEvent: vi.fn().mockResolvedValue(undefined),
     insertEnrichment: vi.fn().mockResolvedValue(undefined),
