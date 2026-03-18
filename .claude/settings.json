@@ -15,7 +15,8 @@
     "deep-plan@piercelamb-deep-plan": true,
     "deep-implement@piercelamb-plugins": true,
     "deep-project@piercelamb-plugins": true,
-    "code-review@claude-plugins-official": true
+    "code-review@claude-plugins-official": true,
+    "code-review@claude-code-plugins": true
   },
   "extraKnownMarketplaces": {
     "piercelamb-plugins": {
@@ -34,6 +35,12 @@
       "source": {
         "source": "github",
         "repo": "anthropics/claude-plugins-official"
+      }
+    },
+    "claude-code-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "anthropics/claude-code"
       }
     }
   }
