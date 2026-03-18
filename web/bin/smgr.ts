@@ -70,8 +70,9 @@ async function cmdQuery(args: string[]) {
     },
   });
 
+  const userId = requireUserId();
   const result = await queryEvents({
-    userId: process.env.SMGR_USER_ID,
+    userId,
     search: values.search,
     type: values.type,
     since: values.since,
@@ -118,14 +119,15 @@ async function cmdShow(args: string[]) {
   const eventId = args[0];
   if (!eventId) die("Usage: smgr show <event_id>");
 
-  const event = await showEvent(eventId, process.env.SMGR_USER_ID);
+  const userId = requireUserId();
+  const event = await showEvent(eventId, userId);
   if (!event) die(`Event not found: ${eventId}`);
 
   printJson(event);
 }
 
 async function cmdStats() {
-  const stats = await getStats(process.env.SMGR_USER_ID);
+  const stats = await getStats(requireUserId());
   printJson(stats);
 }
 
@@ -140,8 +142,10 @@ async function cmdEnrich(args: string[]) {
     allowPositionals: true,
   });
 
+  const userId = requireUserId();
+
   if (values.status) {
-    const status = await getEnrichStatus(process.env.SMGR_USER_ID);
+    const status = await getEnrichStatus(userId);
     printJson(status);
     return;
   }
@@ -150,7 +154,7 @@ async function cmdEnrich(args: string[]) {
 
   if (eventId) {
     // Enrich a specific event
-    const event = await showEvent(eventId, process.env.SMGR_USER_ID);
+    const event = await showEvent(eventId, userId);
     if (!event) die(`Event not found: ${eventId}`);
 
     const meta = (event.metadata as Record<string, unknown>) ?? {};
@@ -169,13 +173,13 @@ async function cmdEnrich(args: string[]) {
 
     console.log(`Enriching event ${eventId}...`);
     const result = await enrichImage(imageBytes, mime);
-    await insertEnrichment(eventId, result, process.env.SMGR_USER_ID);
+    await insertEnrichment(eventId, result, userId);
     console.log("Done.");
     return;
   }
 
   if (values.pending) {
-    const pending = await getPendingEnrichments(process.env.SMGR_USER_ID);
+    const pending = await getPendingEnrichments(userId);
     if (pending.length === 0) {
       console.log("No pending enrichments.");
       return;
@@ -208,7 +212,7 @@ async function cmdEnrich(args: string[]) {
         const imageBytes = await downloadS3Object(s3, bucket, s3Key);
         const mime = (meta.mime_type as string) ?? getMimeType(s3Key);
         const result = await enrichImage(imageBytes, mime);
-        await insertEnrichment(event.id, result, process.env.SMGR_USER_ID);
+        await insertEnrichment(event.id, result, userId);
         done++;
         console.log("  Done.");
       } catch (err) {
