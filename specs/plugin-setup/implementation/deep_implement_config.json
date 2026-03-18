@@ -16,7 +16,12 @@
     "section-07-hook-fallback",
     "section-08-final-commit"
   ],
-  "sections_state": {},
+  "sections_state": {
+    "section-01-backup-audit": {
+      "status": "complete",
+      "commit_hash": "af9de39"
+    }
+  },
   "pre_commit": {
     "present": false,
     "type": "none",
