@@ -81,6 +81,9 @@ These secrets are ONLY needed for CI/CD (NOT in runtime):
 
 ## Key Rotation Procedure
 
+> **For the full operational runbook, see [`docs/KEY_ROTATION.md`](./KEY_ROTATION.md).**
+> The summary below covers the basic steps; the runbook includes monitoring, verification, and rollback procedures.
+
 ```bash
 # Step 1: Add new key as NEXT (Vercel only)
 vercel env add ENCRYPTION_KEY_NEXT production  # paste new key

@@ -54,6 +54,10 @@
     "section-08-phone-migration": {
       "status": "complete",
       "commit_hash": "1aa221f"
+    },
+    "section-10-documentation": {
+      "status": "complete",
+      "commit_hash": "pending"
     }
   },
   "pre_commit": {
