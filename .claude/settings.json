@@ -12,27 +12,15 @@
     ]
   },
   "enabledPlugins": {
-    "deep-project@piercelamb-deep-project": true,
-    "deep-plan@piercelamb-deep-plan": true,
-    "deep-implement@piercelamb-deep-implement": true
+    "deep-plan@piercelamb-plugins": true,
+    "deep-project@piercelamb-plugins": true,
+    "deep-implement@piercelamb-plugins": true
   },
   "extraKnownMarketplaces": {
-    "piercelamb-deep-project": {
+    "piercelamb-plugins": {
       "source": {
         "source": "github",
         "repo": "piercelamb/deep-project"
-      }
-    },
-    "piercelamb-deep-plan": {
-      "source": {
-        "source": "github",
-        "repo": "piercelamb/deep-plan"
-      }
-    },
-    "piercelamb-deep-implement": {
-      "source": {
-        "source": "github",
-        "repo": "piercelamb/deep-implement"
       }
     }
   }
