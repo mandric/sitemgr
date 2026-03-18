@@ -50,3 +50,22 @@ cd "$CLAUDE_PROJECT_DIR"
 if ! supabase status &>/dev/null 2>&1; then
   supabase start
 fi
+
+# Plugin installation (ensures plugins are available in web sessions)
+# Wrapped in subshell to isolate from set -euo pipefail
+(
+  set +e  # Disable exit-on-error for this block
+
+  # Skip if plugins already installed
+  if claude plugin list 2>/dev/null | grep -q "deep-plan"; then
+    echo "Plugins already installed, skipping"
+  else
+    claude plugin marketplace add piercelamb/deep-project --scope project
+    claude plugin marketplace add piercelamb/deep-plan --scope project
+    claude plugin marketplace add piercelamb/deep-implement --scope project
+
+    claude plugin install deep-project@piercelamb-plugins --scope project
+    claude plugin install deep-plan@piercelamb-deep-plan --scope project
+    claude plugin install deep-implement@piercelamb-plugins --scope project
+  fi
+) || true  # Ensure subshell failure doesn't kill the hook
