@@ -1,0 +1,29 @@
+{
+  "plugin_root": "/root/.claude/plugins/cache/piercelamb-plugins/deep-implement/0.2.1",
+  "sections_dir": "/home/user/sitemgr/specs/plugin-setup/sections",
+  "target_dir": "/home/user/sitemgr",
+  "state_dir": "/home/user/sitemgr/specs/plugin-setup/implementation",
+  "git_root": "/home/user/sitemgr",
+  "commit_style": "simple",
+  "test_command": "uv run pytest",
+  "sections": [
+    "section-01-backup-audit",
+    "section-02-remove-manual-config",
+    "section-03-add-marketplaces",
+    "section-04-install-plugins",
+    "section-05-validate-settings",
+    "section-06-web-test",
+    "section-07-hook-fallback",
+    "section-08-final-commit"
+  ],
+  "sections_state": {},
+  "pre_commit": {
+    "present": false,
+    "type": "none",
+    "config_file": null,
+    "native_hook": null,
+    "may_modify_files": false,
+    "detected_formatters": []
+  },
+  "created_at": "2026-03-18T07:21:15.315334+00:00"
+}
