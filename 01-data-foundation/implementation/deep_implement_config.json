@@ -38,6 +38,10 @@
     "section-02-rls-audit": {
       "status": "complete",
       "commit_hash": "fa3d6cd"
+    },
+    "section-03-client-refactor": {
+      "status": "complete",
+      "commit_hash": "e93ea66487e089c7b45cee8d5043bf50341b23b3"
     }
   },
   "pre_commit": {

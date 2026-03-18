@@ -159,6 +159,7 @@ export async function executeAction(
       );
 
     case "stats":
+      // TODO(section-08): pass resolved userId from phone number
       return JSON.stringify(await getStats());
 
     case "show":

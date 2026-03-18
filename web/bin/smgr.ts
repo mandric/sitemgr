@@ -117,6 +117,7 @@ async function cmdShow(args: string[]) {
 }
 
 async function cmdStats() {
+  // TODO(section-08): pass authenticated userId for user-scoped stats
   const stats = await getStats();
   printJson(stats);
 }

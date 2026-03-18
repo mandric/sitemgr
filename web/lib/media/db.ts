@@ -48,6 +48,7 @@ export interface EventRow {
 // ── Query ──────────────────────────────────────────────────────
 
 export interface QueryOptions {
+  userId?: string;
   search?: string;
   type?: string;
   since?: string;
@@ -63,6 +64,7 @@ export async function queryEvents(opts: QueryOptions) {
   // Full-text search via RPC
   if (opts.search) {
     const { data, error } = await supabase.rpc("search_events", {
+      p_user_id: opts.userId,
       query_text: opts.search,
       content_type_filter: opts.type ?? null,
       since_filter: opts.since ?? null,
@@ -135,13 +137,13 @@ export async function showEvent(eventId: string) {
 
 // ── Stats ──────────────────────────────────────────────────────
 
-export async function getStats() {
+export async function getStats(userId?: string) {
   const supabase = getUserClient();
 
   const [byContentType, byEventType, totalRes, enrichedRes, watchedRes] =
     await Promise.all([
-      supabase.rpc("stats_by_content_type"),
-      supabase.rpc("stats_by_event_type"),
+      supabase.rpc("stats_by_content_type", { p_user_id: userId }),
+      supabase.rpc("stats_by_event_type", { p_user_id: userId }),
       supabase
         .from("events")
         .select("*", { count: "exact", head: true }),
