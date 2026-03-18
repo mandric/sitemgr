@@ -241,3 +241,30 @@ The plan should show a "Bitmap Index Scan" on `idx_enrichments_fts`. If the user
 7. FTS queries still use the GIN index on `enrichments.fts`
 8. All TypeScript call sites in `db.ts` pass the user ID to RPC calls
 9. All callers of `getStats()` updated to pass userId
+
+---
+
+## Implementation Notes (Post-Implementation)
+
+### Files Created
+- `supabase/migrations/20260313000000_rpc_user_isolation.sql` — Migration adding p_user_id to 3 RPC functions and restricting get_user_id_from_phone
+- `web/__tests__/rpc-user-isolation.test.ts` — Integration tests (skipped without local Supabase)
+
+### Files Modified
+- `web/lib/media/db.ts` — Added userId to QueryOptions, getStats; pass p_user_id to RPC calls
+- `web/lib/agent/core.ts` — Added TODO(section-08) comment at getStats() call site
+- `web/bin/smgr.ts` — Added TODO(section-08) comment at getStats() call site
+
+### Deviations from Plan
+- `userId` parameter is optional (not required) in TypeScript — callers in core.ts and smgr.ts don't have user_id resolution yet (section-08). Passing undefined results in NULL p_user_id which returns empty RPC results. TODO comments added.
+- Migration reordered: DROP old search_events overload BEFORE CREATE new one (reviewer recommendation to avoid window with insecure function)
+- FTS index usage test is a smoke test (checks query succeeds) rather than EXPLAIN ANALYZE verification
+
+### Code Review Findings Addressed
+- Migration DROP order fixed (auto-fix)
+- TODO comments added at callers without userId (user decision: keep optional)
+- Deferred: authenticated-role test for get_user_id_from_phone, EXPLAIN ANALYZE FTS test
+
+### Test Results
+- 6 new integration tests in rpc-user-isolation.test.ts (skipped without local Supabase)
+- 97 total tests passing, 6 skipped (integration), 51 todo

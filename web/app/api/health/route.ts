@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient } from "@/lib/media/db";
+import { getAdminClient } from "@/lib/media/db";
 
 // TODO: Add Anthropic API connectivity check (e.g. list models)
 // TODO: Add Twilio API connectivity check (e.g. fetch account info)
@@ -9,7 +9,7 @@ export async function GET() {
 
   // Check Supabase DB connectivity
   try {
-    const supabase = getSupabaseClient();
+    const supabase = getAdminClient();
     const { error } = await supabase
       .from("events")
       .select("id", { count: "exact", head: true })

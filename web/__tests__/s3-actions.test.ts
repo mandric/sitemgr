@@ -5,6 +5,7 @@ import {
   mockBucketLookup,
   mockBucketInsert,
   mockBucketDelete,
+  mockWithUserResolution,
   PHONE,
   fakeBucketConfig,
 } from "./helpers/agent-test-setup";
@@ -21,7 +22,8 @@ vi.mock("@/lib/media/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/media/db")>();
   return {
     ...actual,
-    getSupabaseClient: () => ({ from: mockFrom }),
+    getAdminClient: () => ({ from: mockFrom }),
+    getUserClient: () => ({ from: mockFrom }),
     getWatchedKeys: vi.fn().mockResolvedValue(new Set()),
     insertEvent: vi.fn().mockResolvedValue(undefined),
     insertEnrichment: vi.fn().mockResolvedValue(undefined),
@@ -80,6 +82,8 @@ describe("S3 action handlers", () => {
   beforeEach(() => {
     vi.stubEnv("ENCRYPTION_KEY", "test-key");
     mockFrom.mockReset();
+    // Default: resolve user_profiles lookups, return empty chain for other tables
+    mockWithUserResolution({});
     mockS3Send.mockReset();
     vi.mocked(listS3Objects).mockReset();
     vi.mocked(downloadS3Object).mockReset();
@@ -274,7 +278,7 @@ describe("S3 action handlers", () => {
       const insertedRow = mockInsert.mock.calls[0][0];
       expect(insertedRow.secret_access_key).toBe("v2:encrypted");
       expect(insertedRow.encryption_key_version).toBe(2);
-      expect(insertedRow.phone_number).toBe(PHONE);
+      expect(insertedRow.user_id).toBe("test-user-uuid");
     });
 
     it("returns error on duplicate bucket", async () => {

@@ -72,15 +72,35 @@ describe("sha256Bytes", () => {
 });
 
 describe("newEventId", () => {
-  it("returns 26-char hex string", () => {
+  it("generates valid ULID format (26 chars, Crockford Base32)", () => {
     const id = newEventId();
     expect(id).toHaveLength(26);
-    expect(id).toMatch(/^[a-f0-9]{26}$/);
+    expect(id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
   });
 
-  it("is unique", () => {
-    const ids = new Set(Array.from({ length: 100 }, () => newEventId()));
-    expect(ids.size).toBe(100);
+  it("IDs are monotonically increasing within same millisecond", () => {
+    const ids = Array.from({ length: 10 }, () => newEventId());
+    for (let i = 1; i < ids.length; i++) {
+      expect(ids[i] > ids[i - 1]).toBe(true);
+    }
+  });
+
+  it("IDs generated apart sort correctly lexicographically", async () => {
+    const id1 = newEventId();
+    await new Promise((r) => setTimeout(r, 2));
+    const id2 = newEventId();
+    expect(id2 > id1).toBe(true);
+  });
+
+  it("old truncated-UUID format IDs remain valid strings", () => {
+    const oldId = "a1b2c3d4e5f6a1b2c3d4e5f6ab";
+    expect(typeof oldId).toBe("string");
+    expect(oldId).toHaveLength(26);
+  });
+
+  it("is unique across many IDs", () => {
+    const ids = new Set(Array.from({ length: 1000 }, () => newEventId()));
+    expect(ids.size).toBe(1000);
   });
 });
 

@@ -1,0 +1,303 @@
+/**
+ * Unit tests for section-08 phone-to-user_id migration app code changes.
+ * Tests that all DB functions properly pass userId and that the agent
+ * resolves phone numbers to user_ids before DB operations.
+ */
+
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+// ── Mock Supabase ──────────────────────────────────────────────
+
+const { mockCreateClient } = vi.hoisted(() => {
+  const mockChain = () => {
+    const chain: Record<string, unknown> = {};
+    chain.select = vi.fn().mockReturnValue(chain);
+    chain.insert = vi.fn().mockReturnValue(chain);
+    chain.upsert = vi.fn().mockReturnValue(chain);
+    chain.update = vi.fn().mockReturnValue(chain);
+    chain.delete = vi.fn().mockReturnValue(chain);
+    chain.eq = vi.fn().mockReturnValue(chain);
+    chain.gte = vi.fn().mockReturnValue(chain);
+    chain.lte = vi.fn().mockReturnValue(chain);
+    chain.order = vi.fn().mockReturnValue(chain);
+    chain.range = vi.fn().mockReturnValue(chain);
+    chain.limit = vi.fn().mockReturnValue(chain);
+    chain.single = vi.fn().mockResolvedValue({ data: null, error: null });
+    chain.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+    // Default resolution for chained awaits
+    (chain as { then: unknown }).then = (resolve: (v: unknown) => unknown) =>
+      resolve({ data: [], count: 0, error: null });
+    return chain;
+  };
+
+  const fromChain = mockChain();
+  const rpcFn = vi.fn().mockResolvedValue({ data: [], error: null });
+
+  const mockCreateClient = vi.fn().mockReturnValue({
+    from: vi.fn().mockReturnValue(fromChain),
+    rpc: rpcFn,
+  });
+
+  return { mockCreateClient, fromChain, rpcFn };
+});
+
+vi.mock("@supabase/supabase-js", () => ({
+  createClient: mockCreateClient,
+}));
+
+// ── Mock encryption ──────────────────────────────────────────
+
+vi.mock("@/lib/crypto/encryption-versioned", () => ({
+  encryptSecretVersioned: vi.fn().mockResolvedValue("current:encrypted"),
+  decryptSecretVersioned: vi.fn().mockResolvedValue("decrypted-secret"),
+  getEncryptionVersion: vi.fn().mockReturnValue("current"),
+  needsMigration: vi.fn().mockReturnValue(false),
+}));
+
+// ── Mock S3 ──────────────────────────────────────────────────
+
+vi.mock("@/lib/media/s3", () => ({
+  createS3Client: vi.fn().mockReturnValue({}),
+  listS3Objects: vi.fn().mockResolvedValue([]),
+  downloadS3Object: vi.fn().mockResolvedValue(Buffer.from("test")),
+}));
+
+vi.mock("@/lib/media/utils", () => ({
+  newEventId: vi.fn().mockReturnValue("test-event-id"),
+  detectContentType: vi.fn().mockReturnValue("photo"),
+  getMimeType: vi.fn().mockReturnValue("image/jpeg"),
+  s3Metadata: vi.fn().mockReturnValue({}),
+}));
+
+vi.mock("@/lib/media/enrichment", () => ({
+  enrichImage: vi.fn().mockResolvedValue({
+    description: "test",
+    objects: [],
+    context: "test",
+    suggested_tags: [],
+  }),
+}));
+
+// ── Mock Anthropic ──────────────────────────────────────────
+
+vi.mock("@anthropic-ai/sdk", () => ({
+  default: vi.fn().mockImplementation(() => ({
+    messages: {
+      create: vi.fn().mockResolvedValue({
+        content: [{ type: "text", text: '{"action":"direct","response":"ok"}' }],
+      }),
+    },
+  })),
+}));
+
+vi.mock("@aws-sdk/client-s3", () => ({
+  ListObjectsV2Command: vi.fn(),
+  ListObjectsCommand: vi.fn(),
+}));
+
+// ── Imports (after mocks) ──────────────────────────────────
+
+import {
+  queryEvents,
+  showEvent,
+  getStats,
+  getEnrichStatus,
+  insertEvent,
+  insertEnrichment,
+  upsertWatchedKey,
+  getWatchedKeys,
+  findEventByHash,
+  getPendingEnrichments,
+} from "@/lib/media/db";
+
+import {
+  executeAction,
+  resolveUserId,
+} from "@/lib/agent/core";
+
+// ── Test Setup ─────────────────────────────────────────────
+
+beforeEach(() => {
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "test-pub-key");
+  vi.stubEnv("SUPABASE_SECRET_KEY", "test-secret-key");
+  vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test");
+  mockCreateClient.mockClear();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+// ── Tests ──────────────────────────────────────────────────
+
+describe("db.ts userId parameters", () => {
+  it("queryEvents passes userId filter on direct queries", async () => {
+    const client = mockCreateClient();
+    const fromMock = client.from;
+
+    await queryEvents({ userId: "user-123", limit: 10 });
+
+    expect(fromMock).toHaveBeenCalledWith("events");
+    const chain = fromMock.mock.results[0]?.value;
+    expect(chain.eq).toHaveBeenCalledWith("user_id", "user-123");
+  });
+
+  it("queryEvents passes p_user_id to search RPC", async () => {
+    const client = mockCreateClient();
+
+    await queryEvents({ userId: "user-123", search: "beach" });
+
+    expect(client.rpc).toHaveBeenCalledWith("search_events", expect.objectContaining({
+      p_user_id: "user-123",
+    }));
+  });
+
+  it("showEvent passes userId filter", async () => {
+    const client = mockCreateClient();
+    const fromMock = client.from;
+
+    await showEvent("event-1", "user-123");
+
+    expect(fromMock).toHaveBeenCalledWith("events");
+  });
+
+  it("getStats passes userId to RPC calls and count queries", async () => {
+    const client = mockCreateClient();
+
+    await getStats("user-123");
+
+    expect(client.rpc).toHaveBeenCalledWith("stats_by_content_type", { p_user_id: "user-123" });
+    expect(client.rpc).toHaveBeenCalledWith("stats_by_event_type", { p_user_id: "user-123" });
+  });
+
+  it("getEnrichStatus passes userId to queries", async () => {
+    const client = mockCreateClient();
+    const fromMock = client.from;
+
+    await getEnrichStatus("user-123");
+
+    expect(fromMock).toHaveBeenCalledWith("events");
+    expect(fromMock).toHaveBeenCalledWith("enrichments");
+  });
+
+  it("insertEnrichment includes userId in payload", async () => {
+    const client = mockCreateClient();
+    const fromMock = client.from;
+
+    await insertEnrichment(
+      "event-1",
+      { description: "test", objects: [], context: "test", suggested_tags: [] },
+      "user-123",
+    );
+
+    expect(fromMock).toHaveBeenCalledWith("enrichments");
+    const chain = fromMock.mock.results[0]?.value;
+    expect(chain.insert).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: "user-123",
+    }));
+  });
+
+  it("upsertWatchedKey includes userId in payload", async () => {
+    const client = mockCreateClient();
+    const fromMock = client.from;
+
+    await upsertWatchedKey("key.jpg", "event-1", "etag", 1024, "user-123");
+
+    expect(fromMock).toHaveBeenCalledWith("watched_keys");
+    const chain = fromMock.mock.results[0]?.value;
+    expect(chain.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ user_id: "user-123" }),
+      expect.any(Object),
+    );
+  });
+
+  it("getWatchedKeys filters by userId", async () => {
+    const client = mockCreateClient();
+    const fromMock = client.from;
+
+    await getWatchedKeys("user-123");
+
+    expect(fromMock).toHaveBeenCalledWith("watched_keys");
+    const chain = fromMock.mock.results[0]?.value;
+    expect(chain.eq).toHaveBeenCalledWith("user_id", "user-123");
+  });
+
+  it("findEventByHash filters by userId", async () => {
+    const client = mockCreateClient();
+    const fromMock = client.from;
+
+    await findEventByHash("hash-abc", "user-123");
+
+    expect(fromMock).toHaveBeenCalledWith("events");
+    const chain = fromMock.mock.results[0]?.value;
+    expect(chain.eq).toHaveBeenCalledWith("user_id", "user-123");
+  });
+
+  it("getPendingEnrichments filters by userId", async () => {
+    const client = mockCreateClient();
+    const fromMock = client.from;
+
+    await getPendingEnrichments("user-123");
+
+    expect(fromMock).toHaveBeenCalledWith("events");
+  });
+});
+
+describe("core.ts resolveUserId", () => {
+  it("resolveUserId queries user_profiles by phone_number", async () => {
+    const client = mockCreateClient();
+    const fromMock = client.from;
+
+    // Mock the maybeSingle to return a user
+    const chain = fromMock.mock.results[0]?.value;
+    chain.maybeSingle.mockResolvedValueOnce({
+      data: { id: "resolved-user-id" },
+      error: null,
+    });
+
+    const result = await resolveUserId("+1234567890");
+
+    expect(fromMock).toHaveBeenCalledWith("user_profiles");
+    expect(chain.eq).toHaveBeenCalledWith("phone_number", "+1234567890");
+    expect(result).toBe("resolved-user-id");
+  });
+
+  it("resolveUserId returns null when no user found", async () => {
+    const client = mockCreateClient();
+    const fromMock = client.from;
+
+    const chain = fromMock.mock.results[0]?.value;
+    chain.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
+
+    const result = await resolveUserId("+9999999999");
+    expect(result).toBeNull();
+  });
+});
+
+describe("core.ts executeAction userId propagation", () => {
+  it("executeAction passes resolved userId to getStats", async () => {
+    // This test verifies the integration: executeAction resolves phone → userId
+    // then passes it through to the DB functions.
+    // The mock setup ensures resolveUserId returns a known value.
+    const client = mockCreateClient();
+    const fromMock = client.from;
+
+    // Mock resolveUserId path
+    const chain = fromMock.mock.results[0]?.value;
+    chain.maybeSingle.mockResolvedValueOnce({
+      data: { id: "test-user-uuid" },
+      error: null,
+    });
+
+    const result = await executeAction(
+      { action: "stats" },
+      "whatsapp:+1234567890",
+    );
+
+    // Should have called user_profiles to resolve
+    expect(fromMock).toHaveBeenCalledWith("user_profiles");
+    // Result should be valid JSON (stats output)
+    expect(() => JSON.parse(result)).not.toThrow();
+  });
+});

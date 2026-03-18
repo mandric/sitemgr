@@ -12,6 +12,7 @@ import {
   summarizeResult,
   getConversationHistory,
   saveConversationHistory,
+  resolveUserId,
 } from "@/lib/agent/core";
 
 // ── Twilio helpers ─────────────────────────────────────────────
@@ -98,9 +99,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Resolve phone number to user_id
+    const userId = await resolveUserId(fromNumber);
+
     // Get conversation history
     console.log(`[${ts()}][${reqId}] fetching conversation history`);
-    const history = await getConversationHistory(fromNumber);
+    const history = await getConversationHistory(fromNumber, userId);
 
     // Plan
     console.log(`[${ts()}][${reqId}] planning action`);
@@ -113,7 +117,7 @@ export async function POST(req: NextRequest) {
       responseText = plan.response ?? "";
     } else {
       console.log(`[${ts()}][${reqId}] executing action: ${plan.action}`);
-      const result = await executeAction(plan, fromNumber);
+      const result = await executeAction(plan, fromNumber, userId);
       console.log(`[${ts()}][${reqId}] summarizing result (${result.length} chars)`);
       responseText = await summarizeResult(messageBody, result);
     }
@@ -121,7 +125,7 @@ export async function POST(req: NextRequest) {
     // Persist conversation
     history.push({ role: "user", content: messageBody });
     history.push({ role: "assistant", content: responseText });
-    await saveConversationHistory(fromNumber, history);
+    await saveConversationHistory(fromNumber, history, userId);
 
     console.log(`[${ts()}][${reqId}] sending reply (${responseText.length} chars): ${responseText.slice(0, 100)}...`);
 

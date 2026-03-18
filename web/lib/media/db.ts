@@ -4,16 +4,28 @@
 
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 
-export function getSupabaseClient() {
+/** Creates a Supabase client with the service role key (bypasses RLS). */
+export function getAdminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const key = (
-    process.env.SUPABASE_SECRET_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-  )?.replace(/\s+/g, "");
-  if (!url || !key) {
-    throw new Error(
-      "Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY (or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)"
-    );
+  const key = process.env.SUPABASE_SECRET_KEY?.replace(/\s+/g, "");
+  if (!url) {
+    throw new Error("NEXT_PUBLIC_SUPABASE_URL is required");
+  }
+  if (!key) {
+    throw new Error("SUPABASE_SECRET_KEY is required for admin client");
+  }
+  return createSupabaseClient(url, key);
+}
+
+/** Creates a Supabase client with the publishable key (respects RLS). */
+export function getUserClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.replace(/\s+/g, "");
+  if (!url) {
+    throw new Error("NEXT_PUBLIC_SUPABASE_URL is required");
+  }
+  if (!key) {
+    throw new Error("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required for user client");
   }
   return createSupabaseClient(url, key);
 }
@@ -30,12 +42,13 @@ export interface EventRow {
   metadata: Record<string, unknown> | null;
   parent_id: string | null;
   bucket_config_id?: string | null;
-  user_id?: string | null;
+  user_id: string;
 }
 
 // ── Query ──────────────────────────────────────────────────────
 
 export interface QueryOptions {
+  userId?: string;
   search?: string;
   type?: string;
   since?: string;
@@ -46,11 +59,12 @@ export interface QueryOptions {
 }
 
 export async function queryEvents(opts: QueryOptions) {
-  const supabase = getSupabaseClient();
+  const supabase = getUserClient();
 
   // Full-text search via RPC
   if (opts.search) {
     const { data, error } = await supabase.rpc("search_events", {
+      p_user_id: opts.userId,
       query_text: opts.search,
       content_type_filter: opts.type ?? null,
       since_filter: opts.since ?? null,
@@ -69,6 +83,7 @@ export async function queryEvents(opts: QueryOptions) {
     .order("timestamp", { ascending: false })
     .range(opts.offset ?? 0, (opts.offset ?? 0) + (opts.limit ?? 20) - 1);
 
+  if (opts.userId) query = query.eq("user_id", opts.userId);
   if (opts.type) query = query.eq("content_type", opts.type);
   if (opts.since) query = query.gte("timestamp", opts.since);
   if (opts.until) query = query.lte("timestamp", opts.until);
@@ -95,14 +110,15 @@ export async function queryEvents(opts: QueryOptions) {
 
 // ── Show ───────────────────────────────────────────────────────
 
-export async function showEvent(eventId: string) {
-  const supabase = getSupabaseClient();
+export async function showEvent(eventId: string, userId?: string) {
+  const supabase = getUserClient();
 
-  const { data: event, error } = await supabase
+  let query = supabase
     .from("events")
     .select("*")
-    .eq("id", eventId)
-    .maybeSingle();
+    .eq("id", eventId);
+  if (userId) query = query.eq("user_id", userId);
+  const { data: event, error } = await query.maybeSingle();
 
   if (error) throw error;
   if (!event) return null;
@@ -123,22 +139,26 @@ export async function showEvent(eventId: string) {
 
 // ── Stats ──────────────────────────────────────────────────────
 
-export async function getStats() {
-  const supabase = getSupabaseClient();
+export async function getStats(userId?: string) {
+  const supabase = getUserClient();
+
+  let eventsQuery = supabase.from("events").select("*", { count: "exact", head: true });
+  let enrichmentsQuery = supabase.from("enrichments").select("*", { count: "exact", head: true });
+  let watchedQuery = supabase.from("watched_keys").select("*", { count: "exact", head: true });
+
+  if (userId) {
+    eventsQuery = eventsQuery.eq("user_id", userId);
+    enrichmentsQuery = enrichmentsQuery.eq("user_id", userId);
+    watchedQuery = watchedQuery.eq("user_id", userId);
+  }
 
   const [byContentType, byEventType, totalRes, enrichedRes, watchedRes] =
     await Promise.all([
-      supabase.rpc("stats_by_content_type"),
-      supabase.rpc("stats_by_event_type"),
-      supabase
-        .from("events")
-        .select("*", { count: "exact", head: true }),
-      supabase
-        .from("enrichments")
-        .select("*", { count: "exact", head: true }),
-      supabase
-        .from("watched_keys")
-        .select("*", { count: "exact", head: true }),
+      supabase.rpc("stats_by_content_type", { p_user_id: userId }),
+      supabase.rpc("stats_by_event_type", { p_user_id: userId }),
+      eventsQuery,
+      enrichmentsQuery,
+      watchedQuery,
     ]);
 
   const contentTypeCounts: Record<string, number> = {};
@@ -169,18 +189,26 @@ export async function getStats() {
 
 // ── Enrich Status ──────────────────────────────────────────────
 
-export async function getEnrichStatus() {
-  const supabase = getSupabaseClient();
+export async function getEnrichStatus(userId?: string) {
+  const supabase = getUserClient();
+
+  let eventsQuery = supabase
+    .from("events")
+    .select("*", { count: "exact", head: true })
+    .eq("type", "create")
+    .eq("content_type", "photo");
+  let enrichmentsQuery = supabase
+    .from("enrichments")
+    .select("*", { count: "exact", head: true });
+
+  if (userId) {
+    eventsQuery = eventsQuery.eq("user_id", userId);
+    enrichmentsQuery = enrichmentsQuery.eq("user_id", userId);
+  }
 
   const [totalRes, enrichedRes] = await Promise.all([
-    supabase
-      .from("events")
-      .select("*", { count: "exact", head: true })
-      .eq("type", "create")
-      .eq("content_type", "photo"),
-    supabase
-      .from("enrichments")
-      .select("*", { count: "exact", head: true }),
+    eventsQuery,
+    enrichmentsQuery,
   ]);
 
   const total = totalRes.count ?? 0;
@@ -196,7 +224,7 @@ export async function getEnrichStatus() {
 // ── Insert Event ───────────────────────────────────────────────
 
 export async function insertEvent(event: Omit<EventRow, "timestamp"> & { timestamp?: string }) {
-  const supabase = getSupabaseClient();
+  const supabase = getAdminClient();
   const { error } = await supabase.from("events").insert({
     ...event,
     timestamp: event.timestamp ?? new Date().toISOString(),
@@ -208,15 +236,17 @@ export async function insertEvent(event: Omit<EventRow, "timestamp"> & { timesta
 
 export async function insertEnrichment(
   eventId: string,
-  result: { description: string; objects: string[]; context: string; suggested_tags: string[] }
+  result: { description: string; objects: string[]; context: string; suggested_tags: string[] },
+  userId?: string,
 ) {
-  const supabase = getSupabaseClient();
+  const supabase = getAdminClient();
   const { error } = await supabase.from("enrichments").insert({
     event_id: eventId,
     description: result.description,
     objects: result.objects,
     context: result.context,
     tags: result.suggested_tags,
+    ...(userId ? { user_id: userId } : {}),
   });
   if (error) throw error;
 }
@@ -227,9 +257,10 @@ export async function upsertWatchedKey(
   s3Key: string,
   eventId: string | null,
   etag: string,
-  sizeBytes: number
+  sizeBytes: number,
+  userId?: string,
 ) {
-  const supabase = getSupabaseClient();
+  const supabase = getAdminClient();
   const { error } = await supabase.from("watched_keys").upsert(
     {
       s3_key: s3Key,
@@ -237,6 +268,7 @@ export async function upsertWatchedKey(
       event_id: eventId,
       etag,
       size_bytes: sizeBytes,
+      ...(userId ? { user_id: userId } : {}),
     },
     { onConflict: "s3_key", ignoreDuplicates: true }
   );
@@ -245,24 +277,26 @@ export async function upsertWatchedKey(
 
 // ── Get Watched Keys ──────────────────────────────────────────
 
-export async function getWatchedKeys(): Promise<Set<string>> {
-  const supabase = getSupabaseClient();
-  const { data, error } = await supabase
-    .from("watched_keys")
-    .select("s3_key");
+export async function getWatchedKeys(userId?: string): Promise<Set<string>> {
+  const supabase = getAdminClient();
+  let query = supabase.from("watched_keys").select("s3_key");
+  if (userId) query = query.eq("user_id", userId);
+  const { data, error } = await query;
   if (error) throw error;
   return new Set((data ?? []).map((r) => r.s3_key));
 }
 
 // ── Check Duplicate by Hash ───────────────────────────────────
 
-export async function findEventByHash(hash: string): Promise<string | null> {
-  const supabase = getSupabaseClient();
-  const { data } = await supabase
+export async function findEventByHash(hash: string, userId?: string): Promise<string | null> {
+  const supabase = getUserClient();
+  let query = supabase
     .from("events")
     .select("id")
     .eq("type", "create")
-    .eq("content_hash", hash)
+    .eq("content_hash", hash);
+  if (userId) query = query.eq("user_id", userId);
+  const { data } = await query
     .limit(1)
     .maybeSingle();
   return data?.id ?? null;
@@ -270,22 +304,24 @@ export async function findEventByHash(hash: string): Promise<string | null> {
 
 // ── Get Pending Enrichments ───────────────────────────────────
 
-export async function getPendingEnrichments() {
-  const supabase = getSupabaseClient();
+export async function getPendingEnrichments(userId?: string) {
+  const supabase = getAdminClient();
 
   // Get photo events that don't have enrichments
-  const { data: photos, error: photosErr } = await supabase
+  let photosQuery = supabase
     .from("events")
     .select("id, content_hash, content_type, local_path, remote_path, metadata")
     .eq("type", "create")
     .eq("content_type", "photo")
     .order("timestamp", { ascending: false });
+  if (userId) photosQuery = photosQuery.eq("user_id", userId);
+  const { data: photos, error: photosErr } = await photosQuery;
 
   if (photosErr) throw photosErr;
 
-  const { data: enriched, error: enrichedErr } = await supabase
-    .from("enrichments")
-    .select("event_id");
+  let enrichedQuery = supabase.from("enrichments").select("event_id");
+  if (userId) enrichedQuery = enrichedQuery.eq("user_id", userId);
+  const { data: enriched, error: enrichedErr } = await enrichedQuery;
 
   if (enrichedErr) throw enrichedErr;
 

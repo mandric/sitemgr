@@ -3,21 +3,20 @@
  * Uses AES-256-GCM encryption, compatible with Edge Function implementation
  */
 
-export async function encryptSecret(plaintext: string): Promise<string> {
-  const encryptionKey = process.env.ENCRYPTION_KEY;
-  if (!encryptionKey) {
-    throw new Error("ENCRYPTION_KEY environment variable not set");
+export async function encryptSecret(plaintext: string, key: string): Promise<string> {
+  if (!key) {
+    throw new Error("Encryption key must be provided");
   }
 
   const encoder = new TextEncoder();
   const data = encoder.encode(plaintext);
-  const keyData = encoder.encode(encryptionKey);
+  const keyData = encoder.encode(key);
 
   // Derive 256-bit key using SHA-256
   const keyBytes = await crypto.subtle.digest("SHA-256", keyData);
 
   // Import key for AES-GCM
-  const key = await crypto.subtle.importKey(
+  const cryptoKey = await crypto.subtle.importKey(
     "raw",
     keyBytes,
     { name: "AES-GCM", length: 256 },
@@ -31,7 +30,7 @@ export async function encryptSecret(plaintext: string): Promise<string> {
   // Encrypt
   const encrypted = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
-    key,
+    cryptoKey,
     data
   );
 
@@ -43,21 +42,20 @@ export async function encryptSecret(plaintext: string): Promise<string> {
   return Buffer.from(combined).toString("base64");
 }
 
-export async function decryptSecret(ciphertext: string): Promise<string> {
-  const encryptionKey = process.env.ENCRYPTION_KEY;
-  if (!encryptionKey) {
-    throw new Error("ENCRYPTION_KEY environment variable not set");
+export async function decryptSecret(ciphertext: string, key: string): Promise<string> {
+  if (!key) {
+    throw new Error("Encryption key must be provided");
   }
 
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();
-  const keyData = encoder.encode(encryptionKey);
+  const keyData = encoder.encode(key);
 
   // Derive 256-bit key using SHA-256
   const keyBytes = await crypto.subtle.digest("SHA-256", keyData);
 
   // Import key for AES-GCM
-  const key = await crypto.subtle.importKey(
+  const cryptoKey = await crypto.subtle.importKey(
     "raw",
     keyBytes,
     { name: "AES-GCM", length: 256 },
@@ -77,12 +75,12 @@ export async function decryptSecret(ciphertext: string): Promise<string> {
   try {
     decrypted = await crypto.subtle.decrypt(
       { name: "AES-GCM", iv },
-      key,
+      cryptoKey,
       encrypted
     );
   } catch (err) {
     throw new Error(
-      "Failed to decrypt secret — the ENCRYPTION_KEY may have changed or the data was encrypted with a different key",
+      "Failed to decrypt secret — the encryption key may have changed or the data was encrypted with a different key",
       { cause: err }
     );
   }

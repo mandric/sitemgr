@@ -147,3 +147,19 @@ The audit above confirms the only place that asserts hex format is the test file
 2. The new `newEventId` tests pass
 3. `npm test` passes across the full test suite (no other tests depend on hex event ID format)
 4. The `ulid` package is listed in `package.json` dependencies (not devDependencies, since it is used at runtime)
+
+## What Was Built
+
+**Implemented as planned.** All changes match the spec exactly.
+
+### Files Modified
+- `web/lib/media/utils.ts` — Replaced `randomUUID().replace(/-/g, "").slice(0, 26)` with `monotonicFactory()` from `ulid`. Removed `randomUUID` import from `crypto`.
+- `web/__tests__/media-utils.test.ts` — Replaced hex-format assertions with Crockford Base32 regex (`/^[0-9A-HJKMNP-TV-Z]{26}$/`). Added monotonic ordering tests and 1000-ID uniqueness test. 5 tests total in `newEventId` block.
+- `web/package.json` / `web/package-lock.json` — Added `ulid` as runtime dependency.
+
+### Deviations from Plan
+None. Implementation matches spec exactly.
+
+### Test Results
+- 18 tests pass in `media-utils.test.ts` (5 newEventId + 13 other utils)
+- 77 tests pass across full suite (`npm test`)

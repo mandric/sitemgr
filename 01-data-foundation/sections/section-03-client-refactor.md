@@ -205,3 +205,26 @@ After implementation, verify:
 - All existing tests pass (mock updates may be needed)
 - The new `web/__tests__/supabase-client.test.ts` tests pass
 - The health endpoint still returns 200 when Supabase is running
+
+---
+
+## Implementation Notes (Post-Implementation)
+
+### Files Modified
+- `web/lib/media/db.ts` — Replaced `getSupabaseClient()` with `getAdminClient()` and `getUserClient()`, updated all 10 internal call sites
+- `web/lib/agent/core.ts` — Updated import and all 6 call sites to use `getAdminClient()`
+- `web/app/api/health/route.ts` — Updated to use `getAdminClient()`
+- `web/__tests__/supabase-client.test.ts` — Fixed `vi.hoisted()` pattern for mock hoisting
+- `web/__tests__/s3-actions.test.ts` — Updated mocks to export both `getAdminClient` and `getUserClient`
+- `web/__tests__/encryption-lifecycle.test.ts` — Same mock update
+
+### Deviations from Plan
+- Test file used `vi.hoisted()` wrapper for `mockCreateClient` to fix Vitest mock hoisting issue (required for tests to work)
+
+### Code Review Findings
+- `findEventByHash()` uses `getUserClient()` per plan, but is called from server-side indexing pipeline. Decision: keep as-is, address in section-08 when user_id auth context is available
+- No client caching added (out of scope, inherited behavior)
+
+### Test Results
+- 8 new tests in `supabase-client.test.ts` (all passing)
+- 97 total tests passing across 9 test suites

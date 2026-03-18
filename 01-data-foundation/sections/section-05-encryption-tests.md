@@ -280,3 +280,18 @@ For the two-key variant (in `encryption.test.ts`), encrypt half with key-a and h
 - Do not modify the encryption source files (`encryption.ts`, `encryption-versioned.ts`) -- that is section-01's scope.
 - Do not write database integration tests for `encryption_key_version` -- the reconciliation tests are unit-level assertions about the design relationship between the column and the label prefix system.
 - Do not test the `encryption-lifecycle.test.ts` file (the agent/bucket integration test) -- that file already exists and covers its scope independently.
+
+## What Was Built
+
+**Implemented as planned.** All test groups created and passing.
+
+### Files Created
+- `web/__tests__/encryption-rotation.test.ts` — 5 tests covering full key rotation lifecycle, decrypt via previous key, lazy migration, post-migration access, and previous key removal.
+
+### Files Modified
+- `web/__tests__/encryption-versioned.test.ts` — Added 7 new tests: legacy format try-order (2 tests), edge cases with 10KB plaintext + corrupted ciphertext + 20-concurrent-ops (3 tests), encryption_key_version reconciliation (2 tests). Total: 27 tests.
+
+### Test Results
+- 43 encryption tests pass across 4 test files
+- 89 total tests pass across full suite (`npm test`)
+- Section-01 concurrency fix validated by concurrent encrypt/decrypt with 20 parallel operations
