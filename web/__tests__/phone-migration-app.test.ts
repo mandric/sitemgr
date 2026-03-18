@@ -102,7 +102,6 @@ import {
   showEvent,
   getStats,
   getEnrichStatus,
-  insertEvent,
   insertEnrichment,
   upsertWatchedKey,
   getWatchedKeys,
