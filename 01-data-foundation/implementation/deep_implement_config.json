@@ -50,6 +50,10 @@
     "section-06-rls-tests": {
       "status": "complete",
       "commit_hash": "53a1ef1b37bab68111eff30cebee09e4102fe100"
+    },
+    "section-08-phone-migration": {
+      "status": "complete",
+      "commit_hash": "1aa221f"
     }
   },
   "pre_commit": {
