@@ -9,7 +9,7 @@
  * (i.e., no local Supabase instance available).
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SECRET_KEY;
@@ -17,10 +17,13 @@ const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
 const canRun = !!(SUPABASE_URL && SERVICE_ROLE_KEY && ANON_KEY);
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type UntypedClient = SupabaseClient<any, any, any>;
+
 describe.skipIf(!canRun)("RPC User Isolation", () => {
   // Lazy-init to avoid createClient throwing when env vars are missing
-  let admin: ReturnType<typeof createClient>;
-  let anon: ReturnType<typeof createClient>;
+  let admin: UntypedClient;
+  let anon: UntypedClient;
 
   const userAId = "00000000-0000-0000-0000-000000000a01";
   const userBId = "00000000-0000-0000-0000-000000000b02";
