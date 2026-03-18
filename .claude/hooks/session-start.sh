@@ -26,6 +26,27 @@ if [ -n "${GH_REPO_DETECTED:-}" ]; then
   export GH_REPO="$GH_REPO_DETECTED"
 fi
 
+# Install Supabase CLI if not present
+if ! command -v supabase &>/dev/null; then
+  npm install -g supabase
+fi
+
+# Install Vercel CLI if not present
+if ! command -v vercel &>/dev/null; then
+  npm install -g vercel
+fi
+
+# Install Playwright browsers if not present
+if ! npx playwright install --dry-run chromium &>/dev/null 2>&1; then
+  npx playwright install --with-deps chromium
+fi
+
 # Install Node.js dependencies for the web app
 cd "$CLAUDE_PROJECT_DIR/web"
 npm install
+
+# Start local Supabase (if not already running)
+cd "$CLAUDE_PROJECT_DIR"
+if ! supabase status &>/dev/null 2>&1; then
+  supabase start
+fi

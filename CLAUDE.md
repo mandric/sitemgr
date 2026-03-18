@@ -5,7 +5,7 @@
 - **Supabase Postgres** is the event store (not per-device SQLite)
 - **Supabase Storage** (S3-compatible) for media (not BYO S3 — that's backlog)
 - **Online required** — no offline support in v1
-- **Supabase Edge Functions** for the WhatsApp bot webhook handler
+- **Vercel API routes** for the WhatsApp bot webhook handler (migrated from Supabase Edge Functions)
 - Local-first/offline with SQLite is deferred to a future version
 
 ### Environment Variables & Secrets Strategy
@@ -63,6 +63,37 @@ When to use `vi.stubEnv()` (fixtures) vs setting in CI:
 5. After migration completes, remove PREVIOUS from Vercel
 
 **See `docs/ENV_VARS.md` for detailed procedures**
+
+### Development & Deployment Workflow
+
+**Three environments: Local → Preview → Production**
+
+**Local (dev):**
+- `supabase start` — local Postgres, Auth, Storage, etc. (Docker)
+- `vercel dev` or `next dev` — local frontend + API routes
+- All services run on your machine; no cloud dependencies
+- This is the primary development loop — get things working here first
+
+**Preview:**
+- Vercel auto-creates preview deployments on PRs
+- Separate Supabase project for preview (not yet set up — backlog)
+- Preview environment is fully isolated from production
+- DB migrations must be applied to preview Supabase project separately
+
+**Production:**
+- Merge to `main` triggers Vercel production deploy (frontend + API routes)
+- DB migrations deploy via GitHub Actions using `SUPABASE_ACCESS_TOKEN`
+- These are two separate deploy pipelines — Vercel owns app, GitHub owns DB
+
+**Known gaps / CI-CD backlog:**
+- Preview Supabase environment not yet configured
+- App and DB deploy pipelines are decoupled (Vercel vs GitHub Actions) — works but fragile
+- No automated rollback if DB migration succeeds but app deploy fails (or vice versa)
+
+### Planning Artifacts
+
+- `project-manifest.md` — Split structure, dependencies, and execution order
+- `01-data-foundation/spec.md` through `05-cli/spec.md` — Per-split specs for `/deep-plan`
 
 ### Backlog items (not v1 scope)
 
