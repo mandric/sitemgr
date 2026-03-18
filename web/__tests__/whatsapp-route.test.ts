@@ -7,6 +7,7 @@ vi.mock("@/lib/agent/core", () => ({
   summarizeResult: vi.fn(),
   getConversationHistory: vi.fn(),
   saveConversationHistory: vi.fn(),
+  resolveUserId: vi.fn(),
 }));
 
 // Mock global fetch for Twilio calls
@@ -20,6 +21,7 @@ import {
   summarizeResult,
   getConversationHistory,
   saveConversationHistory,
+  resolveUserId,
 } from "@/lib/agent/core";
 import { NextRequest } from "next/server";
 
@@ -28,6 +30,7 @@ const mockExecute = vi.mocked(executeAction);
 const mockSummarize = vi.mocked(summarizeResult);
 const mockGetHistory = vi.mocked(getConversationHistory);
 const mockSaveHistory = vi.mocked(saveConversationHistory);
+const mockResolveUserId = vi.mocked(resolveUserId);
 
 function makeRequest(body: Record<string, string>): NextRequest {
   const formBody = new URLSearchParams(body).toString();
@@ -51,12 +54,15 @@ describe("WhatsApp route", () => {
     mockSummarize.mockReset();
     mockGetHistory.mockReset();
     mockSaveHistory.mockReset();
+    mockResolveUserId.mockReset();
     mockFetch.mockReset();
     // Default Twilio response
     mockFetch.mockResolvedValue({ ok: true });
     // Default conversation history
     mockGetHistory.mockResolvedValue([]);
     mockSaveHistory.mockResolvedValue(undefined);
+    // Default user resolution
+    mockResolveUserId.mockResolvedValue("test-user-uuid");
   });
 
   afterEach(() => {
@@ -100,7 +106,7 @@ describe("WhatsApp route", () => {
       expect(res.status).toBe(200);
 
       expect(mockPlan).toHaveBeenCalledOnce();
-      expect(mockExecute).toHaveBeenCalledWith({ action: "stats" }, "whatsapp:+1234567890");
+      expect(mockExecute).toHaveBeenCalledWith({ action: "stats" }, "whatsapp:+1234567890", "test-user-uuid");
       expect(mockSummarize).toHaveBeenCalledWith("show me my photos", '{"total_events": 42}');
       expect(mockSaveHistory).toHaveBeenCalledOnce();
     });

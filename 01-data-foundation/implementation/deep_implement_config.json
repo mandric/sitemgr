@@ -46,6 +46,10 @@
     "section-04-rpc-user-isolation": {
       "status": "complete",
       "commit_hash": "7283ca29210a8541c300b0827f4b26f97ee5dbe6"
+    },
+    "section-06-rls-tests": {
+      "status": "complete",
+      "commit_hash": "53a1ef1b37bab68111eff30cebee09e4102fe100"
     }
   },
   "pre_commit": {

@@ -138,43 +138,64 @@ export async function planAction(
   return JSON.parse(text);
 }
 
+/** Resolve a phone number to a user_id via user_profiles lookup. */
+export async function resolveUserId(phoneNumber: string): Promise<string | null> {
+  const supabase = getAdminClient();
+  const { data } = await supabase
+    .from("user_profiles")
+    .select("id")
+    .eq("phone_number", phoneNumber)
+    .maybeSingle();
+  return data?.id ?? null;
+}
+
 export async function executeAction(
   plan: AgentPlan,
   phoneNumber: string,
+  preResolvedUserId?: string | null,
 ): Promise<string> {
+  // Use pre-resolved userId if available, otherwise resolve from phone
+  const userId = preResolvedUserId !== undefined ? preResolvedUserId : await resolveUserId(phoneNumber);
+
+  // All DB actions require a resolved user — reject unknown phone numbers
+  if (!userId && plan.action !== "direct") {
+    return JSON.stringify({ error: "Unknown user — phone number not registered" });
+  }
+
   switch (plan.action) {
     case "direct":
       return plan.response ?? "";
 
     case "add_bucket":
-      return await addBucket(phoneNumber, plan.params ?? {});
+      return await addBucket(phoneNumber, plan.params ?? {}, userId);
 
     case "list_buckets":
-      return await listBuckets(phoneNumber);
+      return await listBuckets(phoneNumber, userId);
 
     case "remove_bucket":
       return await removeBucket(
         phoneNumber,
         plan.params?.bucket_name as string,
+        userId,
       );
 
     case "stats":
-      // TODO(section-08): pass resolved userId from phone number
-      return JSON.stringify(await getStats());
+      return JSON.stringify(await getStats(userId ?? undefined));
 
     case "show":
       return JSON.stringify(
-        (await showEvent(plan.params?.id as string)) ?? {
+        (await showEvent(plan.params?.id as string, userId ?? undefined)) ?? {
           error: "Event not found",
         },
       );
 
     case "enrich_status":
-      return JSON.stringify(await getEnrichStatus());
+      return JSON.stringify(await getEnrichStatus(userId ?? undefined));
 
     case "query": {
       const p = plan.params ?? {};
       const result = await queryEvents({
+        userId: userId ?? undefined,
         search: p.search as string | undefined,
         type: p.type as string | undefined,
         since: p.since as string | undefined,
@@ -188,6 +209,7 @@ export async function executeAction(
       return await verifyBucketConfig(
         phoneNumber,
         plan.params?.bucket_name as string,
+        userId,
       );
 
     case "list_objects":
@@ -196,6 +218,7 @@ export async function executeAction(
         plan.params?.bucket_name as string,
         plan.params?.prefix as string | undefined,
         (plan.params?.limit as number) ?? 100,
+        userId,
       );
 
     case "count_objects":
@@ -203,6 +226,7 @@ export async function executeAction(
         phoneNumber,
         plan.params?.bucket_name as string,
         plan.params?.prefix as string | undefined,
+        userId,
       );
 
     case "index_bucket":
@@ -211,6 +235,7 @@ export async function executeAction(
         plan.params?.bucket_name as string,
         plan.params?.prefix as string | undefined,
         (plan.params?.batch_size as number) ?? 10,
+        userId,
       );
 
     default:
@@ -259,6 +284,7 @@ Summarize conversationally. Keep it short — this is a chat message.
 async function addBucket(
   phoneNumber: string,
   params: Record<string, unknown>,
+  userId: string | null,
 ): Promise<string> {
   const bucketName = params.bucket_name as string;
   const endpointUrl = params.endpoint_url as string;
@@ -273,6 +299,10 @@ async function addBucket(
     });
   }
 
+  if (!userId) {
+    return JSON.stringify({ error: "Could not resolve user for this phone number" });
+  }
+
   // Use versioned encryption for new buckets
   const encryptedSecret = await encryptSecretVersioned(secretAccessKey);
   const keyVersion = getEncryptionVersion(encryptedSecret);
@@ -281,7 +311,7 @@ async function addBucket(
   const { data, error } = await supabase
     .from("bucket_configs")
     .insert({
-      phone_number: phoneNumber,
+      user_id: userId,
       bucket_name: bucketName,
       region,
       endpoint_url: endpointUrl,
@@ -313,7 +343,11 @@ async function addBucket(
   });
 }
 
-async function listBuckets(phoneNumber: string): Promise<string> {
+async function listBuckets(phoneNumber: string, userId: string | null): Promise<string> {
+  if (!userId) {
+    return JSON.stringify({ error: "Could not resolve user for this phone number" });
+  }
+
   const supabase = getAdminClient();
 
   const { data, error } = await supabase
@@ -321,7 +355,7 @@ async function listBuckets(phoneNumber: string): Promise<string> {
     .select(
       "id, bucket_name, region, endpoint_url, created_at, last_synced_key",
     )
-    .eq("phone_number", phoneNumber)
+    .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -335,9 +369,14 @@ async function listBuckets(phoneNumber: string): Promise<string> {
 async function removeBucket(
   phoneNumber: string,
   bucketName: string,
+  userId: string | null,
 ): Promise<string> {
   if (!bucketName) {
     return JSON.stringify({ error: "bucket_name is required" });
+  }
+
+  if (!userId) {
+    return JSON.stringify({ error: "Could not resolve user for this phone number" });
   }
 
   const supabase = getAdminClient();
@@ -345,7 +384,7 @@ async function removeBucket(
   const { error } = await supabase
     .from("bucket_configs")
     .delete()
-    .eq("phone_number", phoneNumber)
+    .eq("user_id", userId)
     .eq("bucket_name", bucketName);
 
   if (error) {
@@ -386,6 +425,7 @@ type S3ClientResult =
 async function requireS3Client(
   phoneNumber: string,
   bucketName: string,
+  userId?: string | null,
 ): Promise<S3ClientResult> {
   if (!bucketName)
     return {
@@ -393,7 +433,7 @@ async function requireS3Client(
       errorJson: JSON.stringify({ error: "bucket_name is required" }),
     };
 
-  const result = await getBucketConfig(phoneNumber, bucketName);
+  const result = await getBucketConfig(phoneNumber, bucketName, userId);
   if (!result.exists)
     return {
       ok: false,
@@ -424,14 +464,18 @@ async function requireS3Client(
 async function getBucketConfig(
   phoneNumber: string,
   bucketName: string,
+  userId?: string | null,
 ): Promise<BucketConfigResult> {
   if (!bucketName) return { exists: false };
   const supabase = getAdminClient();
+
+  if (!userId) return { exists: false };
+
   const { data, error } = await supabase
     .from("bucket_configs")
     .select("*")
-    .eq("phone_number", phoneNumber)
     .eq("bucket_name", bucketName)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (error || !data) return { exists: false };
@@ -497,8 +541,9 @@ async function getBucketConfig(
 async function verifyBucketConfig(
   phoneNumber: string,
   bucketName: string,
+  userId?: string | null,
 ): Promise<string> {
-  const s3 = await requireS3Client(phoneNumber, bucketName);
+  const s3 = await requireS3Client(phoneNumber, bucketName, userId);
   if (!s3.ok) return s3.errorJson;
 
   try {
@@ -542,8 +587,9 @@ async function listObjects(
   bucketName: string,
   prefix?: string,
   limit = 100,
+  userId?: string | null,
 ): Promise<string> {
-  const s3 = await requireS3Client(phoneNumber, bucketName);
+  const s3 = await requireS3Client(phoneNumber, bucketName, userId);
   if (!s3.ok) return s3.errorJson;
 
   try {
@@ -572,8 +618,9 @@ async function countObjects(
   phoneNumber: string,
   bucketName: string,
   prefix?: string,
+  userId?: string | null,
 ): Promise<string> {
-  const s3 = await requireS3Client(phoneNumber, bucketName);
+  const s3 = await requireS3Client(phoneNumber, bucketName, userId);
   if (!s3.ok) return s3.errorJson;
 
   try {
@@ -611,8 +658,9 @@ async function indexBucket(
   bucketName: string,
   prefix?: string,
   batchSize = 10,
+  userId?: string | null,
 ): Promise<string> {
-  const s3 = await requireS3Client(phoneNumber, bucketName);
+  const s3 = await requireS3Client(phoneNumber, bucketName, userId);
   if (!s3.ok) return s3.errorJson;
 
   try {
@@ -620,7 +668,7 @@ async function indexBucket(
     const allObjects = await listS3Objects(s3.client, bucketName, prefix ?? "");
 
     // Get already-watched keys to find new ones
-    const watchedKeys = await getWatchedKeys();
+    const watchedKeys = await getWatchedKeys(userId ?? undefined);
     const newObjects = allObjects.filter((o) => !watchedKeys.has(o.key));
 
     // Take only batch_size items
@@ -648,10 +696,11 @@ async function indexBucket(
           metadata: s3Metadata(obj.key, obj.size, obj.etag),
           parent_id: null,
           bucket_config_id: s3.config.id,
+          user_id: userId!,
         });
 
         // Track watched key
-        await upsertWatchedKey(obj.key, eventId, obj.etag, obj.size);
+        await upsertWatchedKey(obj.key, eventId, obj.etag, obj.size, userId ?? undefined);
         indexed++;
 
         // Enrich if it's an image we can analyze
@@ -663,7 +712,7 @@ async function indexBucket(
               obj.key,
             );
             const result = await enrichImage(imageBytes, mimeType);
-            await insertEnrichment(eventId, result);
+            await insertEnrichment(eventId, result, userId ?? undefined);
             enriched++;
           } catch (enrichErr) {
             // Log enrichment failure but don't fail the whole batch
@@ -677,6 +726,7 @@ async function indexBucket(
               remote_path: `s3://${bucketName}/${obj.key}`,
               metadata: { error: (enrichErr as Error).message },
               parent_id: eventId,
+              user_id: userId!,
             });
           }
         }
@@ -705,9 +755,20 @@ async function indexBucket(
 
 export async function getConversationHistory(
   phone: string,
+  userId?: string | null,
 ): Promise<Message[]> {
   const supabase = getAdminClient();
 
+  if (userId) {
+    const { data } = await supabase
+      .from("conversations")
+      .select("history")
+      .eq("user_id", userId)
+      .single();
+    return (data?.history as Message[]) ?? [];
+  }
+
+  // Fallback to phone_number for legacy callers
   const { data } = await supabase
     .from("conversations")
     .select("history")
@@ -720,10 +781,25 @@ export async function getConversationHistory(
 export async function saveConversationHistory(
   phone: string,
   history: Message[],
+  userId?: string | null,
 ): Promise<void> {
   const supabase = getAdminClient();
   const trimmed = history.slice(-20);
 
+  if (userId) {
+    await supabase.from("conversations").upsert(
+      {
+        user_id: userId,
+        phone_number: phone,
+        history: trimmed,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    );
+    return;
+  }
+
+  // Fallback to phone_number for legacy callers
   await supabase.from("conversations").upsert({
     phone_number: phone,
     history: trimmed,

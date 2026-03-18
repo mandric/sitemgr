@@ -37,6 +37,13 @@ import { enrichImage } from "../lib/media/enrichment";
 
 // ── Helpers ──────────────────────────────────────────────────
 
+/** Get the user_id from SMGR_USER_ID env var (required for write operations after migration). */
+function requireUserId(): string {
+  const userId = process.env.SMGR_USER_ID;
+  if (!userId) die("Set SMGR_USER_ID environment variable (user UUID for tenant-scoped operations)");
+  return userId;
+}
+
 function die(msg: string): never {
   console.error(msg);
   process.exit(1);
@@ -64,6 +71,7 @@ async function cmdQuery(args: string[]) {
   });
 
   const result = await queryEvents({
+    userId: process.env.SMGR_USER_ID,
     search: values.search,
     type: values.type,
     since: values.since,
@@ -110,15 +118,14 @@ async function cmdShow(args: string[]) {
   const eventId = args[0];
   if (!eventId) die("Usage: smgr show <event_id>");
 
-  const event = await showEvent(eventId);
+  const event = await showEvent(eventId, process.env.SMGR_USER_ID);
   if (!event) die(`Event not found: ${eventId}`);
 
   printJson(event);
 }
 
 async function cmdStats() {
-  // TODO(section-08): pass authenticated userId for user-scoped stats
-  const stats = await getStats();
+  const stats = await getStats(process.env.SMGR_USER_ID);
   printJson(stats);
 }
 
@@ -134,7 +141,7 @@ async function cmdEnrich(args: string[]) {
   });
 
   if (values.status) {
-    const status = await getEnrichStatus();
+    const status = await getEnrichStatus(process.env.SMGR_USER_ID);
     printJson(status);
     return;
   }
@@ -143,7 +150,7 @@ async function cmdEnrich(args: string[]) {
 
   if (eventId) {
     // Enrich a specific event
-    const event = await showEvent(eventId);
+    const event = await showEvent(eventId, process.env.SMGR_USER_ID);
     if (!event) die(`Event not found: ${eventId}`);
 
     const meta = (event.metadata as Record<string, unknown>) ?? {};
@@ -162,13 +169,13 @@ async function cmdEnrich(args: string[]) {
 
     console.log(`Enriching event ${eventId}...`);
     const result = await enrichImage(imageBytes, mime);
-    await insertEnrichment(eventId, result);
+    await insertEnrichment(eventId, result, process.env.SMGR_USER_ID);
     console.log("Done.");
     return;
   }
 
   if (values.pending) {
-    const pending = await getPendingEnrichments();
+    const pending = await getPendingEnrichments(process.env.SMGR_USER_ID);
     if (pending.length === 0) {
       console.log("No pending enrichments.");
       return;
@@ -201,7 +208,7 @@ async function cmdEnrich(args: string[]) {
         const imageBytes = await downloadS3Object(s3, bucket, s3Key);
         const mime = (meta.mime_type as string) ?? getMimeType(s3Key);
         const result = await enrichImage(imageBytes, mime);
-        await insertEnrichment(event.id, result);
+        await insertEnrichment(event.id, result, process.env.SMGR_USER_ID);
         done++;
         console.log("  Done.");
       } catch (err) {
@@ -227,6 +234,7 @@ async function cmdWatch(args: string[]) {
   const bucket = process.env.SMGR_S3_BUCKET;
   if (!bucket) die("Set SMGR_S3_BUCKET environment variable");
 
+  const userId = requireUserId();
   const prefix = process.env.SMGR_S3_PREFIX ?? "";
   const interval = parseInt(process.env.SMGR_WATCH_INTERVAL ?? "30", 10);
   const autoEnrich = (process.env.SMGR_AUTO_ENRICH ?? "true").toLowerCase() !== "false";
@@ -249,7 +257,7 @@ async function cmdWatch(args: string[]) {
     try {
       const objects = await listS3Objects(s3, bucket, prefix);
       const mediaObjects = objects.filter((o) => isMediaKey(o.key));
-      const seenKeys = await getWatchedKeys();
+      const seenKeys = await getWatchedKeys(userId);
       const newObjects = mediaObjects.filter((o) => !seenKeys.has(o.key));
 
       if (newObjects.length > 0) {
@@ -262,9 +270,9 @@ async function cmdWatch(args: string[]) {
             const imageBytes = await downloadS3Object(s3, bucket, obj.key);
             const contentHash = sha256Bytes(imageBytes);
 
-            const existingId = await findEventByHash(contentHash);
+            const existingId = await findEventByHash(contentHash, userId);
             if (existingId) {
-              await upsertWatchedKey(obj.key, existingId, obj.etag, obj.size);
+              await upsertWatchedKey(obj.key, existingId, obj.etag, obj.size, userId);
               console.log(`    Already indexed (hash match)`);
               continue;
             }
@@ -284,8 +292,9 @@ async function cmdWatch(args: string[]) {
               remote_path: remotePath,
               metadata: meta,
               parent_id: null,
+              user_id: userId,
             });
-            await upsertWatchedKey(obj.key, eventId, obj.etag, obj.size);
+            await upsertWatchedKey(obj.key, eventId, obj.etag, obj.size, userId);
             console.log(`    Created event ${eventId}`);
 
             if (autoEnrich && contentType === "photo") {
@@ -294,7 +303,7 @@ async function cmdWatch(args: string[]) {
                 console.log("    Enriching...");
                 try {
                   const result = await enrichImage(imageBytes, mime);
-                  await insertEnrichment(eventId, result);
+                  await insertEnrichment(eventId, result, userId);
                   console.log("    Enriched.");
                 } catch (err) {
                   console.error(`    Enrichment failed: ${err}`);
@@ -303,7 +312,7 @@ async function cmdWatch(args: string[]) {
             }
           } catch (err) {
             console.error(`    Error: ${err}`);
-            await upsertWatchedKey(obj.key, null, obj.etag, obj.size);
+            await upsertWatchedKey(obj.key, null, obj.etag, obj.size, userId);
           }
         }
       }
@@ -349,6 +358,7 @@ Environment:
   SMGR_S3_ENDPOINT             Custom S3 endpoint (for Supabase Storage)
   SMGR_S3_REGION               AWS region (default: us-east-1)
   ANTHROPIC_API_KEY            For enrichment
+  SMGR_USER_ID                 User UUID for tenant-scoped operations
   SMGR_DEVICE_ID               Device identifier (default: default)
   SMGR_WATCH_INTERVAL          Poll interval in seconds (default: 30)
   SMGR_AUTO_ENRICH             Auto-enrich on watch (default: true)`);

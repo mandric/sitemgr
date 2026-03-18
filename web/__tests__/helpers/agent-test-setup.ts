@@ -19,7 +19,7 @@ export const mockS3Send = vi.fn();
 
 /** Mock a `select → eq → eq → maybeSingle` chain (used by getBucketConfig). */
 export function mockBucketLookup(config: Record<string, unknown> | null) {
-  mockFrom.mockReturnValue({
+  const bucketChain = {
     select: () => ({
       eq: () => ({
         eq: () => ({
@@ -27,7 +27,8 @@ export function mockBucketLookup(config: Record<string, unknown> | null) {
         }),
       }),
     }),
-  });
+  };
+  mockWithUserResolution(bucketChain);
 }
 
 /** Mock an `insert → select → single` chain (used by addBucket). Returns the mock insert fn for assertions. */
@@ -39,7 +40,8 @@ export function mockBucketInsert(
     single: () => Promise.resolve({ data: responseData, error }),
   });
   const mockInsert = vi.fn().mockReturnValue({ select: mockSelect });
-  mockFrom.mockReturnValue({ insert: mockInsert });
+  const bucketChain = { insert: mockInsert };
+  mockWithUserResolution(bucketChain);
   return mockInsert;
 }
 
@@ -52,23 +54,50 @@ export function mockBucketInsertCapture(responseData: Record<string, unknown>) {
   const mockSelect = vi.fn().mockReturnValue({
     single: () => Promise.resolve({ data: responseData, error: null }),
   });
-  mockFrom.mockReturnValue({
+  const bucketChain = {
     insert: vi.fn((row: Record<string, unknown>) => {
       ref.row = row;
       return { select: mockSelect };
     }),
-  });
+  };
+  mockWithUserResolution(bucketChain);
   return ref;
 }
 
 /** Mock a `delete → eq → eq` chain (used by removeBucket). */
 export function mockBucketDelete(error: Record<string, unknown> | null = null) {
-  mockFrom.mockReturnValue({
+  const bucketChain = {
     delete: () => ({
       eq: () => ({
         eq: () => Promise.resolve({ error }),
       }),
     }),
+  };
+  mockWithUserResolution(bucketChain);
+}
+
+// ── resolveUserId chain helper ──────────────────────────────────
+
+/** Chain returned for user_profiles lookups (resolveUserId). */
+const userProfilesChain = {
+  select: () => ({
+    eq: () => ({
+      maybeSingle: () =>
+        Promise.resolve({ data: { id: "test-user-uuid" }, error: null }),
+    }),
+  }),
+};
+
+/**
+ * Wraps mockFrom to handle resolveUserId's user_profiles lookup transparently.
+ * Call this in beforeEach after setting up the bucket mock chain.
+ * It makes mockFrom dispatch by table name: "user_profiles" → resolveUserId chain,
+ * anything else → the previously configured return value.
+ */
+export function mockWithUserResolution(bucketChain: Record<string, unknown>) {
+  mockFrom.mockImplementation((table: string) => {
+    if (table === "user_profiles") return userProfilesChain;
+    return bucketChain;
   });
 }
 
@@ -79,6 +108,7 @@ export const PHONE = "+1234567890";
 export const fakeBucketConfig = {
   id: "cfg-1",
   phone_number: PHONE,
+  user_id: "test-user-uuid",
   bucket_name: "my-bucket",
   endpoint_url: "https://s3.example.com",
   region: "us-east-1",
