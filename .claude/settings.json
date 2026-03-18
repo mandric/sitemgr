@@ -20,7 +20,7 @@
     "piercelamb-plugins": {
       "source": {
         "source": "github",
-        "repo": "piercelamb/deep-implement"
+        "repo": "piercelamb/deep-project"
       }
     },
     "piercelamb-deep-plan": {
