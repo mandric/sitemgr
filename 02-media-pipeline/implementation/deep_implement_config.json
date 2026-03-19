@@ -26,6 +26,14 @@
     "section-02-retry-sdk": {
       "status": "complete",
       "commit_hash": "b81dab2"
+    },
+    "section-03-validation": {
+      "status": "complete",
+      "commit_hash": "77c7cfc"
+    },
+    "section-04-s3-hardening": {
+      "status": "complete",
+      "commit_hash": "b6b2b38"
     }
   },
   "pre_commit": {
