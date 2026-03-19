@@ -12,12 +12,12 @@
     ]
   },
   "enabledPlugins": {
-    "deep-project@piercelamb-plugins": true,
-    "deep-plan@piercelamb-plugins": true,
-    "deep-implement@piercelamb-plugins": true,
-    "code-review@claude-plugins-official": true,
-    "frontend-design@claude-code-plugins": true,
-    "feature-dev@claude-code-plugins": true,
-    "ralph-wiggum@claude-code-plugins": true
+    "deep-project@local-plugins": true,
+    "deep-plan@local-plugins": true,
+    "deep-implement@local-plugins": true,
+    "code-review@local-plugins": true,
+    "frontend-design@local-plugins": true,
+    "feature-dev@local-plugins": true,
+    "ralph-wiggum@local-plugins": true
   }
 }

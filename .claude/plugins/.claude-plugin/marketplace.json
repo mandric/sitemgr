@@ -1,0 +1,47 @@
+{
+  "name": "local-plugins",
+  "plugins": [
+    {
+      "name": "deep-project",
+      "version": "0.2.1",
+      "description": "Split vague project requirements into well-scoped units for /deep-plan",
+      "path": "../deep-project"
+    },
+    {
+      "name": "deep-plan",
+      "version": "0.3.2",
+      "description": "AI-assisted deep planning with research, interview, external LLM review, and TDD approach",
+      "path": "../deep-plan"
+    },
+    {
+      "name": "deep-implement",
+      "version": "0.2.1",
+      "description": "Implement code from /deep-plan sections with review and git workflow",
+      "path": "../deep-implement"
+    },
+    {
+      "name": "code-review",
+      "version": "1.0.0",
+      "description": "Automated code review for pull requests using multiple specialized agents with confidence-based scoring",
+      "path": "../code-review"
+    },
+    {
+      "name": "frontend-design",
+      "version": "1.0.0",
+      "description": "Frontend design skill for UI/UX implementation",
+      "path": "../frontend-design"
+    },
+    {
+      "name": "feature-dev",
+      "version": "1.0.0",
+      "description": "Comprehensive feature development workflow with specialized agents for codebase exploration, architecture design, and quality review",
+      "path": "../feature-dev"
+    },
+    {
+      "name": "ralph-wiggum",
+      "version": "1.0.0",
+      "description": "Implementation of the Ralph Wiggum technique - continuous self-referential AI loops for interactive iterative development",
+      "path": "../ralph-wiggum"
+    }
+  ]
+}
