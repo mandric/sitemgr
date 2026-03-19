@@ -7,6 +7,7 @@ import {
   ListObjectsV2Command,
   ListObjectsCommand,
   GetObjectCommand,
+  PutObjectCommand,
 } from "@aws-sdk/client-s3";
 
 export interface S3Object {
@@ -128,4 +129,21 @@ export async function downloadS3Object(
   );
   const bytes = await response.Body!.transformToByteArray();
   return Buffer.from(bytes);
+}
+
+export async function uploadS3Object(
+  client: S3Client,
+  bucket: string,
+  key: string,
+  body: Buffer,
+  contentType?: string,
+): Promise<void> {
+  await client.send(
+    new PutObjectCommand({
+      Bucket: bucket,
+      Key: key,
+      Body: body,
+      ...(contentType ? { ContentType: contentType } : {}),
+    })
+  );
 }

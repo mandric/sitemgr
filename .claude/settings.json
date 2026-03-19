@@ -12,39 +12,12 @@
     ]
   },
   "enabledPlugins": {
-    "deep-plan@piercelamb-deep-plan": true,
-    "deep-implement@piercelamb-plugins": true,
-    "deep-project@piercelamb-plugins": true,
-    "code-review@claude-plugins-official": true,
-    "frontend-design@anthropic-plugins": true,
-    "feature-dev@anthropic-plugins": true,
-    "ralph-wiggum@anthropic-plugins": true
-  },
-  "extraKnownMarketplaces": {
-    "piercelamb-plugins": {
-      "source": {
-        "source": "github",
-        "repo": "piercelamb/deep-implement"
-      }
-    },
-    "piercelamb-deep-plan": {
-      "source": {
-        "source": "github",
-        "repo": "piercelamb/deep-plan"
-      }
-    },
-    "claude-plugins-official": {
-      "source": {
-        "source": "github",
-        "repo": "anthropics/claude-plugins-official"
-      }
-    },
-    "anthropic-plugins": {
-      "source": {
-        "source": "github",
-        "repo": "anthropics/claude-code",
-        "directory": "plugins"
-      }
-    }
+    "deep-project@local-plugins": true,
+    "deep-plan@local-plugins": true,
+    "deep-implement@local-plugins": true,
+    "code-review@local-plugins": true,
+    "frontend-design@local-plugins": true,
+    "feature-dev@local-plugins": true,
+    "ralph-wiggum@local-plugins": true
   }
 }
