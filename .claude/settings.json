@@ -15,6 +15,9 @@
     "deep-project@piercelamb-plugins": true,
     "deep-plan@piercelamb-plugins": true,
     "deep-implement@piercelamb-plugins": true,
-    "code-review@claude-plugins-official": true
+    "code-review@claude-plugins-official": true,
+    "frontend-design@claude-code-plugins": true,
+    "feature-dev@claude-code-plugins": true,
+    "ralph-wiggum@claude-code-plugins": true
   }
 }
