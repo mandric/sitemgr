@@ -93,7 +93,7 @@ export async function GET(
 
     const mimeType = getMimeType(key);
 
-    return new NextResponse(imageBytes, {
+    return new NextResponse(new Uint8Array(imageBytes), {
       headers: {
         "Content-Type": mimeType,
         "Cache-Control": "private, max-age=3600",
