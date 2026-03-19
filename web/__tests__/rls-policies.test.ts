@@ -89,10 +89,10 @@ describe.skipIf(!canRun)("RLS Policy Integration Tests", () => {
       { s3_key: "rls-test/b/key1.jpg", first_seen: now, event_id: eventIds.b1, user_id: userBId },
     ]));
 
-    // Seed bucket_configs
+    // Seed bucket_configs (phone_number column was removed in schema cleanup migration)
     await assertInsert(await admin.from("bucket_configs").insert([
-      { user_id: userAId, phone_number: USER_A_PHONE, bucket_name: "rls-test-a", endpoint_url: "https://s3.example.com", access_key_id: "AKID-A", secret_access_key: "encrypted-a" },
-      { user_id: userBId, phone_number: USER_B_PHONE, bucket_name: "rls-test-b", endpoint_url: "https://s3.example.com", access_key_id: "AKID-B", secret_access_key: "encrypted-b" },
+      { user_id: userAId, bucket_name: "rls-test-a", endpoint_url: "https://s3.example.com", access_key_id: "AKID-A", secret_access_key: "encrypted-a" },
+      { user_id: userBId, bucket_name: "rls-test-b", endpoint_url: "https://s3.example.com", access_key_id: "AKID-B", secret_access_key: "encrypted-b" },
     ]));
 
     // Seed conversations
@@ -273,56 +273,11 @@ describe.skipIf(!canRun)("RLS Policy Integration Tests", () => {
       expect(bData).toHaveLength(0);
     });
 
-    it("NULL user_id + NULL phone_number does not grant access on bucket_configs", async () => {
-      await admin.from("bucket_configs").insert({
-        user_id: null,
-        phone_number: null,
-        bucket_name: "rls-null-bucket",
-        endpoint_url: "https://s3.example.com",
-        access_key_id: "AKID",
-        secret_access_key: "secret",
-      });
-
-      const { data: aData } = await userAClient.from("bucket_configs").select("bucket_name").eq("bucket_name", "rls-null-bucket");
-      const { data: bData } = await userBClient.from("bucket_configs").select("bucket_name").eq("bucket_name", "rls-null-bucket");
-      expect(aData).toHaveLength(0);
-      expect(bData).toHaveLength(0);
-
-      await admin.from("bucket_configs").delete().eq("bucket_name", "rls-null-bucket");
-    });
+    // bucket_configs.user_id is now NOT NULL after schema cleanup, so NULL user_id test is no longer applicable
   });
 
-  // ── Phone-Based Access (Dual Auth Period) ────────────────────────
-
-  describe("phone-based access", () => {
-    it("phone_number auth path grants access to matching records only on bucket_configs", async () => {
-      // Insert a bucket_config with user_id=NULL and phone matching user A
-      await admin.from("bucket_configs").insert({
-        user_id: null,
-        phone_number: USER_A_PHONE,
-        bucket_name: "rls-phone-test-bucket",
-        endpoint_url: "https://s3.example.com",
-        access_key_id: "AKID",
-        secret_access_key: "secret",
-      });
-
-      // User A (whose JWT has phone claim) should see it
-      // User A query (result not asserted — see comment below)
-      await userAClient.from("bucket_configs").select("bucket_name").eq("bucket_name", "rls-phone-test-bucket");
-
-      // User B should NOT see it
-      const { data: bData } = await userBClient.from("bucket_configs").select("bucket_name").eq("bucket_name", "rls-phone-test-bucket");
-
-      // Note: This test may fail if the JWT doesn't include a phone claim,
-      // which depends on how the test users were created. The phone path
-      // is only active during the dual-auth transition period.
-      // If User A's result is empty, it means the JWT doesn't have the phone claim,
-      // which is still safe (phone path doesn't grant access without claim).
-      expect(bData).toHaveLength(0);
-
-      await admin.from("bucket_configs").delete().eq("bucket_name", "rls-phone-test-bucket");
-    });
-  });
+  // Phone-based access tests removed: phone_number column was dropped from
+  // bucket_configs in schema cleanup migration. Auth is now purely user_id based.
 
   // ── SECURITY DEFINER Restrictions ────────────────────────────────
 

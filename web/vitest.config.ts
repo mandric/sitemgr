@@ -11,6 +11,7 @@ export default defineConfig({
       "__tests__/rls-policies.test.ts",
       "__tests__/rpc-user-isolation.test.ts",
       "__tests__/migration-integrity.test.ts",
+      "__tests__/integration/**",
     ],
   },
   resolve: {

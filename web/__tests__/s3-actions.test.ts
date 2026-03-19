@@ -105,7 +105,7 @@ describe("S3 action handlers", () => {
         { action: "test_bucket", params: {} },
         PHONE,
       );
-      expect(JSON.parse(result)).toEqual({ error: "bucket_name is required" });
+      expect(JSON.parse(result)).toEqual({ error: "bucket_name is required", errorType: "validation_error" });
     });
 
     it("returns error when bucket config not found", async () => {
@@ -116,6 +116,7 @@ describe("S3 action handlers", () => {
       );
       expect(JSON.parse(result)).toEqual({
         error: 'Bucket "nonexistent" not found',
+        errorType: "not_found",
       });
     });
 
@@ -312,7 +313,7 @@ describe("S3 action handlers", () => {
         { action: "remove_bucket", params: {} },
         PHONE,
       );
-      expect(JSON.parse(result)).toEqual({ error: "bucket_name is required" });
+      expect(JSON.parse(result)).toEqual({ error: "bucket_name is required", errorType: "validation_error" });
     });
 
     it("deletes bucket config and returns success", async () => {

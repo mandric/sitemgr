@@ -6,6 +6,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import pLimit from "p-limit";
 import { AGENT_SYSTEM_PROMPT, WHATSAPP_PLANNER_PROMPT } from "./system-prompt";
 import { getAdminClient } from "@/lib/media/db";
 import {
@@ -37,6 +38,10 @@ import {
 } from "@/lib/media/utils";
 import { enrichImage } from "@/lib/media/enrichment";
 import { ListObjectsV2Command, ListObjectsCommand } from "@aws-sdk/client-s3";
+import { runWithRequestId } from "@/lib/request-context";
+import { createLogger, LogComponent } from "@/lib/logger";
+
+const logger = createLogger(LogComponent.Agent);
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -54,6 +59,30 @@ interface AgentPlan {
   action: string;
   params?: Record<string, unknown>;
   response?: string;
+}
+
+export type ErrorType =
+  | "not_found"
+  | "access_denied"
+  | "validation_error"
+  | "api_error"
+  | "timeout"
+  | "internal";
+
+function errorResponse(
+  message: string,
+  errorType: ErrorType,
+  details?: Record<string, unknown>,
+): string {
+  return JSON.stringify({
+    error: message,
+    errorType,
+    ...(details ? { details } : {}),
+  });
+}
+
+function generateRequestId(): string {
+  return crypto.randomUUID();
 }
 
 // ── Web chat (simple) ──────────────────────────────────────────
@@ -154,93 +183,137 @@ export async function executeAction(
   phoneNumber: string,
   preResolvedUserId?: string | null,
 ): Promise<string> {
-  // Use pre-resolved userId if available, otherwise resolve from phone
-  const userId = preResolvedUserId !== undefined ? preResolvedUserId : await resolveUserId(phoneNumber);
+  const requestId = generateRequestId();
+  return runWithRequestId(requestId, async () => {
+    const startMs = Date.now();
 
-  // All DB actions require a resolved user — reject unknown phone numbers
-  if (!userId && plan.action !== "direct") {
-    return JSON.stringify({ error: "Unknown user — phone number not registered" });
-  }
+    logger.info("action dispatch", {
+      action: plan.action,
+      request_id: requestId,
+    });
 
-  switch (plan.action) {
-    case "direct":
-      return plan.response ?? "";
+    // Use pre-resolved userId if available, otherwise resolve from phone
+    const userId = preResolvedUserId !== undefined ? preResolvedUserId : await resolveUserId(phoneNumber);
 
-    case "add_bucket":
-      return await addBucket(phoneNumber, plan.params ?? {}, userId);
-
-    case "list_buckets":
-      return await listBuckets(phoneNumber, userId);
-
-    case "remove_bucket":
-      return await removeBucket(
-        phoneNumber,
-        plan.params?.bucket_name as string,
-        userId,
-      );
-
-    case "stats":
-      return JSON.stringify(await getStats(userId ?? undefined));
-
-    case "show":
-      return JSON.stringify(
-        (await showEvent(plan.params?.id as string, userId ?? undefined)) ?? {
-          error: "Event not found",
-        },
-      );
-
-    case "enrich_status":
-      return JSON.stringify(await getEnrichStatus(userId ?? undefined));
-
-    case "query": {
-      const p = plan.params ?? {};
-      const result = await queryEvents({
-        userId: userId ?? undefined,
-        search: p.search as string | undefined,
-        type: p.type as string | undefined,
-        since: p.since as string | undefined,
-        until: p.until as string | undefined,
-        limit: (p.limit as number) ?? 20,
-      });
-      return JSON.stringify({ results: result.events, count: result.total });
+    // All DB actions require a resolved user — reject unknown phone numbers
+    if (!userId && plan.action !== "direct") {
+      return errorResponse("Unknown user — phone number not registered", "not_found");
     }
 
-    case "test_bucket":
-      return await verifyBucketConfig(
-        phoneNumber,
-        plan.params?.bucket_name as string,
-        userId,
-      );
+    try {
+      let result: string;
 
-    case "list_objects":
-      return await listObjects(
-        phoneNumber,
-        plan.params?.bucket_name as string,
-        plan.params?.prefix as string | undefined,
-        (plan.params?.limit as number) ?? 100,
-        userId,
-      );
+      switch (plan.action) {
+        case "direct":
+          result = plan.response ?? "";
+          break;
 
-    case "count_objects":
-      return await countObjects(
-        phoneNumber,
-        plan.params?.bucket_name as string,
-        plan.params?.prefix as string | undefined,
-        userId,
-      );
+        case "add_bucket":
+          result = await addBucket(phoneNumber, plan.params ?? {}, userId);
+          break;
 
-    case "index_bucket":
-      return await indexBucket(
-        phoneNumber,
-        plan.params?.bucket_name as string,
-        plan.params?.prefix as string | undefined,
-        (plan.params?.batch_size as number) ?? 10,
-        userId,
-      );
+        case "list_buckets":
+          result = await listBuckets(phoneNumber, userId);
+          break;
 
-    default:
-      return JSON.stringify({ error: `Unknown action: ${plan.action}` });
-  }
+        case "remove_bucket":
+          result = await removeBucket(
+            phoneNumber,
+            plan.params?.bucket_name as string,
+            userId,
+          );
+          break;
+
+        case "stats":
+          result = JSON.stringify(await getStats(userId ?? undefined));
+          break;
+
+        case "show":
+          result = JSON.stringify(
+            (await showEvent(plan.params?.id as string, userId ?? undefined)) ?? {
+              error: "Event not found",
+            },
+          );
+          break;
+
+        case "enrich_status":
+          result = JSON.stringify(await getEnrichStatus(userId ?? undefined));
+          break;
+
+        case "query": {
+          const p = plan.params ?? {};
+          const queryResult = await queryEvents({
+            userId: userId ?? undefined,
+            search: p.search as string | undefined,
+            type: p.type as string | undefined,
+            since: p.since as string | undefined,
+            until: p.until as string | undefined,
+            limit: (p.limit as number) ?? 20,
+          });
+          result = JSON.stringify({ results: queryResult.events, count: queryResult.total });
+          break;
+        }
+
+        case "test_bucket":
+          result = await verifyBucketConfig(
+            phoneNumber,
+            plan.params?.bucket_name as string,
+            userId,
+          );
+          break;
+
+        case "list_objects":
+          result = await listObjects(
+            phoneNumber,
+            plan.params?.bucket_name as string,
+            plan.params?.prefix as string | undefined,
+            (plan.params?.limit as number) ?? 100,
+            userId,
+          );
+          break;
+
+        case "count_objects":
+          result = await countObjects(
+            phoneNumber,
+            plan.params?.bucket_name as string,
+            plan.params?.prefix as string | undefined,
+            userId,
+          );
+          break;
+
+        case "index_bucket":
+          result = await indexBucket(
+            phoneNumber,
+            plan.params?.bucket_name as string,
+            plan.params?.prefix as string | undefined,
+            (plan.params?.batch_size as number) ?? 10,
+            userId,
+          );
+          break;
+
+        default:
+          result = errorResponse(`Unknown action: ${plan.action}`, "not_found");
+          break;
+      }
+
+      logger.info("action complete", {
+        action: plan.action,
+        duration_ms: Date.now() - startMs,
+      });
+
+      return result;
+    } catch (err) {
+      logger.error("action failed", {
+        action: plan.action,
+        error: err instanceof Error ? err.message : String(err),
+        duration_ms: Date.now() - startMs,
+      });
+      return errorResponse(
+        `Action failed: ${err instanceof Error ? err.message : String(err)}`,
+        "internal",
+      );
+    }
+  });
 }
 
 export async function summarizeResult(
@@ -293,14 +366,14 @@ async function addBucket(
   const secretAccessKey = params.secret_access_key as string;
 
   if (!bucketName || !endpointUrl || !accessKeyId || !secretAccessKey) {
-    return JSON.stringify({
-      error:
-        "Missing required fields: bucket_name, endpoint_url, access_key_id, secret_access_key",
-    });
+    return errorResponse(
+      "Missing required fields: bucket_name, endpoint_url, access_key_id, secret_access_key",
+      "validation_error",
+    );
   }
 
   if (!userId) {
-    return JSON.stringify({ error: "Could not resolve user for this phone number" });
+    return errorResponse("Could not resolve user for this phone number", "not_found");
   }
 
   // Use versioned encryption for new buckets
@@ -324,12 +397,13 @@ async function addBucket(
 
   if (error) {
     if (error.code === "23505") {
-      return JSON.stringify({
-        error: `Bucket "${bucketName}" is already configured`,
-      });
+      return errorResponse(
+        `Bucket "${bucketName}" is already configured`,
+        "validation_error",
+      );
     }
-    console.error("Database error:", error);
-    return JSON.stringify({ error: "Failed to save bucket configuration" });
+    logger.error("database error in addBucket", { error: error.message });
+    return errorResponse("Failed to save bucket configuration", "internal");
   }
 
   return JSON.stringify({
@@ -345,7 +419,7 @@ async function addBucket(
 
 async function listBuckets(phoneNumber: string, userId: string | null): Promise<string> {
   if (!userId) {
-    return JSON.stringify({ error: "Could not resolve user for this phone number" });
+    return errorResponse("Could not resolve user for this phone number", "not_found");
   }
 
   const supabase = getAdminClient();
@@ -359,8 +433,8 @@ async function listBuckets(phoneNumber: string, userId: string | null): Promise<
     .order("created_at", { ascending: false });
 
   if (error) {
-    console.error("Database error:", error);
-    return JSON.stringify({ error: "Failed to retrieve buckets" });
+    logger.error("database error in listBuckets", { error: error.message });
+    return errorResponse("Failed to retrieve buckets", "internal");
   }
 
   return JSON.stringify({ buckets: data ?? [], count: data?.length ?? 0 });
@@ -372,11 +446,11 @@ async function removeBucket(
   userId: string | null,
 ): Promise<string> {
   if (!bucketName) {
-    return JSON.stringify({ error: "bucket_name is required" });
+    return errorResponse("bucket_name is required", "validation_error");
   }
 
   if (!userId) {
-    return JSON.stringify({ error: "Could not resolve user for this phone number" });
+    return errorResponse("Could not resolve user for this phone number", "not_found");
   }
 
   const supabase = getAdminClient();
@@ -388,8 +462,8 @@ async function removeBucket(
     .eq("bucket_name", bucketName);
 
   if (error) {
-    console.error("Database error:", error);
-    return JSON.stringify({ error: "Failed to remove bucket" });
+    logger.error("database error in removeBucket", { error: error.message });
+    return errorResponse("Failed to remove bucket", "internal");
   }
 
   return JSON.stringify({
@@ -430,23 +504,23 @@ async function requireS3Client(
   if (!bucketName)
     return {
       ok: false,
-      errorJson: JSON.stringify({ error: "bucket_name is required" }),
+      errorJson: errorResponse("bucket_name is required", "validation_error"),
     };
 
   const result = await getBucketConfig(phoneNumber, bucketName, userId);
   if (!result.exists)
     return {
       ok: false,
-      errorJson: JSON.stringify({ error: `Bucket "${bucketName}" not found` }),
+      errorJson: errorResponse(`Bucket "${bucketName}" not found`, "not_found"),
     };
   if (result.error) {
-    console.error(
-      `[requireS3Client] Cannot decrypt bucket "${bucketName}":`,
-      result.error.message,
-    );
+    logger.error("cannot decrypt bucket", {
+      bucket: bucketName,
+      error: result.error.message,
+    });
     return {
       ok: false,
-      errorJson: JSON.stringify({ error: result.error.message }),
+      errorJson: errorResponse(result.error.message, "internal"),
     };
   }
 
@@ -486,7 +560,7 @@ async function getBucketConfig(
       data.secret_access_key,
     );
 
-    // 🔑 Lazy migration: Re-encrypt with current version if needed
+    // Lazy migration: Re-encrypt with current version if needed
     if (needsMigration(data.secret_access_key)) {
       const newCiphertext = await encryptSecretVersioned(decryptedSecret);
       const newVersion = getEncryptionVersion(newCiphertext);
@@ -503,20 +577,21 @@ async function getBucketConfig(
             .eq("id", data.id);
 
           if (error) {
-            console.error(
-              `[Lazy Migration] ❌ Failed to migrate "${bucketName}":`,
-              error,
-            );
+            logger.error("lazy migration failed", {
+              bucket: bucketName,
+              error: error.message,
+            });
           } else {
-            console.log(
-              `[Lazy Migration] ✅ Migrated "${bucketName}" to encryption key v${newVersion}`,
-            );
+            logger.info("lazy migration complete", {
+              bucket: bucketName,
+              new_version: newVersion,
+            });
           }
         } catch (err) {
-          console.error(
-            `[Lazy Migration] ❌ Exception during migration of "${bucketName}":`,
-            err,
-          );
+          logger.error("lazy migration exception", {
+            bucket: bucketName,
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
       })();
     }
@@ -527,10 +602,11 @@ async function getBucketConfig(
     };
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    console.error(
-      `[getBucketConfig] Cannot decrypt bucket "${bucketName}" for ${phoneNumber}:`,
-      error.message,
-    );
+    logger.error("cannot decrypt bucket config", {
+      bucket: bucketName,
+      phone: phoneNumber,
+      error: error.message,
+    });
     return {
       exists: true,
       error,
@@ -571,10 +647,10 @@ async function verifyBucketConfig(
       });
     }
   } catch (err) {
-    console.info(
-      `[verifyBucketConfig] S3 access failed for "${bucketName}":`,
-      (err as Error).message,
-    );
+    logger.info("bucket verification failed", {
+      bucket: bucketName,
+      error: (err as Error).message,
+    });
     return JSON.stringify({
       success: false,
       error: `Cannot read bucket "${bucketName}": ${(err as Error).message}`,
@@ -608,9 +684,10 @@ async function listObjects(
       total: allObjects.length,
     });
   } catch (err) {
-    return JSON.stringify({
-      error: `Failed to list objects: ${(err as Error).message}`,
-    });
+    return errorResponse(
+      `Failed to list objects: ${(err as Error).message}`,
+      "api_error",
+    );
   }
 }
 
@@ -640,9 +717,10 @@ async function countObjects(
       by_type: byType,
     });
   } catch (err) {
-    return JSON.stringify({
-      error: `Failed to count objects: ${(err as Error).message}`,
-    });
+    return errorResponse(
+      `Failed to count objects: ${(err as Error).message}`,
+      "api_error",
+    );
   }
 }
 
@@ -652,6 +730,19 @@ const IMAGE_MIME_PREFIXES = [
   "image/gif",
   "image/webp",
 ];
+
+type ObjectStatus = "enriched" | "indexed" | "enrich_failed" | "error";
+
+interface IndexBucketResult {
+  bucket: string;
+  total_objects: number;
+  already_indexed: number;
+  remaining: number;
+  batch_size: number;
+  batch_indexed: number;
+  batch_enriched: number;
+  per_object: Array<{ key: string; status: ObjectStatus; error?: string }>;
+}
 
 async function indexBucket(
   phoneNumber: string,
@@ -674,80 +765,106 @@ async function indexBucket(
     // Take only batch_size items
     const batch = newObjects.slice(0, batchSize);
 
-    let indexed = 0;
-    let enriched = 0;
-    const errors: string[] = [];
+    const limit = pLimit(3);
 
-    for (const obj of batch) {
-      try {
-        const eventId = newEventId();
-        const contentType = detectContentType(obj.key);
-        const mimeType = getMimeType(obj.key);
-
-        // Create event
-        await insertEvent({
-          id: eventId,
-          device_id: `whatsapp:${phoneNumber}`,
-          type: "create",
-          content_type: contentType,
-          content_hash: `etag:${obj.etag}`,
-          local_path: null,
-          remote_path: `s3://${bucketName}/${obj.key}`,
-          metadata: s3Metadata(obj.key, obj.size, obj.etag),
-          parent_id: null,
-          bucket_config_id: s3.config.id,
-          user_id: userId!,
-        });
-
-        // Track watched key
-        await upsertWatchedKey(obj.key, eventId, obj.etag, obj.size, userId ?? undefined);
-        indexed++;
-
-        // Enrich if it's an image we can analyze
-        if (IMAGE_MIME_PREFIXES.includes(mimeType)) {
+    const perObject = await Promise.all(
+      batch.map((obj) =>
+        limit(async (): Promise<{ key: string; status: ObjectStatus; error?: string }> => {
           try {
-            const imageBytes = await downloadS3Object(
-              s3.client,
-              bucketName,
-              obj.key,
-            );
-            const result = await enrichImage(imageBytes, mimeType);
-            await insertEnrichment(eventId, result, userId ?? undefined);
-            enriched++;
-          } catch (enrichErr) {
-            // Log enrichment failure but don't fail the whole batch
+            const eventId = newEventId();
+            const contentType = detectContentType(obj.key);
+            const mimeType = getMimeType(obj.key);
+
+            // Create event
             await insertEvent({
-              id: newEventId(),
+              id: eventId,
               device_id: `whatsapp:${phoneNumber}`,
-              type: "enrich_failed",
+              type: "create",
               content_type: contentType,
-              content_hash: null,
+              content_hash: `etag:${obj.etag}`,
               local_path: null,
               remote_path: `s3://${bucketName}/${obj.key}`,
-              metadata: { error: (enrichErr as Error).message },
-              parent_id: eventId,
+              metadata: s3Metadata(obj.key, obj.size, obj.etag),
+              parent_id: null,
+              bucket_config_id: s3.config.id,
               user_id: userId!,
             });
-          }
-        }
-      } catch (err) {
-        errors.push(`${obj.key}: ${(err as Error).message}`);
-      }
-    }
 
-    return JSON.stringify({
+            // Track watched key
+            try {
+              await upsertWatchedKey(obj.key, eventId, obj.etag, obj.size, userId ?? undefined, s3.config.id);
+            } catch (upsertErr) {
+              logger.warn("upsertWatchedKey failed", {
+                key: obj.key,
+                error: upsertErr instanceof Error ? upsertErr.message : String(upsertErr),
+              });
+            }
+
+            // Enrich if it's an image we can analyze
+            if (IMAGE_MIME_PREFIXES.includes(mimeType)) {
+              try {
+                const imageBytes = await downloadS3Object(
+                  s3.client,
+                  bucketName,
+                  obj.key,
+                );
+                const result = await enrichImage(imageBytes, mimeType);
+                await insertEnrichment(eventId, result, userId ?? undefined);
+                return { key: obj.key, status: "enriched" };
+              } catch (enrichErr) {
+                logger.warn("enrichment failed", {
+                  key: obj.key,
+                  error: enrichErr instanceof Error ? enrichErr.message : String(enrichErr),
+                });
+                return {
+                  key: obj.key,
+                  status: "enrich_failed",
+                  error: enrichErr instanceof Error ? enrichErr.message : String(enrichErr),
+                };
+              }
+            }
+
+            return { key: obj.key, status: "indexed" };
+          } catch (err) {
+            return {
+              key: obj.key,
+              status: "error",
+              error: err instanceof Error ? err.message : String(err),
+            };
+          }
+        }),
+      ),
+    );
+
+    const batchIndexed = perObject.filter(
+      (r) => r.status === "indexed" || r.status === "enriched" || r.status === "enrich_failed",
+    ).length;
+    const batchEnriched = perObject.filter((r) => r.status === "enriched").length;
+
+    const result: IndexBucketResult = {
       bucket: bucketName,
       total_objects: allObjects.length,
       already_indexed: allObjects.length - newObjects.length,
-      remaining: newObjects.length - batch.length,
-      batch_indexed: indexed,
-      batch_enriched: enriched,
-      errors: errors.length > 0 ? errors : undefined,
+      remaining: Math.max(0, newObjects.length - batch.length),
+      batch_size: batch.length,
+      batch_indexed: batchIndexed,
+      batch_enriched: batchEnriched,
+      per_object: perObject,
+    };
+
+    logger.info("indexBucket complete", {
+      bucket: bucketName,
+      batch_indexed: batchIndexed,
+      batch_enriched: batchEnriched,
+      errors: perObject.filter((r) => r.status === "error").length,
     });
+
+    return JSON.stringify(result);
   } catch (err) {
-    return JSON.stringify({
-      error: `Failed to index bucket: ${(err as Error).message}`,
-    });
+    return errorResponse(
+      `Failed to index bucket: ${(err as Error).message}`,
+      "internal",
+    );
   }
 }
 
