@@ -5,14 +5,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    exclude: [
-      "e2e/**",
-      "node_modules/**",
-      "__tests__/rls-policies.test.ts",
-      "__tests__/rpc-user-isolation.test.ts",
-      "__tests__/migration-integrity.test.ts",
-      "__tests__/integration/**",
-    ],
+    include: ["__tests__/integration/media-*.test.ts"],
+    testTimeout: 60000,
   },
   resolve: {
     alias: {
