@@ -100,3 +100,52 @@ When to use `vi.stubEnv()` (fixtures) vs setting in CI:
 - BYO S3-compatible storage (any provider, not just Supabase)
 - Local-first / offline mode with per-device SQLite
 - Enrichment metadata as sidecar files in S3 (post-prototype idea)
+
+## Installing Claude Code Plugins for Web Sessions
+
+When installing a Claude Code plugin so it works in the web interface (claude.ai), follow this pattern:
+
+### 1. Add the plugin source to `.claude/plugins/<name>/`
+
+Copy or clone the plugin into `.claude/plugins/<name>/`. The plugin must have a `.claude-plugin/plugin.json` with name, version, and description.
+
+### 2. Register in the local marketplace
+
+Add an entry to `.claude/plugins/.claude-plugin/marketplace.json` under `local-plugins.plugins`:
+
+```json
+{
+  "name": "<name>",
+  "version": "<version>",
+  "description": "...",
+  "path": "../<name>"
+}
+```
+
+### 3. Enable in settings.json
+
+Add to `.claude/settings.json`:
+
+```json
+{
+  "enabledPlugins": {
+    "<name>@local-plugins": true
+  }
+}
+```
+
+### 4. Install runtime dependencies via session-start hook
+
+Web sessions start from a clean environment. Any tools the plugin needs (e.g. `uv`, `gh`) must be installed by the session-start hook at `.claude/hooks/session-start.sh`. Guard installs with `command -v` checks and only run in remote environments (check for absence of interactive terminal or presence of cloud markers). The hook is registered in `settings.json` under `hooks.SessionStart`.
+
+### 5. Standalone commands
+
+For slash commands that should be discoverable without a plugin, place the `.md` file in `.claude/commands/<command-name>.md`. These are available as `/<command-name>` in any session.
+
+### Key files
+
+- `.claude/settings.json` — plugin enablement, hooks
+- `.claude/hooks/session-start.sh` — runtime dependency installation
+- `.claude/plugins/.claude-plugin/marketplace.json` — local plugin registry
+- `.claude/plugins/<name>/` — plugin source
+- `.claude/commands/` — standalone slash commands
