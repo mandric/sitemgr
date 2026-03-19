@@ -11,21 +11,22 @@ import { Button } from "@/components/ui/button";
 async function MediaContent({
   searchParams,
 }: {
-  searchParams: { q?: string; type?: string; page?: string };
+  searchParams: Promise<{ q?: string; type?: string; page?: string }>;
 }) {
+  const resolvedParams = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return redirect("/auth/login");
 
-  const page = parseInt(searchParams.page ?? "1", 10);
+  const page = parseInt(resolvedParams.page ?? "1", 10);
   const limit = 24;
   const offset = (page - 1) * limit;
 
   const { events, total } = await getMediaEvents({
-    search: searchParams.q,
-    type: searchParams.type,
+    search: resolvedParams.q,
+    type: resolvedParams.type,
     offset,
     limit,
   });
@@ -43,8 +44,10 @@ async function MediaContent({
               href={{
                 pathname: "/media",
                 query: {
-                  ...(searchParams.q ? { q: searchParams.q } : {}),
-                  ...(searchParams.type ? { type: searchParams.type } : {}),
+                  ...(resolvedParams.q ? { q: resolvedParams.q } : {}),
+                  ...(resolvedParams.type
+                    ? { type: resolvedParams.type }
+                    : {}),
                   page: String(page - 1),
                 },
               }}
@@ -62,8 +65,10 @@ async function MediaContent({
               href={{
                 pathname: "/media",
                 query: {
-                  ...(searchParams.q ? { q: searchParams.q } : {}),
-                  ...(searchParams.type ? { type: searchParams.type } : {}),
+                  ...(resolvedParams.q ? { q: resolvedParams.q } : {}),
+                  ...(resolvedParams.type
+                    ? { type: resolvedParams.type }
+                    : {}),
                   page: String(page + 1),
                 },
               }}
@@ -92,13 +97,11 @@ function MediaLoading() {
   );
 }
 
-export default async function MediaPage({
+export default function MediaPage({
   searchParams,
 }: {
   searchParams: Promise<{ q?: string; type?: string; page?: string }>;
 }) {
-  const params = await searchParams;
-
   return (
     <div className="flex flex-col gap-6 max-w-6xl mx-auto py-8 px-4">
       <div>
@@ -117,7 +120,7 @@ export default async function MediaPage({
       </Suspense>
 
       <Suspense fallback={<MediaLoading />}>
-        <MediaContent searchParams={params} />
+        <MediaContent searchParams={searchParams} />
       </Suspense>
     </div>
   );

@@ -12,7 +12,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-async function MediaDetailContent({ eventId }: { eventId: string }) {
+async function MediaDetailContent({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id: eventId } = await params;
   const supabase = await createClient();
   const {
     data: { user },
@@ -178,13 +183,11 @@ function DetailLoading() {
   );
 }
 
-export default async function MediaDetailPage({
+export default function MediaDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params;
-
   return (
     <div className="flex flex-col gap-6 max-w-6xl mx-auto py-8 px-4">
       <div className="flex items-center gap-4">
@@ -197,7 +200,7 @@ export default async function MediaDetailPage({
       </div>
 
       <Suspense fallback={<DetailLoading />}>
-        <MediaDetailContent eventId={id} />
+        <MediaDetailContent params={params} />
       </Suspense>
     </div>
   );
