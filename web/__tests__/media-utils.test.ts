@@ -37,6 +37,18 @@ describe("detectContentType", () => {
     expect(detectContentType("no-ext")).toBe("file");
   });
 
+  it("returns file for unknown extension .xyz", () => {
+    expect(detectContentType("data.xyz")).toBe("file");
+  });
+
+  it("returns file when key has no extension", () => {
+    expect(detectContentType("DCIM/photo")).toBe("file");
+  });
+
+  it("returns file for empty string", () => {
+    expect(detectContentType("")).toBe("file");
+  });
+
   it("handles paths with directories", () => {
     expect(detectContentType("photos/2024/beach.jpg")).toBe("photo");
     expect(detectContentType("s3://bucket/prefix/video.mp4")).toBe("video");
@@ -56,6 +68,22 @@ describe("isMediaKey", () => {
     expect(isMediaKey("readme.txt")).toBe(false);
     expect(isMediaKey(".emptydir/")).toBe(false);
   });
+
+  it("returns true for uppercase extension", () => {
+    expect(isMediaKey("IMAGE.JPG")).toBe(true);
+  });
+
+  it("returns true for multiple dots in key", () => {
+    expect(isMediaKey("photo.backup.jpg")).toBe(true);
+  });
+
+  it("returns false for notes.txt", () => {
+    expect(isMediaKey("notes.txt")).toBe(false);
+  });
+
+  it("returns false for directory-like key", () => {
+    expect(isMediaKey("photos/")).toBe(false);
+  });
 });
 
 describe("sha256Bytes", () => {
@@ -68,6 +96,23 @@ describe("sha256Bytes", () => {
     const a = sha256Bytes(Buffer.from("test"));
     const b = sha256Bytes(Buffer.from("test"));
     expect(a).toBe(b);
+  });
+
+  it("returns consistent hash for empty buffer", () => {
+    const a = sha256Bytes(Buffer.alloc(0));
+    const b = sha256Bytes(Buffer.alloc(0));
+    expect(a).toBe(b);
+  });
+
+  it("matches known test vector for empty input", () => {
+    const hash = sha256Bytes(Buffer.from(""));
+    expect(hash).toBe("sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+  });
+
+  it("different inputs produce different hashes", () => {
+    const a = sha256Bytes(Buffer.from("hello"));
+    const b = sha256Bytes(Buffer.from("world"));
+    expect(a).not.toBe(b);
   });
 });
 
@@ -118,6 +163,14 @@ describe("humanSize", () => {
     expect(humanSize(1024)).toBe("1.0 KB");
     expect(humanSize(1048576)).toBe("1.0 MB");
     expect(humanSize(1073741824)).toBe("1.0 GB");
+  });
+
+  it("returns 0 B for 0", () => {
+    expect(humanSize(0)).toBe("0.0 B");
+  });
+
+  it("returns 1.5 KB for 1536", () => {
+    expect(humanSize(1536)).toBe("1.5 KB");
   });
 });
 
