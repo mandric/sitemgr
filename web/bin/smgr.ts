@@ -12,6 +12,8 @@
  */
 
 import { parseArgs } from "node:util";
+import { readFileSync, statSync } from "node:fs";
+import { resolve, basename } from "node:path";
 import {
   queryEvents,
   showEvent,
@@ -32,7 +34,7 @@ import {
   s3Metadata,
   getMimeType,
 } from "../lib/media/utils";
-import { createS3Client, listS3Objects, downloadS3Object } from "../lib/media/s3";
+import { createS3Client, listS3Objects, downloadS3Object, uploadS3Object } from "../lib/media/s3";
 import { enrichImage } from "../lib/media/enrichment";
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -333,6 +335,91 @@ async function cmdWatch(args: string[]) {
   }
 }
 
+async function cmdAdd(args: string[]) {
+  const { values, positionals } = parseArgs({
+    args,
+    options: {
+      prefix: { type: "string", default: "" },
+      enrich: { type: "boolean", default: true },
+    },
+    allowPositionals: true,
+  });
+
+  const filePath = positionals[0];
+  if (!filePath) die("Usage: smgr add <file> [--prefix path/] [--no-enrich]");
+
+  const bucket = process.env.SMGR_S3_BUCKET;
+  if (!bucket) die("Set SMGR_S3_BUCKET environment variable");
+
+  const userId = requireUserId();
+  const deviceId = process.env.SMGR_DEVICE_ID ?? "default";
+
+  const absPath = resolve(filePath);
+  const stat = statSync(absPath);
+  if (!stat.isFile()) die(`Not a file: ${absPath}`);
+
+  const fileBytes = readFileSync(absPath);
+  const contentHash = sha256Bytes(Buffer.from(fileBytes));
+  const fileName = basename(absPath);
+  const contentType = detectContentType(fileName);
+  const mimeType = getMimeType(fileName);
+
+  // Check for duplicates
+  const existing = await findEventByHash(contentHash, userId);
+  if (existing) {
+    console.log(`File already indexed (event ${existing}), skipping.`);
+    return;
+  }
+
+  // Upload to S3
+  const s3Key = values.prefix ? `${values.prefix}${fileName}` : fileName;
+  const s3 = createS3Client();
+
+  console.log(`Uploading ${fileName} to s3://${bucket}/${s3Key}...`);
+  await uploadS3Object(s3, bucket, s3Key, Buffer.from(fileBytes), mimeType);
+
+  // Create event
+  const eventId = newEventId();
+  const remotePath = `s3://${bucket}/${s3Key}`;
+  const meta = {
+    mime_type: mimeType,
+    size_bytes: stat.size,
+    source: "cli-add",
+    s3_key: s3Key,
+    original_path: absPath,
+  };
+
+  await insertEvent({
+    id: eventId,
+    device_id: deviceId,
+    type: "create",
+    content_type: contentType,
+    content_hash: contentHash,
+    local_path: absPath,
+    remote_path: remotePath,
+    metadata: meta,
+    parent_id: null,
+    user_id: userId,
+  });
+
+  // Track as watched key
+  await upsertWatchedKey(s3Key, eventId, "", stat.size, userId);
+
+  console.log(`Created event ${eventId}`);
+
+  // Optionally enrich
+  if (values.enrich && contentType === "photo" && mimeType.startsWith("image/")) {
+    console.log("Enriching...");
+    try {
+      const result = await enrichImage(Buffer.from(fileBytes), mimeType);
+      await insertEnrichment(eventId, result, userId);
+      console.log("Enriched.");
+    } catch (err) {
+      console.error(`Enrichment failed: ${err}`);
+    }
+  }
+}
+
 // ── Main ─────────────────────────────────────────────────────
 
 const [command, ...rest] = process.argv.slice(2);
@@ -343,6 +430,7 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   stats: () => cmdStats(),
   enrich: cmdEnrich,
   watch: cmdWatch,
+  add: cmdAdd,
 };
 
 if (!command || !(command in commands)) {
@@ -354,6 +442,7 @@ Usage:
   smgr stats
   smgr enrich [--pending] [--status] [<event_id>]
   smgr watch [--once]
+  smgr add <file> [--prefix path/] [--no-enrich]
 
 Environment:
   NEXT_PUBLIC_SUPABASE_URL     Supabase project URL
