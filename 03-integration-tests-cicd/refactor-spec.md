@@ -79,7 +79,13 @@ Feature: Database schema matches application expectations
          stats_by_event_type, get_user_id_from_phone
 ```
 
-**Implementation approach:** Query `information_schema.columns`, `information_schema.tables`, `pg_indexes`, `pg_catalog.pg_policies`, and `pg_proc` directly via the admin client's `.rpc()` or raw SQL. No seed data needed — this suite is read-only against the schema catalog.
+**Implementation approach:** Use the Supabase HTTP API (PostgREST) via the admin client — the same API the application uses. This validates the contract at the same layer the app consumes it.
+
+- **Table/column existence:** Attempt operations the app does (select specific columns, insert valid rows). If a column doesn't exist, PostgREST returns `PGRST204` — exactly the error that caught this bug.
+- **NOT NULL constraints:** Insert a row with `user_id: null` via admin client; assert it's rejected.
+- **RLS enforcement:** Query as an authenticated user; assert scoping works (overlaps with tenant-isolation, but this suite checks the structural guarantee, not data correctness).
+- **RPC functions:** Call each RPC via `admin.rpc()`; assert it exists and accepts expected parameters.
+- **Indexes and structural metadata:** For things PostgREST doesn't expose (index existence, RLS enabled flag), add a single lightweight `schema_info` RPC function in a test-support migration that queries `pg_indexes`/`pg_policies` and returns the result. This keeps the tests using the HTTP API consistently. Alternatively, skip index-existence checks — if an index is missing, the app still works (just slower), and query performance is better validated by the media-lifecycle suite's search tests.
 
 **Why this matters:** This is the test that prevents the exact failure we hit. If `bucket_configs` loses a column or gains a NOT NULL constraint, this suite tells you immediately — before any seed insert fails cryptically.
 
