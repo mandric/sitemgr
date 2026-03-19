@@ -7,13 +7,14 @@
  *   npx tsx bin/smgr.ts query --search "beach" --format json
  *   npx tsx bin/smgr.ts stats
  *   npx tsx bin/smgr.ts show <event_id>
- *   npx tsx bin/smgr.ts enrich --pending
- *   npx tsx bin/smgr.ts watch --once
+ *   npx tsx bin/smgr.ts enrich --pending --concurrency 3
+ *   npx tsx bin/smgr.ts watch --once --interval 60 --max-errors 5
  */
 
 import { parseArgs } from "node:util";
 import { readFileSync, statSync } from "node:fs";
 import { resolve, basename } from "node:path";
+import pLimit from "p-limit";
 import {
   queryEvents,
   showEvent,
@@ -36,19 +37,53 @@ import {
 } from "../lib/media/utils";
 import { createS3Client, listS3Objects, downloadS3Object, uploadS3Object } from "../lib/media/s3";
 import { enrichImage } from "../lib/media/enrichment";
+import { createLogger, LogComponent } from "../lib/logger";
+import { runWithRequestId } from "../lib/request-context";
+import { S3ErrorType } from "../lib/media/s3-errors";
+
+const logger = createLogger(LogComponent.CLI);
+
+// ── Exit codes and error handling ───────────────────────────────
+
+const EXIT = {
+  SUCCESS:  0,
+  USER:     1,
+  SERVICE:  2,
+  INTERNAL: 3,
+} as const;
+type ExitCode = typeof EXIT[keyof typeof EXIT];
+
+let verboseMode = false;
+
+function cliError(message: string, code: ExitCode = EXIT.USER, detail?: string): never {
+  console.error(`Error: ${message}`);
+  if (verboseMode && detail) {
+    console.error(`Detail: ${detail}`);
+  }
+  process.exit(code);
+}
+
+function exitCodeForS3Error(err: unknown): ExitCode {
+  const t = (err as any)?.s3ErrorType as S3ErrorType | undefined;
+  if (t === S3ErrorType.AccessDenied) return EXIT.USER;
+  if (t === S3ErrorType.NotFound) return EXIT.USER;
+  if (t === S3ErrorType.NetworkError) return EXIT.SERVICE;
+  if (t === S3ErrorType.ServerError) return EXIT.SERVICE;
+  if (t === S3ErrorType.Timeout) return EXIT.SERVICE;
+  return EXIT.INTERNAL;
+}
 
 // ── Helpers ──────────────────────────────────────────────────
 
-/** Get the user_id from SMGR_USER_ID env var (required for write operations after migration). */
 function requireUserId(): string {
   const userId = process.env.SMGR_USER_ID;
-  if (!userId) die("Set SMGR_USER_ID environment variable (user UUID for tenant-scoped operations)");
+  if (!userId) {
+    cliError(
+      "Set SMGR_USER_ID environment variable (user UUID for tenant-scoped operations)",
+      EXIT.USER,
+    );
+  }
   return userId;
-}
-
-function die(msg: string): never {
-  console.error(msg);
-  process.exit(1);
 }
 
 function printJson(obj: unknown) {
@@ -69,9 +104,11 @@ async function cmdQuery(args: string[]) {
       limit: { type: "string", default: "20" },
       offset: { type: "string", default: "0" },
       format: { type: "string", default: "table" },
+      verbose: { type: "boolean", default: false },
     },
   });
 
+  if (values.verbose) verboseMode = true;
   const userId = requireUserId();
   const result = await queryEvents({
     userId,
@@ -119,11 +156,11 @@ async function cmdQuery(args: string[]) {
 
 async function cmdShow(args: string[]) {
   const eventId = args[0];
-  if (!eventId) die("Usage: smgr show <event_id>");
+  if (!eventId) cliError("Usage: smgr show <event_id>");
 
   const userId = requireUserId();
   const event = await showEvent(eventId, userId);
-  if (!event) die(`Event not found: ${eventId}`);
+  if (!event) cliError(`Event not found: ${eventId}`);
 
   printJson(event);
 }
@@ -140,9 +177,16 @@ async function cmdEnrich(args: string[]) {
       pending: { type: "boolean", default: false },
       status: { type: "boolean", default: false },
       force: { type: "boolean", default: false },
+      concurrency: { type: "string", default: "3" },
+      "dry-run": { type: "boolean", default: false },
+      verbose: { type: "boolean", default: false },
     },
     allowPositionals: true,
   });
+
+  if (values.verbose) verboseMode = true;
+  const concurrency = Math.max(1, parseInt(values.concurrency ?? "3", 10));
+  const dryRun = values["dry-run"] ?? false;
 
   const userId = requireUserId();
 
@@ -152,81 +196,103 @@ async function cmdEnrich(args: string[]) {
     return;
   }
 
+  if (dryRun) {
+    const pending = await getPendingEnrichments(userId);
+    console.log(JSON.stringify({ pending: pending.length, items: pending.map((e) => e.id) }, null, 2));
+    return;
+  }
+
   const eventId = positionals[0];
 
   if (eventId) {
     // Enrich a specific event
     const event = await showEvent(eventId, userId);
-    if (!event) die(`Event not found: ${eventId}`);
+    if (!event) cliError(`Event not found: ${eventId}`);
 
     const meta = (event.metadata as Record<string, unknown>) ?? {};
     const remotePath = event.remote_path as string | null;
     const s3Key = (meta.s3_key as string) ?? null;
 
-    if (!remotePath && !s3Key) die("Event has no S3 path to download from");
+    if (!remotePath && !s3Key) cliError("Event has no S3 path to download from");
 
     const bucket = process.env.SMGR_S3_BUCKET;
-    if (!bucket) die("Set SMGR_S3_BUCKET to download images for enrichment");
+    if (!bucket) cliError("Set SMGR_S3_BUCKET to download images for enrichment");
 
     const key = s3Key ?? remotePath!.replace(`s3://${bucket}/`, "");
     const s3 = createS3Client();
-    const imageBytes = await downloadS3Object(s3, bucket, key);
-    const mime = (meta.mime_type as string) ?? getMimeType(key);
 
-    console.log(`Enriching event ${eventId}...`);
-    const result = await enrichImage(imageBytes, mime);
-    await insertEnrichment(eventId, result, userId);
-    console.log("Done.");
+    try {
+      const imageBytes = await downloadS3Object(s3, bucket, key);
+      const mime = (meta.mime_type as string) ?? getMimeType(key);
+
+      console.error(`Enriching event ${eventId}...`);
+      const result = await enrichImage(imageBytes, mime);
+      await insertEnrichment(eventId, result, userId);
+      console.error("Done.");
+    } catch (err) {
+      cliError(`Failed to download ${key}: ${err}`, exitCodeForS3Error(err), String(err));
+    }
     return;
   }
 
   if (values.pending) {
     const pending = await getPendingEnrichments(userId);
     if (pending.length === 0) {
-      console.log("No pending enrichments.");
+      console.log(JSON.stringify({ enriched: 0, failed: 0, skipped: 0, total: 0 }, null, 2));
       return;
     }
 
-    console.log(`Found ${pending.length} items pending enrichment.`);
     const bucket = process.env.SMGR_S3_BUCKET;
-    if (!bucket) die("Set SMGR_S3_BUCKET to download images for enrichment");
+    if (!bucket) cliError("Set SMGR_S3_BUCKET to download images for enrichment");
 
     const s3 = createS3Client();
+    const limit = pLimit(concurrency);
     let done = 0;
     let failed = 0;
+    let skipped = 0;
+    const total = pending.length;
 
-    for (let i = 0; i < pending.length; i++) {
-      const event = pending[i];
-      const meta = (event.metadata as Record<string, unknown>) ?? {};
-      const s3Key =
-        (meta.s3_key as string) ??
-        (event.remote_path
-          ? String(event.remote_path).replace(`s3://${bucket}/`, "")
-          : null);
+    console.error(`Found ${total} items pending enrichment (concurrency: ${concurrency}).`);
 
-      if (!s3Key) {
-        console.log(`[${i + 1}/${pending.length}] ${event.id} — no S3 key, skipping`);
-        continue;
-      }
+    const tasks = pending.map((event, i) =>
+      limit(async () => {
+        const meta = (event.metadata as Record<string, unknown>) ?? {};
+        const s3Key =
+          (meta.s3_key as string) ??
+          (event.remote_path
+            ? String(event.remote_path).replace(`s3://${bucket}/`, "")
+            : null);
 
-      console.log(`[${i + 1}/${pending.length}] Enriching ${event.id}...`);
-      try {
-        const imageBytes = await downloadS3Object(s3, bucket, s3Key);
-        const mime = (meta.mime_type as string) ?? getMimeType(s3Key);
-        const result = await enrichImage(imageBytes, mime);
-        await insertEnrichment(event.id, result, userId);
-        done++;
-        console.log("  Done.");
-      } catch (err) {
-        failed++;
-        console.error(`  Failed: ${err}`);
-      }
-    }
-    console.log(`\nEnriched ${done}, failed ${failed}, total ${pending.length}`);
+        if (!s3Key) {
+          skipped++;
+          console.error(`[${i + 1}/${total}] ${event.id} — no S3 key, skipping`);
+          return;
+        }
+
+        console.error(`[${i + 1}/${total}] Enriching ${event.id}...`);
+        try {
+          const imageBytes = await downloadS3Object(s3, bucket, s3Key);
+          const mime = (meta.mime_type as string) ?? getMimeType(s3Key);
+          const result = await enrichImage(imageBytes, mime);
+          await insertEnrichment(event.id, result, userId);
+          done++;
+        } catch (err) {
+          failed++;
+          logger.error("enrich item failed", { event_id: event.id, error: String(err) });
+          console.error(`  Failed: ${err}`);
+        }
+      }),
+    );
+
+    await Promise.all(tasks);
+
+    const summary = { enriched: done, failed, skipped, total };
+    console.log(JSON.stringify(summary, null, 2));
+    logger.info("enrich batch complete", summary);
     return;
   }
 
-  die("Specify --pending, --status, or an event ID.");
+  cliError("Specify --pending, --status, --dry-run, or an event ID.");
 }
 
 async function cmdWatch(args: string[]) {
@@ -234,30 +300,41 @@ async function cmdWatch(args: string[]) {
     args,
     options: {
       once: { type: "boolean", default: false },
+      interval: { type: "string" },
+      "max-errors": { type: "string" },
+      verbose: { type: "boolean", default: false },
     },
   });
 
+  if (values.verbose) verboseMode = true;
+
   const bucket = process.env.SMGR_S3_BUCKET;
-  if (!bucket) die("Set SMGR_S3_BUCKET environment variable");
+  if (!bucket) cliError("Set SMGR_S3_BUCKET environment variable");
 
   const userId = requireUserId();
   const prefix = process.env.SMGR_S3_PREFIX ?? "";
-  const interval = parseInt(process.env.SMGR_WATCH_INTERVAL ?? "30", 10);
+  const intervalSecs = parseInt(
+    values.interval ?? process.env.SMGR_WATCH_INTERVAL ?? "60",
+    10,
+  );
+  const maxErrors = parseInt(values["max-errors"] ?? "5", 10);
   const autoEnrich = (process.env.SMGR_AUTO_ENRICH ?? "true").toLowerCase() !== "false";
   const deviceId = process.env.SMGR_DEVICE_ID ?? "default";
 
   const s3 = createS3Client();
 
-  console.log(`Watching s3://${bucket}/${prefix}`);
-  console.log(`Poll interval: ${interval}s | Auto-enrich: ${autoEnrich}`);
+  console.error(`Watching s3://${bucket}/${prefix}`);
+  console.error(`Poll interval: ${intervalSecs}s | Auto-enrich: ${autoEnrich} | Max errors: ${maxErrors}`);
 
   let running = true;
   const shutdown = () => {
     running = false;
-    console.log("\nShutting down...");
+    console.error("\nShutting down...");
   };
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+
+  let consecutiveErrors = 0;
 
   while (running) {
     try {
@@ -268,10 +345,10 @@ async function cmdWatch(args: string[]) {
 
       if (newObjects.length > 0) {
         const now = new Date().toLocaleTimeString();
-        console.log(`[${now}] Found ${newObjects.length} new objects`);
+        console.error(`[${now}] Found ${newObjects.length} new objects`);
 
         for (const obj of newObjects) {
-          console.log(`  Processing: ${obj.key}`);
+          console.error(`  Processing: ${obj.key}`);
           try {
             const imageBytes = await downloadS3Object(s3, bucket, obj.key);
             const contentHash = sha256Bytes(imageBytes);
@@ -279,7 +356,7 @@ async function cmdWatch(args: string[]) {
             const existingId = await findEventByHash(contentHash, userId);
             if (existingId) {
               await upsertWatchedKey(obj.key, existingId, obj.etag, obj.size, userId);
-              console.log(`    Already indexed (hash match)`);
+              console.error(`    Already indexed (hash match)`);
               continue;
             }
 
@@ -301,16 +378,16 @@ async function cmdWatch(args: string[]) {
               user_id: userId,
             });
             await upsertWatchedKey(obj.key, eventId, obj.etag, obj.size, userId);
-            console.log(`    Created event ${eventId}`);
+            console.error(`    Created event ${eventId}`);
 
             if (autoEnrich && contentType === "photo") {
               const mime = getMimeType(obj.key);
               if (mime.startsWith("image/")) {
-                console.log("    Enriching...");
+                console.error("    Enriching...");
                 try {
                   const result = await enrichImage(imageBytes, mime);
                   await insertEnrichment(eventId, result, userId);
-                  console.log("    Enriched.");
+                  console.error("    Enriched.");
                 } catch (err) {
                   console.error(`    Enrichment failed: ${err}`);
                 }
@@ -322,14 +399,39 @@ async function cmdWatch(args: string[]) {
           }
         }
       }
+
+      consecutiveErrors = 0;
+
+      logger.info("watch scan complete", {
+        bucket,
+        total_objects: objects.length,
+        new_objects: newObjects.length,
+      });
+
+      const ts = new Date().toLocaleTimeString();
+      console.error(`[${ts}] Scanned: ${objects.length} objects, ${newObjects.length} new`);
     } catch (err) {
-      console.error(`Poll error: ${err}`);
+      consecutiveErrors++;
+      logger.error("watch scan failed", {
+        error: String(err),
+        consecutive_errors: consecutiveErrors,
+        max_errors: maxErrors,
+      });
+      console.error(`Poll error (${consecutiveErrors}/${maxErrors}): ${err}`);
+
+      if (consecutiveErrors >= maxErrors) {
+        cliError(
+          `Stopping: ${maxErrors} consecutive scan failures`,
+          EXIT.SERVICE,
+          String(err),
+        );
+      }
     }
 
     if (values.once) break;
 
     // Sleep in 1s increments for graceful shutdown
-    for (let i = 0; i < interval && running; i++) {
+    for (let i = 0; i < intervalSecs && running; i++) {
       await new Promise((r) => setTimeout(r, 1000));
     }
   }
@@ -341,22 +443,24 @@ async function cmdAdd(args: string[]) {
     options: {
       prefix: { type: "string", default: "" },
       enrich: { type: "boolean", default: true },
+      verbose: { type: "boolean", default: false },
     },
     allowPositionals: true,
   });
 
+  if (values.verbose) verboseMode = true;
   const filePath = positionals[0];
-  if (!filePath) die("Usage: smgr add <file> [--prefix path/] [--no-enrich]");
+  if (!filePath) cliError("Usage: smgr add <file> [--prefix path/] [--no-enrich]");
 
   const bucket = process.env.SMGR_S3_BUCKET;
-  if (!bucket) die("Set SMGR_S3_BUCKET environment variable");
+  if (!bucket) cliError("Set SMGR_S3_BUCKET environment variable");
 
   const userId = requireUserId();
   const deviceId = process.env.SMGR_DEVICE_ID ?? "default";
 
   const absPath = resolve(filePath);
   const stat = statSync(absPath);
-  if (!stat.isFile()) die(`Not a file: ${absPath}`);
+  if (!stat.isFile()) cliError(`Not a file: ${absPath}`);
 
   const fileBytes = readFileSync(absPath);
   const contentHash = sha256Bytes(Buffer.from(fileBytes));
@@ -375,7 +479,7 @@ async function cmdAdd(args: string[]) {
   const s3Key = values.prefix ? `${values.prefix}${fileName}` : fileName;
   const s3 = createS3Client();
 
-  console.log(`Uploading ${fileName} to s3://${bucket}/${s3Key}...`);
+  console.error(`Uploading ${fileName} to s3://${bucket}/${s3Key}...`);
   await uploadS3Object(s3, bucket, s3Key, Buffer.from(fileBytes), mimeType);
 
   // Create event
@@ -405,15 +509,15 @@ async function cmdAdd(args: string[]) {
   // Track as watched key
   await upsertWatchedKey(s3Key, eventId, "", stat.size, userId);
 
-  console.log(`Created event ${eventId}`);
+  console.error(`Created event ${eventId}`);
 
   // Optionally enrich
   if (values.enrich && contentType === "photo" && mimeType.startsWith("image/")) {
-    console.log("Enriching...");
+    console.error("Enriching...");
     try {
       const result = await enrichImage(Buffer.from(fileBytes), mimeType);
       await insertEnrichment(eventId, result, userId);
-      console.log("Enriched.");
+      console.error("Enriched.");
     } catch (err) {
       console.error(`Enrichment failed: ${err}`);
     }
@@ -421,6 +525,8 @@ async function cmdAdd(args: string[]) {
 }
 
 // ── Main ─────────────────────────────────────────────────────
+
+if (process.argv.includes("--verbose")) verboseMode = true;
 
 const [command, ...rest] = process.argv.slice(2);
 
@@ -440,9 +546,26 @@ Usage:
   smgr query [--search Q] [--type TYPE] [--format json] [--limit N]
   smgr show <event_id>
   smgr stats
-  smgr enrich [--pending] [--status] [<event_id>]
-  smgr watch [--once]
+  smgr enrich [--pending] [--status] [--concurrency N] [--dry-run] [<event_id>]
+  smgr watch [--once] [--interval N] [--max-errors N]
   smgr add <file> [--prefix path/] [--no-enrich]
+
+Flags (all commands):
+  --verbose         Show technical error details on failure
+
+Enrich flags:
+  --concurrency N   Max parallel enrichment calls (default: 3)
+  --dry-run         List pending events without calling the Claude API
+
+Watch flags:
+  --interval N      Poll interval in seconds (default: 60)
+  --max-errors N    Stop after N consecutive scan failures (default: 5)
+
+Exit codes:
+  0  Success
+  1  User error (bad arguments, missing env var, resource not found)
+  2  Service error (S3 unreachable, DB timeout, API failure)
+  3  Internal error (unexpected exception)
 
 Environment:
   NEXT_PUBLIC_SUPABASE_URL     Supabase project URL
@@ -453,12 +576,15 @@ Environment:
   ANTHROPIC_API_KEY            For enrichment
   SMGR_USER_ID                 User UUID for tenant-scoped operations
   SMGR_DEVICE_ID               Device identifier (default: default)
-  SMGR_WATCH_INTERVAL          Poll interval in seconds (default: 30)
+  SMGR_WATCH_INTERVAL          Poll interval in seconds (default: 60)
   SMGR_AUTO_ENRICH             Auto-enrich on watch (default: true)`);
   process.exit(command ? 1 : 0);
 }
 
-commands[command](rest).catch((err) => {
-  console.error(`Error: ${err.message ?? err}`);
-  process.exit(1);
+const requestId = crypto.randomUUID();
+runWithRequestId(requestId, () => {
+  commands[command](rest).catch((err) => {
+    logger.error("unhandled command error", { error: String(err), stack: err?.stack });
+    cliError(err.message ?? String(err), EXIT.INTERNAL);
+  });
 });
