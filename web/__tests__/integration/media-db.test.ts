@@ -66,9 +66,6 @@ describe("Full-Text Search", () => {
       objects: ["dog", "park"],
       context: "outdoor",
       suggested_tags: ["dog", "park"],
-      provider: "anthropic",
-      model: "claude-haiku-4-5-20251001",
-      raw_response: "{}",
     }, userIdA);
 
     const result = await queryEvents({
@@ -77,7 +74,7 @@ describe("Full-Text Search", () => {
     });
 
     expect(result.total).toBeGreaterThanOrEqual(1);
-    const found = result.events.find((e: any) => e.id === eventId);
+    const found = result.events.find((e: Record<string, unknown>) => e.id === eventId);
     expect(found).toBeDefined();
   });
 
@@ -102,9 +99,6 @@ describe("Full-Text Search", () => {
       objects: [],
       context: "",
       suggested_tags: ["sunset"],
-      provider: "anthropic",
-      model: "test",
-      raw_response: "{}",
     }, userIdA);
 
     // Create today's video
@@ -128,7 +122,7 @@ describe("Full-Text Search", () => {
       search: "sunset",
     });
 
-    const ids = result.events.map((e: any) => e.id);
+    const ids = result.events.map((e: Record<string, unknown>) => e.id);
     expect(ids).toContain(photoId);
     expect(ids).not.toContain(videoId);
   });
@@ -168,8 +162,8 @@ describe("RLS Isolation", () => {
     const resultA = await queryEvents({ userId: userIdA });
     const resultB = await queryEvents({ userId: userIdB });
 
-    const idsA = resultA.events.map((e: any) => e.id);
-    const idsB = resultB.events.map((e: any) => e.id);
+    const idsA = resultA.events.map((e: Record<string, unknown>) => e.id);
+    const idsB = resultB.events.map((e: Record<string, unknown>) => e.id);
 
     expect(idsA).toContain(eventA);
     expect(idsA).not.toContain(eventB);
@@ -277,9 +271,6 @@ describe("Enrich Status", () => {
       objects: [],
       context: "",
       suggested_tags: [],
-      provider: "anthropic",
-      model: "test",
-      raw_response: "{}",
     }, userIdA);
 
     await insertEvent({

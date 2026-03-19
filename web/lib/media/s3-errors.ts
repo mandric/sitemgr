@@ -25,17 +25,19 @@ export function classifyS3Error(error: unknown): S3ErrorType {
   }
 
   // 2. HTTP status code
-  const status = (error as any)?.$metadata?.httpStatusCode;
+  const errRecord = error as Record<string, unknown>;
+  const metadata = errRecord?.$metadata as Record<string, unknown> | undefined;
+  const status = metadata?.httpStatusCode as number | undefined;
   if (status === 403 || status === 401) return S3ErrorType.AccessDenied;
   if (status === 404) return S3ErrorType.NotFound;
   if (status === 500 || status === 503) return S3ErrorType.ServerError;
 
   // 3. Network error codes
-  const code = (error as any)?.code;
+  const code = errRecord?.code as string | undefined;
   if (code && NETWORK_CODES.has(code)) return S3ErrorType.NetworkError;
 
   // 4. Timeout by name
-  const name = (error as any)?.name;
+  const name = errRecord?.name as string | undefined;
   if (name && TIMEOUT_NAMES.has(name)) return S3ErrorType.Timeout;
 
   return S3ErrorType.Unknown;

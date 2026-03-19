@@ -199,7 +199,7 @@ export async function downloadS3Object(
     return Buffer.from(bytes);
   } catch (err) {
     const s3ErrorType = classifyS3Error(err);
-    (err as any).s3ErrorType = s3ErrorType;
+    (err as Record<string, unknown>).s3ErrorType = s3ErrorType;
     logger.error("s3 download failed", {
       bucket,
       key,

@@ -64,7 +64,7 @@ function cliError(message: string, code: ExitCode = EXIT.USER, detail?: string):
 }
 
 function exitCodeForS3Error(err: unknown): ExitCode {
-  const t = (err as any)?.s3ErrorType as S3ErrorType | undefined;
+  const t = (err as Record<string, unknown>)?.s3ErrorType as S3ErrorType | undefined;
   if (t === S3ErrorType.AccessDenied) return EXIT.USER;
   if (t === S3ErrorType.NotFound) return EXIT.USER;
   if (t === S3ErrorType.NetworkError) return EXIT.SERVICE;

@@ -2,25 +2,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { classifyS3Error, S3ErrorType } from "@/lib/media/s3-errors";
 
 const mockSend = vi.fn();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 let s3ConstructorArgs: any[] = [];
 
 vi.mock("@aws-sdk/client-s3", () => {
   class MockS3Client {
     send = mockSend;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(opts: any) {
       s3ConstructorArgs.push(opts);
     }
   }
-  class MockListObjectsV2Command {
-    constructor(public input: any) {}
-  }
   class MockListObjectsCommand {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(public input: any) {}
   }
   class MockGetObjectCommand {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(public input: any) {}
   }
   class MockPutObjectCommand {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     constructor(public input: any) {}
   }
   return {
@@ -365,8 +367,8 @@ describe("downloadS3Object", () => {
     try {
       await downloadS3Object(createS3Client({}), "b", "missing.jpg");
       expect.fail("should throw");
-    } catch (e: any) {
-      expect(e.s3ErrorType).toBe(S3ErrorType.NotFound);
+    } catch (e: unknown) {
+      expect((e as Record<string, unknown>).s3ErrorType).toBe(S3ErrorType.NotFound);
     }
   });
 
@@ -377,8 +379,8 @@ describe("downloadS3Object", () => {
     try {
       await downloadS3Object(createS3Client({}), "b", "secret.jpg");
       expect.fail("should throw");
-    } catch (e: any) {
-      expect(e.s3ErrorType).toBe(S3ErrorType.AccessDenied);
+    } catch (e: unknown) {
+      expect((e as Record<string, unknown>).s3ErrorType).toBe(S3ErrorType.AccessDenied);
     }
   });
 });

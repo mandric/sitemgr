@@ -4,10 +4,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockUpsert = vi.fn();
 const mockInsert = vi.fn();
-const mockSelect = vi.fn();
 const mockRpc = vi.fn();
 
 function chainable(overrides: Record<string, unknown> = {}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const chain: Record<string, any> = {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
@@ -457,6 +457,7 @@ describe("getStats", () => {
     headChain.eq = vi.fn().mockReturnValue(headChain);
     // Make chainable resolve with count
     Object.defineProperty(headChain, "then", {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       value: (resolve: any) =>
         resolve({ data: null, count: 5, error: null }),
       configurable: true,
@@ -489,6 +490,7 @@ describe("getEnrichStatus", () => {
 
     let callCount = 0;
     Object.defineProperty(headChain, "then", {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       value: (resolve: any) => {
         callCount++;
         // First call is events (total=10), second is enrichments (enriched=4)
@@ -513,6 +515,7 @@ describe("getEnrichStatus", () => {
     headChain.eq = vi.fn().mockReturnValue(headChain);
 
     Object.defineProperty(headChain, "then", {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       value: (resolve: any) => resolve({ data: null, count: 5, error: null }),
       configurable: true,
     });
@@ -531,6 +534,7 @@ describe("getEnrichStatus", () => {
     headChain.eq = vi.fn().mockReturnValue(headChain);
 
     Object.defineProperty(headChain, "then", {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       value: (resolve: any) => resolve({ data: null, count: 0, error: null }),
       configurable: true,
     });

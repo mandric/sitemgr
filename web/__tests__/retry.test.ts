@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { withRetry } from "@/lib/retry";
 
-const noDelay = vi.fn(async (_ms: number) => {});
+const noDelay = vi.fn(async () => {});
 
 describe("withRetry", () => {
   // === Success cases ===

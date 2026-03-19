@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockCreate = vi.fn();
 
@@ -71,7 +71,7 @@ describe("Anthropic client singleton", () => {
 
     // The Anthropic constructor is part of the mock — we check that messages.create
     // is the same reference, proving the client is reused
-    const Anthropic = (await import("@anthropic-ai/sdk")).default;
+    await import("@anthropic-ai/sdk");
     // There's only one instance, so the mock create should have been called twice
     expect(mockCreate).toHaveBeenCalledTimes(2);
   });

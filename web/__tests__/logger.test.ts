@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createLogger, LogComponent } from "@/lib/logger";
-import { runWithRequestId } from "@/lib/request-context";
 
 describe("createLogger", () => {
   beforeEach(() => {

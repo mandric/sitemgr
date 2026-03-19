@@ -248,20 +248,23 @@ describe("validateBucketConfig", () => {
   });
 
   it("accepts config with endpoint_url omitted", () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { endpoint_url, ...rest } = validConfig;
-    const result = validateBucketConfig(rest as any);
+    const result = validateBucketConfig(rest as Parameters<typeof validateBucketConfig>[0]);
     expect(result.valid).toBe(true);
   });
 
   it("accepts config with region omitted", () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { region, ...rest } = validConfig;
-    const result = validateBucketConfig(rest as any);
+    const result = validateBucketConfig(rest as Parameters<typeof validateBucketConfig>[0]);
     expect(result.valid).toBe(true);
   });
 
   it("accepts config with both endpoint_url and region omitted", () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { endpoint_url, region, ...rest } = validConfig;
-    const result = validateBucketConfig(rest as any);
+    const result = validateBucketConfig(rest as Parameters<typeof validateBucketConfig>[0]);
     expect(result.valid).toBe(true);
   });
 

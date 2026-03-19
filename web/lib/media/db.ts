@@ -36,7 +36,7 @@ function mapDbError(
 }
 
 function shouldRetryDbError(error: unknown): boolean {
-  const code = (error as any)?.code;
+  const code = (error as Record<string, unknown>)?.code as string | undefined;
   if (code && NON_RETRYABLE_CODES.has(code)) return false;
   return true;
 }
@@ -150,6 +150,7 @@ export async function queryEvents(opts: QueryOptions) {
   if (error) throw mapDbError(error, { table: "events", operation: "select" });
 
   // Normalize enrichments: array → single object
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const events = (data ?? []).map((evt: any) => {
     if (Array.isArray(evt.enrichments) && evt.enrichments.length > 0) {
       evt.enrichment = evt.enrichments[0];

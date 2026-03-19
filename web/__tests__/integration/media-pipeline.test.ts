@@ -4,8 +4,8 @@
  *
  * Requires `supabase start` to be running locally.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
-import { createS3Client, listS3Objects, downloadS3Object, uploadS3Object } from "@/lib/media/s3";
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { createS3Client, listS3Objects, uploadS3Object } from "@/lib/media/s3";
 import {
   insertEvent,
   insertEnrichment,
@@ -13,7 +13,7 @@ import {
   getWatchedKeys,
   queryEvents,
 } from "@/lib/media/db";
-import { newEventId, detectContentType, getMimeType, s3Metadata } from "@/lib/media/utils";
+import { newEventId, detectContentType, s3Metadata } from "@/lib/media/utils";
 import {
   getAdminClient,
   createTestUser,
@@ -102,7 +102,7 @@ describe("Full pipeline: S3 → DB → Search", () => {
 
     // Verify event in query results
     const result = await queryEvents({ userId });
-    const ids = result.events.map((e: any) => e.id);
+    const ids = result.events.map((e: Record<string, unknown>) => e.id);
     expect(ids).toContain(eventId);
   });
 
@@ -140,9 +140,6 @@ describe("Full pipeline: S3 → DB → Search", () => {
       objects: ["cat", "windowsill"],
       context: "indoor",
       suggested_tags: ["cat", "pet", "cozy"],
-      provider: "anthropic",
-      model: "mock-test",
-      raw_response: "{}",
     }, userId);
 
     // Search should find by description
@@ -152,7 +149,7 @@ describe("Full pipeline: S3 → DB → Search", () => {
     });
 
     expect(result.total).toBeGreaterThanOrEqual(1);
-    const match = result.events.find((e: any) => e.id === eventId);
+    const match = result.events.find((e: Record<string, unknown>) => e.id === eventId);
     expect(match).toBeDefined();
   });
 });

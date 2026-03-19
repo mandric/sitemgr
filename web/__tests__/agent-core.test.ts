@@ -65,8 +65,8 @@ vi.mock("@/lib/crypto/encryption-versioned", () => ({
 }));
 
 import { sendMessageToAgent, type Message } from "@/lib/agent/core";
-import { queryEvents, getStats, insertEvent, insertEnrichment, upsertWatchedKey, getWatchedKeys } from "@/lib/media/db";
-import { listS3Objects, downloadS3Object, createS3Client } from "@/lib/media/s3";
+import { getStats, insertEvent, insertEnrichment, upsertWatchedKey, getWatchedKeys } from "@/lib/media/db";
+import { listS3Objects, downloadS3Object } from "@/lib/media/s3";
 import { enrichImage } from "@/lib/media/enrichment";
 
 /** Set up mockAdminFrom to handle both user_profiles and bucket_configs queries */
@@ -249,6 +249,7 @@ describe("executeAction — request context", () => {
     });
     vi.mocked(getStats).mockImplementation(async () => {
       callOrder.push("getStats");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return { total_events: 0 } as any;
     });
 
@@ -425,6 +426,7 @@ describe("indexBucket — concurrency and partial failure", () => {
     ));
 
     expect(result.per_object).toBeDefined();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const badEntry = result.per_object.find((p: any) => p.key === "bad.jpg");
     expect(badEntry.status).toBe("error");
   });
@@ -481,6 +483,7 @@ describe("indexBucket — concurrency and partial failure", () => {
     ));
 
     expect(enrichImage).not.toHaveBeenCalled();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const entry = result.per_object.find((p: any) => p.key === "archive.zip");
     expect(entry.status).toBe("indexed");
   });
