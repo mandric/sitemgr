@@ -27,6 +27,7 @@ let admin: SupabaseClient;
 let userId: string;
 let userClient: SupabaseClient;
 let userBId: string;
+let userBClient: SupabaseClient;
 let userBSeed: SeedResult;
 let s3: ReturnType<typeof createS3Client>;
 let bucketName: string;
@@ -42,6 +43,7 @@ beforeAll(async () => {
 
   const userB = await createTestUser();
   userBId = userB.userId;
+  userBClient = userB.client;
   userBSeed = await seedUserData(admin, userBId, { eventCount: 1 });
 
   // Create test bucket
@@ -89,6 +91,17 @@ afterAll(async () => {
   await admin.auth.admin.deleteUser(userId);
 
   await cleanupUserData(admin, userBId);
+
+  // Tear down authenticated sessions
+  await userClient.auth.signOut();
+  await userBClient.auth.signOut();
+
+  // Clean up all client connections to prevent dangling handles
+  await Promise.all([
+    admin.removeAllChannels(),
+    userClient.removeAllChannels(),
+    userBClient.removeAllChannels(),
+  ]);
 });
 
 describe("when uploading and searching for media", () => {

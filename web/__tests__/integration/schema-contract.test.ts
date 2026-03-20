@@ -2,7 +2,7 @@
  * Schema contract tests — validates database schema matches application expectations.
  * Uses the schema_info() RPC function (section-01 migration).
  */
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { getAdminClient } from "./setup";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -40,6 +40,10 @@ beforeAll(async () => {
     );
   }
   schema = data as SchemaInfo;
+});
+
+afterAll(async () => {
+  await admin.removeAllChannels();
 });
 
 function columnsFor(table: string) {

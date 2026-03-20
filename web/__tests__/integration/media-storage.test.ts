@@ -14,6 +14,7 @@ import { getS3Config, TINY_JPEG, getAdminClient } from "./setup";
 const TEST_BUCKET = `test-storage-${Date.now()}`;
 
 let s3: ReturnType<typeof createS3Client>;
+let admin: ReturnType<typeof getAdminClient>;
 const uploadedKeys: string[] = [];
 
 beforeAll(async () => {
@@ -25,16 +26,18 @@ beforeAll(async () => {
     secretAccessKey: config.secretAccessKey,
   });
 
-  const admin = getAdminClient();
+  admin = getAdminClient();
   await admin.storage.createBucket(TEST_BUCKET, { public: false });
 });
 
 afterAll(async () => {
-  const admin = getAdminClient();
   if (uploadedKeys.length > 0) {
     await admin.storage.from(TEST_BUCKET).remove(uploadedKeys);
   }
   await admin.storage.deleteBucket(TEST_BUCKET).catch(() => {});
+
+  // Clean up client connections to prevent dangling handles
+  await admin.removeAllChannels();
 });
 
 describe("when uploading objects", () => {

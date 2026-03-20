@@ -18,6 +18,7 @@ let aliceClient: SupabaseClient;
 let anonClient: SupabaseClient;
 let aliceId: string;
 let bobId: string;
+let bobClient: SupabaseClient;
 let aliceSeed: SeedResult;
 let bobSeed: SeedResult;
 
@@ -31,6 +32,7 @@ beforeAll(async () => {
 
   const bob = await createTestUser("bob-iso@test.local");
   bobId = bob.userId;
+  bobClient = bob.client;
 
   aliceSeed = await seedUserData(admin, aliceId, { eventCount: 2 });
   bobSeed = await seedUserData(admin, bobId, { eventCount: 1 });
@@ -43,6 +45,18 @@ beforeAll(async () => {
 afterAll(async () => {
   await cleanupUserData(admin, aliceId);
   await cleanupUserData(admin, bobId);
+
+  // Tear down authenticated sessions
+  await aliceClient.auth.signOut();
+  await bobClient.auth.signOut();
+
+  // Clean up all client connections to prevent dangling handles
+  await Promise.all([
+    admin.removeAllChannels(),
+    aliceClient.removeAllChannels(),
+    bobClient.removeAllChannels(),
+    anonClient.removeAllChannels(),
+  ]);
 });
 
 describe("when querying own data", () => {
@@ -217,13 +231,12 @@ describe("when calling RPC functions", () => {
       p_user_id: aliceId,
     });
     expect(error).toBeNull();
-    if (data && data.length > 0) {
-      const total = data.reduce(
-        (sum: number, r: { count: number }) => sum + Number(r.count),
-        0,
-      );
-      expect(total).toBe(2);
-    }
+    expect(data!.length).toBeGreaterThan(0);
+    const total = data!.reduce(
+      (sum: number, r: { count: number }) => sum + Number(r.count),
+      0,
+    );
+    expect(total).toBe(2);
   });
 
   it("should return only Alice's stats when Alice calls stats_by_event_type", async () => {
@@ -231,13 +244,12 @@ describe("when calling RPC functions", () => {
       p_user_id: aliceId,
     });
     expect(error).toBeNull();
-    if (data && data.length > 0) {
-      const total = data.reduce(
-        (sum: number, r: { count: number }) => sum + Number(r.count),
-        0,
-      );
-      expect(total).toBe(2);
-    }
+    expect(data!.length).toBeGreaterThan(0);
+    const total = data!.reduce(
+      (sum: number, r: { count: number }) => sum + Number(r.count),
+      0,
+    );
+    expect(total).toBe(2);
   });
 });
 

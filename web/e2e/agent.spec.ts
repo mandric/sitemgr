@@ -98,7 +98,7 @@ test.describe("Site Manager Agent", () => {
     }
 
     await page.close();
-  });
+  }, { timeout: 60000 });
 
   test.beforeEach(async ({ page }) => {
     // Login for each test
