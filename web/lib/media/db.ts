@@ -9,7 +9,7 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createLogger, LogComponent } from "@/lib/logger";
 import { withRetry } from "@/lib/retry";
-import { refreshSession } from "@/lib/auth/cli-auth";
+import { refreshSession, resolveApiConfig } from "@/lib/auth/cli-auth";
 
 const logger = createLogger(LogComponent.DB);
 
@@ -45,47 +45,32 @@ async function withRetryDb<T>(
 
 /** Creates a Supabase client with the service role key (bypasses RLS). */
 export function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const { url } = resolveApiConfig();
   const key = process.env.SUPABASE_SECRET_KEY?.replace(/\s+/g, "");
-  if (!url) {
-    throw new Error("NEXT_PUBLIC_SUPABASE_URL is required");
-  }
   if (!key) {
     throw new Error("SUPABASE_SECRET_KEY is required for admin client");
   }
   return createSupabaseClient(url, key);
 }
 
-/** Creates a Supabase client with the publishable key (respects RLS). */
+/** Creates a Supabase client with the publishable/anon key (respects RLS). */
 export function getUserClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.replace(/\s+/g, "");
-  if (!url) {
-    throw new Error("NEXT_PUBLIC_SUPABASE_URL is required");
-  }
-  if (!key) {
-    throw new Error("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required for user client");
-  }
-  return createSupabaseClient(url, key);
+  const { url, anonKey } = resolveApiConfig();
+  return createSupabaseClient(url, anonKey);
 }
 
 /**
  * Creates a Supabase client authenticated with the CLI user's JWT.
- * Falls back to getAdminClient() if no CLI session exists,
- * so server-side code (API routes) continues to work unchanged.
+ * Returns null if no CLI session exists.
  */
 export async function getAuthenticatedClient() {
   const creds = await refreshSession();
   if (!creds) return null;
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.replace(/\s+/g, "");
-  if (!url || !anonKey) return null;
-
-  const supabase = createSupabaseClient(url, anonKey, {
+  const { url, anonKey } = resolveApiConfig();
+  return createSupabaseClient(url, anonKey, {
     global: { headers: { Authorization: `Bearer ${creds.access_token}` } },
   });
-  return supabase;
 }
 
 export interface EventRow {

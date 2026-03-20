@@ -638,16 +638,16 @@ Exit codes:
   3  Internal error (unexpected exception)
 
 Environment:
-  NEXT_PUBLIC_SUPABASE_URL                 Supabase project URL
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY     Supabase anon key (public)
-  SMGR_S3_BUCKET                           S3 bucket name
-  SMGR_S3_ENDPOINT                         Custom S3 endpoint (for Supabase Storage)
-  SMGR_S3_REGION                           AWS region (default: us-east-1)
-  ANTHROPIC_API_KEY                        For enrichment
-  SMGR_USER_ID                             User UUID (overrides login session)
-  SMGR_DEVICE_ID                           Device identifier (default: default)
-  SMGR_WATCH_INTERVAL                      Poll interval in seconds (default: 60)
-  SMGR_AUTO_ENRICH                         Auto-enrich on watch (default: true)`);
+  SMGR_API_URL           Backend API URL (required)
+  SMGR_API_KEY           Backend public key (required)
+  SMGR_S3_BUCKET         S3 bucket name
+  SMGR_S3_ENDPOINT       Custom S3 endpoint (for Supabase Storage)
+  SMGR_S3_REGION         AWS region (default: us-east-1)
+  ANTHROPIC_API_KEY      For enrichment
+  SMGR_USER_ID           User UUID (overrides login session)
+  SMGR_DEVICE_ID         Device identifier (default: default)
+  SMGR_WATCH_INTERVAL    Poll interval in seconds (default: 60)
+  SMGR_AUTO_ENRICH       Auto-enrich on watch (default: true)`);
   process.exit(command ? 1 : 0);
 }
 

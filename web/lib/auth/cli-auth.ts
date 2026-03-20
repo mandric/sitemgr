@@ -94,20 +94,25 @@ function promptPassword(question: string): Promise<string> {
   });
 }
 
-// ── Supabase URL + anon key ─────────────────────────────────────
+// ── API config resolution ───────────────────────────────────────
 
-function getSupabaseConfig(): { url: string; anonKey: string } {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.replace(/\s+/g, "");
-  if (!url) throw new Error("NEXT_PUBLIC_SUPABASE_URL is required");
-  if (!anonKey) throw new Error("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required");
+/**
+ * Resolves the API URL and public key for the backend.
+ * CLI users set SMGR_API_URL / SMGR_API_KEY.
+ * Falls back to NEXT_PUBLIC_* for the web app and existing setups.
+ */
+export function resolveApiConfig(): { url: string; anonKey: string } {
+  const url = (process.env.SMGR_API_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL)?.trim();
+  const anonKey = (process.env.SMGR_API_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)?.replace(/\s+/g, "");
+  if (!url) throw new Error("Set SMGR_API_URL (or NEXT_PUBLIC_SUPABASE_URL)");
+  if (!anonKey) throw new Error("Set SMGR_API_KEY (or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)");
   return { url, anonKey };
 }
 
 // ── Login ───────────────────────────────────────────────────────
 
 export async function login(): Promise<StoredCredentials> {
-  const { url, anonKey } = getSupabaseConfig();
+  const { url, anonKey } = resolveApiConfig();
   const supabase = createSupabaseClient(url, anonKey);
 
   const email = await prompt("Email: ");
@@ -145,7 +150,7 @@ export async function refreshSession(): Promise<StoredCredentials | null> {
   const now = Math.floor(Date.now() / 1000);
   if (creds.expires_at > now + 60) return creds;
 
-  const { url, anonKey } = getSupabaseConfig();
+  const { url, anonKey } = resolveApiConfig();
   const supabase = createSupabaseClient(url, anonKey);
 
   const { data, error } = await supabase.auth.refreshSession({
