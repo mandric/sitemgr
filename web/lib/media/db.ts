@@ -9,6 +9,7 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createLogger, LogComponent } from "@/lib/logger";
 import { withRetry } from "@/lib/retry";
+import { refreshSession } from "@/lib/auth/cli-auth";
 
 const logger = createLogger(LogComponent.DB);
 
@@ -66,6 +67,25 @@ export function getUserClient() {
     throw new Error("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required for user client");
   }
   return createSupabaseClient(url, key);
+}
+
+/**
+ * Creates a Supabase client authenticated with the CLI user's JWT.
+ * Falls back to getAdminClient() if no CLI session exists,
+ * so server-side code (API routes) continues to work unchanged.
+ */
+export async function getAuthenticatedClient() {
+  const creds = await refreshSession();
+  if (!creds) return null;
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.replace(/\s+/g, "");
+  if (!url || !anonKey) return null;
+
+  const supabase = createSupabaseClient(url, anonKey, {
+    global: { headers: { Authorization: `Bearer ${creds.access_token}` } },
+  });
+  return supabase;
 }
 
 export interface EventRow {

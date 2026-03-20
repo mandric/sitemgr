@@ -42,6 +42,7 @@ import { getModelConfig } from "../lib/media/db";
 import { createLogger, LogComponent } from "../lib/logger";
 import { runWithRequestId } from "../lib/request-context";
 import { S3ErrorType } from "../lib/media/s3-errors";
+import { login, clearCredentials, loadCredentials } from "../lib/auth/cli-auth";
 
 const logger = createLogger(LogComponent.CLI);
 
@@ -80,13 +81,16 @@ function exitCodeForS3Error(err: unknown): ExitCode {
 
 function requireUserId(): string {
   const userId = process.env.SMGR_USER_ID;
-  if (!userId) {
-    cliError(
-      "Set SMGR_USER_ID environment variable (user UUID for tenant-scoped operations)",
-      EXIT.USER,
-    );
-  }
-  return userId;
+  if (userId) return userId;
+
+  // Fall back to stored CLI session
+  const creds = loadCredentials();
+  if (creds?.user_id) return creds.user_id;
+
+  cliError(
+    "Not logged in. Run 'smgr login' or set SMGR_USER_ID environment variable.",
+    EXIT.USER,
+  );
 }
 
 function printJson(obj: unknown) {
@@ -548,6 +552,37 @@ async function cmdAdd(args: string[]) {
   }
 }
 
+// ── Auth Commands ────────────────────────────────────────────
+
+async function cmdLogin() {
+  try {
+    const creds = await login();
+    console.log(`Logged in as ${creds.email} (${creds.user_id})`);
+  } catch (err) {
+    cliError(`Login failed: ${(err as Error).message ?? err}`, EXIT.SERVICE);
+  }
+}
+
+async function cmdLogout() {
+  clearCredentials();
+  console.log("Logged out. Credentials removed.");
+}
+
+async function cmdWhoami() {
+  const creds = loadCredentials();
+  if (!creds) {
+    console.log("Not logged in. Run 'smgr login' to authenticate.");
+    return;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const expired = creds.expires_at <= now;
+
+  console.log(`Email:   ${creds.email}`);
+  console.log(`User ID: ${creds.user_id}`);
+  console.log(`Token:   ${expired ? "expired (run 'smgr login' to re-authenticate)" : "valid"}`);
+}
+
 // ── Main ─────────────────────────────────────────────────────
 
 if (process.argv.includes("--verbose")) verboseMode = true;
@@ -555,6 +590,9 @@ if (process.argv.includes("--verbose")) verboseMode = true;
 const [command, ...rest] = process.argv.slice(2);
 
 const commands: Record<string, (args: string[]) => Promise<void>> = {
+  login: () => cmdLogin(),
+  logout: () => cmdLogout(),
+  whoami: () => cmdWhoami(),
   query: cmdQuery,
   show: cmdShow,
   stats: () => cmdStats(),
@@ -567,12 +605,20 @@ if (!command || !(command in commands)) {
   console.log(`smgr — S3-event-driven media indexer
 
 Usage:
+  smgr login                    Authenticate with email/password
+  smgr logout                   Clear stored credentials
+  smgr whoami                   Show current session info
+
   smgr query [--search Q] [--type TYPE] [--format json] [--limit N]
   smgr show <event_id>
   smgr stats
   smgr enrich [--pending] [--status] [--concurrency N] [--dry-run] [<event_id>]
   smgr watch [--once] [--interval N] [--max-errors N]
   smgr add <file> [--prefix path/] [--no-enrich]
+
+Authentication:
+  Run 'smgr login' to authenticate. Credentials are stored in ~/.sitemgr/credentials.json.
+  Alternatively, set SMGR_USER_ID for non-interactive use (e.g., CI).
 
 Flags (all commands):
   --verbose         Show technical error details on failure
@@ -592,23 +638,24 @@ Exit codes:
   3  Internal error (unexpected exception)
 
 Environment:
-  NEXT_PUBLIC_SUPABASE_URL     Supabase project URL
-  SUPABASE_SECRET_KEY    Supabase service role key
-  SMGR_S3_BUCKET               S3 bucket name
-  SMGR_S3_ENDPOINT             Custom S3 endpoint (for Supabase Storage)
-  SMGR_S3_REGION               AWS region (default: us-east-1)
-  ANTHROPIC_API_KEY            For enrichment
-  SMGR_USER_ID                 User UUID for tenant-scoped operations
-  SMGR_DEVICE_ID               Device identifier (default: default)
-  SMGR_WATCH_INTERVAL          Poll interval in seconds (default: 60)
-  SMGR_AUTO_ENRICH             Auto-enrich on watch (default: true)`);
+  NEXT_PUBLIC_SUPABASE_URL                 Supabase project URL
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY     Supabase anon key (public)
+  SMGR_S3_BUCKET                           S3 bucket name
+  SMGR_S3_ENDPOINT                         Custom S3 endpoint (for Supabase Storage)
+  SMGR_S3_REGION                           AWS region (default: us-east-1)
+  ANTHROPIC_API_KEY                        For enrichment
+  SMGR_USER_ID                             User UUID (overrides login session)
+  SMGR_DEVICE_ID                           Device identifier (default: default)
+  SMGR_WATCH_INTERVAL                      Poll interval in seconds (default: 60)
+  SMGR_AUTO_ENRICH                         Auto-enrich on watch (default: true)`);
   process.exit(command ? 1 : 0);
 }
 
 const requestId = crypto.randomUUID();
 runWithRequestId(requestId, async () => {
   // Load model config once at startup if a user ID is available
-  const userId = process.env.SMGR_USER_ID;
+  const creds = loadCredentials();
+  const userId = process.env.SMGR_USER_ID ?? creds?.user_id;
   if (userId) {
     const { data: configRow, error: configErr } = await getModelConfig(userId);
     if (configErr) {
