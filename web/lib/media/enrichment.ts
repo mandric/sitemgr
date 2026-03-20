@@ -160,7 +160,7 @@ async function enrichViaOpenAICompat(
   config: ModelConfig,
 ): Promise<EnrichmentResult> {
   const b64 = imageBytes.toString("base64");
-  const dataUri = `data:image/${normalizedMime};base64,${b64}`;
+  const dataUri = `data:${normalizedMime};base64,${b64}`;
 
   const body = {
     model: config.model,
