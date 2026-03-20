@@ -131,23 +131,8 @@ jobs:
       - name: Install web dependencies
         run: cd web && npm ci
 
-      - name: Run DB integration tests (RLS, RPC, migrations)
+      - name: Run integration tests
         run: cd web && npm run test:integration
-
-      - name: Run media integration tests (S3, DB, pipeline)
-        run: cd web && npm run test:media-integration
-
-      - name: FTS smoke test
-        run: |
-          PGURL="postgresql://postgres:postgres@127.0.0.1:54322/postgres"
-          TEST_USER_ID=$(psql "$PGURL" -t -A -c "INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at, role, aud, instance_id) VALUES (gen_random_uuid(), 'ci-fts@test.local', 'unused', now(), 'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000') RETURNING id" | head -1)
-          psql "$PGURL" \
-            -c "INSERT INTO events (id, \"timestamp\", device_id, type, content_type, content_hash, user_id) VALUES ('test-1', now(), 'ci', 'create', 'photo', 'abc123', '$TEST_USER_ID')"
-          psql "$PGURL" \
-            -c "INSERT INTO enrichments (event_id, description, objects, context, tags, user_id) VALUES ('test-1', 'A dog on a beach', ARRAY['dog','beach'], 'Vacation photo', ARRAY['travel','pets'], '$TEST_USER_ID')"
-          psql "$PGURL" \
-            -c "SELECT * FROM search_events('$TEST_USER_ID', 'dog beach')" | grep -q test-1
-          echo "FTS smoke test passed"
 
       - name: Stop Supabase
         if: always()
