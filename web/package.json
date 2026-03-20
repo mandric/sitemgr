@@ -10,6 +10,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
+    "test:integration:full": "../scripts/test-integration.sh",
     "test:all": "vitest run",
     "test:watch": "vitest --project unit",
     "test:e2e:debug": "playwright test --debug",

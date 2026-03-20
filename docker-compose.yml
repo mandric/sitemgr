@@ -1,32 +1,4 @@
 services:
-  minio:
-    image: minio/minio:latest
-    command: server /data --console-address ":9001"
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  minio-setup:
-    image: minio/mc:latest
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      mc alias set local http://minio:9000 minioadmin minioadmin &&
-      mc mb --ignore-existing local/smgr-test &&
-      mc anonymous set download local/smgr-test &&
-      echo 'Bucket smgr-test ready'
-      "
-
   ollama:
     image: ollama/ollama:latest
     ports:
@@ -39,36 +11,5 @@ services:
       timeout: 5s
       retries: 5
 
-  ollama-setup:
-    image: ollama/ollama:latest
-    depends_on:
-      ollama:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-      ollama pull moondream:1.8b &&
-      echo 'Model moondream:1.8b ready'
-      "
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-
-  smgr:
-    build: .
-    depends_on:
-      minio-setup:
-        condition: service_completed_successfully
-    environment:
-      SMGR_S3_BUCKET: smgr-test
-      SMGR_S3_ENDPOINT: http://minio:9000
-      SMGR_S3_REGION: us-east-1
-      SMGR_DEVICE_ID: ci-test
-      SMGR_AUTO_ENRICH: "false"
-      AWS_ACCESS_KEY_ID: minioadmin
-      AWS_SECRET_ACCESS_KEY: minioadmin
-    volumes:
-      - smgr-data:/root/.sitemgr
-    command: ["bin/smgr.ts", "watch", "--once"]
-
 volumes:
-  smgr-data:
   ollama-data:
