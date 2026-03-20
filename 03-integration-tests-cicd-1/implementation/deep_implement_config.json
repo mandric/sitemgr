@@ -1,0 +1,31 @@
+{
+  "plugin_root": "/home/user/sitemgr/.claude/plugins/deep-implement",
+  "sections_dir": "/home/user/sitemgr/03-integration-tests-cicd-1/sections",
+  "target_dir": "/home/user/sitemgr",
+  "state_dir": "/home/user/sitemgr/03-integration-tests-cicd-1/implementation",
+  "git_root": "/home/user/sitemgr",
+  "commit_style": "simple",
+  "test_command": "uv run pytest",
+  "sections": [
+    "section-01-schema-info-migration",
+    "section-02-global-setup",
+    "section-03-shared-seed-layer",
+    "section-04-schema-contract-tests",
+    "section-05-tenant-isolation-tests",
+    "section-06-media-lifecycle-tests",
+    "section-07-media-storage-tests",
+    "section-08-vitest-config",
+    "section-09-ci-workflow",
+    "section-10-cleanup"
+  ],
+  "sections_state": {},
+  "pre_commit": {
+    "present": false,
+    "type": "none",
+    "config_file": null,
+    "native_hook": null,
+    "may_modify_files": false,
+    "detected_formatters": []
+  },
+  "created_at": "2026-03-20T00:23:46.863021+00:00"
+}

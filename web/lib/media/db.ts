@@ -341,7 +341,7 @@ export async function upsertWatchedKey(
           ...(userId ? { user_id: userId } : {}),
           ...(bucketConfigId !== undefined ? { bucket_config_id: bucketConfigId } : {}),
         },
-        { onConflict: "s3_key,bucket_config_id" },
+        { onConflict: "s3_key" },
       );
       if (error) throw mapDbError(error, { table: "watched_keys", operation: "upsert" });
       logger.debug("upsertWatchedKey", { s3_key: s3Key, etag });
