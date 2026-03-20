@@ -1,5 +1,5 @@
 /**
- * LLM-based media enrichment via Anthropic Claude
+ * LLM-based media enrichment via Anthropic Claude or OpenAI-compatible endpoints
  */
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -7,6 +7,13 @@ import pLimit from "p-limit";
 import { ENRICHMENT_PROMPT } from "./constants";
 import { createLogger, LogComponent } from "@/lib/logger";
 import { validateImage } from "./validation";
+
+export interface ModelConfig {
+  provider: string;
+  baseUrl: string | null;
+  model: string;
+  apiKey: string | null;
+}
 
 const logger = createLogger(LogComponent.Enrichment);
 
@@ -83,21 +90,126 @@ function parseJsonResponse(text: string): Record<string, unknown> | null {
   }
 }
 
-function buildEmptyResult(rawResponse: string): EnrichmentResult {
+function buildEmptyResult(rawResponse: string, config?: ModelConfig): EnrichmentResult {
   return {
     description: "",
     objects: [],
     context: "",
     suggested_tags: [],
-    provider: "anthropic",
-    model: "claude-haiku-4-5-20251001",
+    provider: config?.provider ?? "anthropic",
+    model: config?.model ?? "claude-haiku-4-5-20251001",
     raw_response: rawResponse,
+  };
+}
+
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503]);
+
+async function fetchWithRetry(
+  url: string,
+  init: RequestInit,
+  maxAttempts = 3,
+): Promise<Response> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await fetch(url, init);
+      if (response.ok) return response;
+
+      if (!RETRYABLE_STATUS_CODES.has(response.status)) {
+        const body = await response.text().catch(() => "");
+        throw new Error(
+          `HTTP ${response.status} from ${url}: ${body.slice(0, 200)}`,
+        );
+      }
+
+      if (attempt < maxAttempts) {
+        const delay = Math.pow(2, attempt - 1) * 1000; // 1s, 2s, 4s
+        logger.warn("retrying fetch", { url, status: response.status, attempt, delay });
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+
+      const body = await response.text().catch(() => "");
+      throw new Error(
+        `HTTP ${response.status} from ${url} after ${maxAttempts} attempts: ${body.slice(0, 200)}`,
+      );
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message.startsWith("HTTP ")) throw err;
+
+      // Network errors (ECONNREFUSED, ECONNRESET, ETIMEDOUT)
+      if (attempt < maxAttempts) {
+        const delay = Math.pow(2, attempt - 1) * 1000;
+        logger.warn("retrying fetch after network error", {
+          url,
+          error: err instanceof Error ? err.message : String(err),
+          attempt,
+          delay,
+        });
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+  // Unreachable, but TypeScript needs it
+  throw new Error("fetchWithRetry: exceeded max attempts");
+}
+
+async function enrichViaOpenAICompat(
+  imageBytes: Buffer,
+  normalizedMime: string,
+  config: ModelConfig,
+): Promise<EnrichmentResult> {
+  const b64 = imageBytes.toString("base64");
+  const dataUri = `data:image/${normalizedMime};base64,${b64}`;
+
+  const body = {
+    model: config.model,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Describe this image in detail." },
+          { type: "image_url", image_url: { url: dataUri } },
+        ],
+      },
+    ],
+  };
+
+  const url = `${config.baseUrl}/chat/completions`;
+  const response = await fetchWithRetry(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+
+  const json = await response.json();
+  const description: string = json.choices?.[0]?.message?.content ?? "";
+
+  logger.info("enrichment complete (openai-compatible)", {
+    model: config.model,
+    provider: config.provider,
+    description_length: description.length,
+    image_size_bytes: imageBytes.length,
+  });
+
+  return {
+    description,
+    objects: [],
+    context: "",
+    suggested_tags: [],
+    provider: config.provider,
+    model: config.model,
+    raw_response: description,
   };
 }
 
 export async function enrichImage(
   imageBytes: Buffer,
   mimeType: string,
+  config?: ModelConfig,
 ): Promise<EnrichmentResult> {
   // Normalize mime type
   const normalizedMime = mimeType === "image/jpg" ? "image/jpeg" : mimeType;
@@ -110,7 +222,7 @@ export async function enrichImage(
       image_size_bytes: imageBytes.length,
       mime_type: mimeType,
     });
-    return buildEmptyResult("");
+    return buildEmptyResult("", config);
   }
 
   if (validation.warnings.length > 0) {
@@ -120,6 +232,12 @@ export async function enrichImage(
     });
   }
 
+  // Route to OpenAI-compatible path when config has a baseUrl
+  if (config?.baseUrl) {
+    return enrichViaOpenAICompat(imageBytes, normalizedMime, config);
+  }
+
+  // Default: Anthropic path (unchanged)
   const client = getAnthropicClient();
   const b64 = imageBytes.toString("base64");
 
@@ -187,7 +305,7 @@ export async function enrichImage(
 
 export async function batchEnrichImages(
   items: BatchEnrichmentItem[],
-  options?: { concurrency?: number },
+  options?: { concurrency?: number; config?: ModelConfig },
 ): Promise<BatchEnrichmentResult> {
   const limit = pLimit(options?.concurrency ?? 3);
   let succeeded = 0;
@@ -198,7 +316,7 @@ export async function batchEnrichImages(
   const tasks = items.map((item) =>
     limit(async () => {
       try {
-        const result = await enrichImage(item.imageBytes, item.mimeType);
+        const result = await enrichImage(item.imageBytes, item.mimeType, options?.config);
         if (result.description === "") {
           skipped++;
         } else {

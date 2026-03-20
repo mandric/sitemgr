@@ -416,3 +416,31 @@ export async function getPendingEnrichments(userId?: string) {
   const enrichedIds = new Set((enriched ?? []).map((e) => e.event_id));
   return { data: (photos ?? []).filter((p) => !enrichedIds.has(p.id)), error: null };
 }
+
+// ── Model Config ──────────────────────────────────────────────
+
+export interface ModelConfigRow {
+  id: string;
+  user_id: string;
+  provider: string;
+  base_url: string | null;
+  model: string;
+  api_key_encrypted: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getModelConfig(userId: string, provider?: string) {
+  const supabase = getAdminClient();
+
+  let query = supabase
+    .from("model_configs")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("is_active", true);
+
+  if (provider) query = query.eq("provider", provider);
+
+  return await query.maybeSingle();
+}
