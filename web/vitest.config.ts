@@ -19,11 +19,6 @@ export default defineConfig({
             "e2e/**",
             "node_modules/**",
             "__tests__/integration/**",
-            // Old test files (deleted in cleanup, kept until then)
-            "__tests__/rls-policies.test.ts",
-            "__tests__/rpc-user-isolation.test.ts",
-            "__tests__/migration-integrity.test.ts",
-            "__tests__/rls-audit.test.ts",
           ],
         },
       },
