@@ -48,7 +48,9 @@ function cliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   return {
     ...process.env,
     NEXT_PUBLIC_SUPABASE_URL: cfg.url,
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: cfg.anonKey,
+    // CLI runs server-side with service role; use serviceKey for both
+    // so getUserClient() also bypasses RLS (no user JWT available in CLI)
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: cfg.serviceKey,
     SUPABASE_SECRET_KEY: cfg.serviceKey,
     SMGR_USER_ID: userId,
     SMGR_DEVICE_ID: "test-e2e",
@@ -85,17 +87,18 @@ async function runCli(
   }
 }
 
-// ── Extra env vars for all e2e CLI calls ─────────────────────
-
-const E2E_ENV = {
-  SMGR_S3_BUCKET: "media",
-  SMGR_AUTO_ENRICH: "false",
-};
-
 // ── Fixture filenames ────────────────────────────────────────
 
 const FIXTURES = ["pineapple.jpg", "dog.jpg", "beach.jpg"] as const;
 const S3_PREFIX = `test-e2e-${Date.now()}`;
+
+// ── Extra env vars for all e2e CLI calls ─────────────────────
+
+const E2E_ENV: Record<string, string> = {
+  SMGR_S3_BUCKET: "media",
+  SMGR_S3_PREFIX: S3_PREFIX + "/",
+  SMGR_AUTO_ENRICH: "false",
+};
 
 // ── Tests ────────────────────────────────────────────────────
 
