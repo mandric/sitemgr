@@ -64,6 +64,7 @@ jobs:
   integration-tests:
     name: Integration Tests (Supabase Local)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -117,8 +118,31 @@ jobs:
           echo "SMGR_S3_BUCKET=media" >> $GITHUB_ENV
           echo "SMGR_S3_REGION=local" >> $GITHUB_ENV
           echo "SMGR_DEVICE_ID=ci-test" >> $GITHUB_ENV
-          echo "SMGR_AUTO_ENRICH=false" >> $GITHUB_ENV
+          echo "SMGR_AUTO_ENRICH=true" >> $GITHUB_ENV
+          echo "SMGR_OLLAMA_URL=http://localhost:11434" >> $GITHUB_ENV
+          echo "SMGR_VISION_MODEL=moondream:1.8b" >> $GITHUB_ENV
           echo "AWS_ENDPOINT_URL_S3=${{ env.STORAGE_S3_URL }}" >> $GITHUB_ENV
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Restore Ollama model cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-moondream-1.8b-${{ runner.os }}
+
+      - name: Start Ollama server
+        run: |
+          ollama serve &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:11434/api/tags > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -sf http://localhost:11434/api/tags > /dev/null 2>&1 || { echo "::error::Ollama server failed to start within 30s"; exit 1; }
+
+      - name: Pull moondream model
+        run: ollama pull moondream:1.8b
 
       - name: Create storage bucket
         run: |
