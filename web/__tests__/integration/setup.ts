@@ -261,6 +261,7 @@ export async function cleanupUserData(
   const tables = [
     { name: "enrichments", column: "user_id" },
     { name: "watched_keys", column: "user_id" },
+    { name: "model_configs", column: "user_id" },
     { name: "events", column: "user_id" },
     { name: "bucket_configs", column: "user_id" },
     { name: "conversations", column: "user_id" },
