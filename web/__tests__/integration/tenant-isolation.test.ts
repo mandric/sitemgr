@@ -193,13 +193,15 @@ describe("when accessing as anonymous user", () => {
 
 describe("when calling RPC functions", () => {
   it("should return only Alice's events when Alice calls search_events", async () => {
-    const { data } = await aliceClient.rpc("search_events", {
+    const { data, error } = await aliceClient.rpc("search_events", {
       p_user_id: aliceId,
       query_text: "Test enrichment",
     });
-    if (data && data.length > 0) {
-      expect(data.every((r: { user_id: string }) => r.user_id === aliceId)).toBe(true);
-    }
+    expect(error).toBeNull();
+    expect(data!.length).toBeGreaterThan(0);
+    expect(
+      data!.every((r: { id: string }) => aliceSeed.eventIds.includes(r.id)),
+    ).toBe(true);
   });
 
   it("should return empty when Alice calls search_events with Bob's user_id", async () => {
@@ -281,7 +283,7 @@ describe("when attempting to modify own events", () => {
       .select("type")
       .eq("id", aliceSeed.eventIds[0])
       .single();
-    expect(original!.type).toBe("photo");
+    expect(original!.type).toBe("create");
   });
 
   it("should reject DELETE of own events", async () => {
