@@ -2,8 +2,15 @@
 -- drop phone_number from bucket_configs
 -- WARNING: This migration drops columns and changes primary keys. Not easily reversible.
 
+-- 0. Remove orphaned rows that couldn't be backfilled in Phase 1
+-- (rows with no matching user_profiles entry for their phone_number)
+DELETE FROM enrichments WHERE user_id IS NULL;
+DELETE FROM watched_keys WHERE user_id IS NULL;
+DELETE FROM events WHERE user_id IS NULL;
+DELETE FROM bucket_configs WHERE user_id IS NULL;
+DELETE FROM conversations WHERE user_id IS NULL;
+
 -- 1. Make user_id NOT NULL on tables
--- This will fail if any NULL user_id rows remain from Phase 1 backfill
 ALTER TABLE events ALTER COLUMN user_id SET NOT NULL;
 ALTER TABLE enrichments ALTER COLUMN user_id SET NOT NULL;
 ALTER TABLE watched_keys ALTER COLUMN user_id SET NOT NULL;
