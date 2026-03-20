@@ -151,11 +151,16 @@ export async function queryEvents(opts: QueryOptions) {
 
   const { data, count, error } = await query;
 
-  // Normalize enrichments: array from join → single object
+  // Normalize enrichments join → single "enrichment" property.
+  // PostgREST returns an object (one-to-one) or array (one-to-many)
+  // depending on FK uniqueness. Handle both.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const events = (data ?? []).map((evt: any) => {
-    if (Array.isArray(evt.enrichments) && evt.enrichments.length > 0) {
-      evt.enrichment = evt.enrichments[0];
+    const e = evt.enrichments;
+    if (Array.isArray(e) && e.length > 0) {
+      evt.enrichment = e[0];
+    } else if (e && typeof e === "object" && !Array.isArray(e)) {
+      evt.enrichment = e;
     }
     delete evt.enrichments;
     return evt;
@@ -184,9 +189,12 @@ export async function showEvent(eventId: string, userId?: string) {
   const { data: event, error } = await query.maybeSingle();
   if (error || !event) return { data: event, error };
 
-  // Normalize enrichments: array from join → single object
-  if (Array.isArray(event.enrichments) && event.enrichments.length > 0) {
-    event.enrichment = event.enrichments[0];
+  // Normalize enrichments join → single "enrichment" property
+  const e = event.enrichments;
+  if (Array.isArray(e) && e.length > 0) {
+    event.enrichment = e[0];
+  } else if (e && typeof e === "object" && !Array.isArray(e)) {
+    event.enrichment = e;
   }
   delete event.enrichments;
 

@@ -247,7 +247,8 @@ describe("smgr e2e pipeline", () => {
   // ── Test 3: enrich --pending processes all images ─────────
 
   it("enrich --pending processes all images", async () => {
-    const result = await runCli(["enrich", "--pending"], E2E_ENV, 120_000);
+    // moondream on CPU can take 60-90s per image; allow 5 min for 3 images
+    const result = await runCli(["enrich", "--pending", "--concurrency", "1"], E2E_ENV, 300_000);
     expect(result.exitCode).toBe(0);
 
     const parsed = JSON.parse(result.stdout);
@@ -268,7 +269,7 @@ describe("smgr e2e pipeline", () => {
           "This is a model issue, not a pipeline bug.",
       ).toBe(true);
     }
-  }, 120_000);
+  }, 300_000);
 
   // ── Test 4: semantic search finds correct images ──────────
 
