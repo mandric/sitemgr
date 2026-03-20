@@ -45,20 +45,29 @@ export async function addBucket(formData: FormData) {
     });
 
     if (error) {
-      console.error("Database error:", error);
+      console.error("addBucket failed:", {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
 
       if (error.code === "23505") {
         return { error: "A bucket with this name already exists" };
       }
 
-      return { error: "Failed to save bucket configuration" };
+      return {
+        error: `Failed to save bucket configuration: ${error.message}`,
+      };
     }
 
     revalidatePath("/buckets");
     return { success: true };
   } catch (error) {
-    console.error("Failed to add bucket:", error);
-    return { error: "Failed to add bucket" };
+    console.error("addBucket exception:", error);
+    return {
+      error: `Failed to add bucket: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
 }
 
