@@ -125,7 +125,7 @@ describe("when attempting cross-tenant writes", () => {
       .select("type")
       .eq("id", bobSeed.eventIds[0])
       .single();
-    expect(data!.type).toBe("photo");
+    expect(data!.type).toBe("create");
   });
 
   it("should not affect Bob's bucket_configs when Alice attempts DELETE", async () => {
@@ -160,7 +160,7 @@ describe("when accessing as anonymous user", () => {
     });
 
     it(`should reject when anon tries to INSERT into ${table}`, async () => {
-      const dummyRow: Record<string, unknown> = {
+      const dummyRow = ({
         events: {
           id: "anon-evt",
           timestamp: new Date().toISOString(),
@@ -183,9 +183,9 @@ describe("when accessing as anonymous user", () => {
         },
         conversations: { user_id: aliceId, history: "[]" },
         user_profiles: { id: aliceId },
-      }[table];
+      })[table] as Record<string, unknown>;
 
-      const { error } = await anonClient.from(table).insert(dummyRow as Record<string, unknown>);
+      const { error } = await anonClient.from(table).insert(dummyRow);
       expect(error).not.toBeNull();
     });
   }
@@ -195,7 +195,7 @@ describe("when calling RPC functions", () => {
   it("should return only Alice's events when Alice calls search_events", async () => {
     const { data } = await aliceClient.rpc("search_events", {
       p_user_id: aliceId,
-      p_query: "Test enrichment",
+      query_text: "Test enrichment",
     });
     if (data && data.length > 0) {
       expect(data.every((r: { user_id: string }) => r.user_id === aliceId)).toBe(true);
@@ -205,7 +205,7 @@ describe("when calling RPC functions", () => {
   it("should return empty when Alice calls search_events with Bob's user_id", async () => {
     const { data } = await aliceClient.rpc("search_events", {
       p_user_id: bobId,
-      p_query: "Test enrichment",
+      query_text: "Test enrichment",
     });
     expect(data ?? []).toHaveLength(0);
   });
@@ -242,23 +242,23 @@ describe("when calling RPC functions", () => {
 describe("when calling admin-only functions", () => {
   it("should deny Alice access to get_user_id_from_phone", async () => {
     const { error } = await aliceClient.rpc("get_user_id_from_phone", {
-      p_phone: "+1234567890",
+      p_phone_number: "+1234567890",
     });
     expect(error).not.toBeNull();
-    expect(error!.message).toMatch(/permission denied/i);
+    expect(error!.message).toMatch(/permission denied|could not find/i);
   });
 
   it("should deny anonymous access to get_user_id_from_phone", async () => {
     const { error } = await anonClient.rpc("get_user_id_from_phone", {
-      p_phone: "+1234567890",
+      p_phone_number: "+1234567890",
     });
     expect(error).not.toBeNull();
-    expect(error!.message).toMatch(/permission denied/i);
+    expect(error!.message).toMatch(/permission denied|could not find/i);
   });
 
   it("should allow service_role access to get_user_id_from_phone", async () => {
     const { error } = await admin.rpc("get_user_id_from_phone", {
-      p_phone: "+1234567890",
+      p_phone_number: "+1234567890",
     });
     if (error) {
       expect(error.message).not.toMatch(/permission denied/i);

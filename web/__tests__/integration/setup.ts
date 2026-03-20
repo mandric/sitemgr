@@ -172,7 +172,7 @@ export async function seedUserData(
         id: eventId,
         timestamp: new Date().toISOString(),
         device_id: `device-${prefix}`,
-        type: "photo",
+        type: "create",
         content_type: "image/jpeg",
         content_hash: `hash-${prefix}-${i}`,
         user_id: userId,
