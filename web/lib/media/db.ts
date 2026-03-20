@@ -1,5 +1,9 @@
 /**
  * Database operations for the media event store (Supabase Postgres)
+ *
+ * All functions return Supabase's { data, error } shape as-is.
+ * Callers decide how to handle errors — the db layer's job is
+ * query encapsulation and retry on writes.
  */
 
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
@@ -8,37 +12,32 @@ import { withRetry } from "@/lib/retry";
 
 const logger = createLogger(LogComponent.DB);
 
-// ── Postgres error code mapping ────────────────────────────────
-
-const PG_ERROR_MAP: Record<string, string> = {
-  "23505": "duplicate key",
-  "23503": "FK violation",
-  "42501": "RLS denied",
-};
+// ── Retry support ──────────────────────────────────────────────
 
 const NON_RETRYABLE_CODES = new Set(["23505", "23503", "42501", "PGRST301", "PGRST302"]);
-
-function mapDbError(
-  error: { code?: string; message: string },
-  context: { table: string; operation: string },
-): Error {
-  const mapped = error.code ? PG_ERROR_MAP[error.code] : undefined;
-  const prefix = mapped
-    ? `${mapped} in ${context.table} during ${context.operation}`
-    : `${error.message} in ${context.table} during ${context.operation}`;
-  logger.error("database error", {
-    table: context.table,
-    operation: context.operation,
-    pg_code: error.code,
-    message: error.message,
-  });
-  return new Error(prefix);
-}
 
 function shouldRetryDbError(error: unknown): boolean {
   const code = (error as Record<string, unknown>)?.code as string | undefined;
   if (code && NON_RETRYABLE_CODES.has(code)) return false;
   return true;
+}
+
+/**
+ * Adapt withRetry for Supabase's { data, error } pattern.
+ * Retries when error is present and retryable; returns { data, error } in all cases.
+ */
+async function withRetryDb<T>(
+  fn: () => Promise<{ data: T; error: unknown }>,
+): Promise<{ data: T; error: unknown }> {
+  try {
+    return await withRetry(async () => {
+      const result = await fn();
+      if (result.error) throw result.error;
+      return result;
+    }, { shouldRetry: shouldRetryDbError });
+  } catch (error) {
+    return { data: null as T, error };
+  }
 }
 
 // ── Clients ────────────────────────────────────────────────────
@@ -108,7 +107,7 @@ export async function queryEvents(opts: QueryOptions) {
       result_count: 0,
       duration_ms: Date.now() - start,
     });
-    return { events: [], total: 0 };
+    return { data: [], count: 0, error: null };
   }
 
   // Full-text search via RPC
@@ -121,14 +120,13 @@ export async function queryEvents(opts: QueryOptions) {
       until_filter: opts.until ?? null,
       result_limit: Math.min(opts.limit ?? 20, 100),
     });
-    if (error) throw mapDbError(error, { table: "events", operation: "search" });
 
     logger.info("queryEvents", {
       has_search: true,
       result_count: (data ?? []).length,
       duration_ms: Date.now() - start,
     });
-    return { events: data ?? [], total: (data ?? []).length };
+    return { data: data ?? [], count: (data ?? []).length, error };
   }
 
   // Standard query with joined enrichments (no N+1)
@@ -147,25 +145,14 @@ export async function queryEvents(opts: QueryOptions) {
   if (opts.device) query = query.eq("device_id", opts.device);
 
   const { data, count, error } = await query;
-  if (error) throw mapDbError(error, { table: "events", operation: "select" });
-
-  // Normalize enrichments: array → single object
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const events = (data ?? []).map((evt: any) => {
-    if (Array.isArray(evt.enrichments) && evt.enrichments.length > 0) {
-      evt.enrichment = evt.enrichments[0];
-    }
-    delete evt.enrichments;
-    return evt;
-  });
 
   logger.info("queryEvents", {
     has_search: false,
-    result_count: events.length,
+    result_count: (data ?? []).length,
     duration_ms: Date.now() - start,
   });
 
-  return { events, total: count ?? events.length };
+  return { data: data ?? [], count: count ?? (data ?? []).length, error };
 }
 
 // ── Show ───────────────────────────────────────────────────────
@@ -178,18 +165,8 @@ export async function showEvent(eventId: string, userId?: string) {
     .select("*, enrichments(description, objects, context, tags)")
     .eq("id", eventId);
   if (userId) query = query.eq("user_id", userId);
-  const { data: event, error } = await query.maybeSingle();
 
-  if (error) throw mapDbError(error, { table: "events", operation: "select" });
-  if (!event) return null;
-
-  // Normalize enrichments
-  if (Array.isArray(event.enrichments) && event.enrichments.length > 0) {
-    event.enrichment = event.enrichments[0];
-  }
-  delete event.enrichments;
-
-  return event;
+  return query.maybeSingle();
 }
 
 // ── Stats ──────────────────────────────────────────────────────
@@ -216,6 +193,13 @@ export async function getStats(userId?: string) {
       watchedQuery,
     ]);
 
+  // Return first error if any sub-query failed
+  const firstError = [byContentType, byEventType, totalRes, enrichedRes, watchedRes]
+    .find(r => r.error)?.error ?? null;
+  if (firstError) {
+    return { data: null, error: firstError };
+  }
+
   const contentTypeCounts: Record<string, number> = {};
   for (const row of byContentType.data ?? []) {
     contentTypeCounts[row.content_type ?? "unknown"] = Number(row.count);
@@ -232,13 +216,16 @@ export async function getStats(userId?: string) {
   const photoCount = contentTypeCounts["photo"] ?? 0;
 
   return {
-    total_events: total,
-    by_content_type: contentTypeCounts,
-    by_event_type: eventTypeCounts,
-    watched_s3_keys: watched,
-    enriched,
-    pending_enrichment: Math.max(0, photoCount - enriched),
-    device_id: process.env.SMGR_DEVICE_ID ?? "default",
+    data: {
+      total_events: total,
+      by_content_type: contentTypeCounts,
+      by_event_type: eventTypeCounts,
+      watched_s3_keys: watched,
+      enriched,
+      pending_enrichment: Math.max(0, photoCount - enriched),
+      device_id: process.env.SMGR_DEVICE_ID ?? "default",
+    },
+    error: null,
   };
 }
 
@@ -266,31 +253,40 @@ export async function getEnrichStatus(userId?: string) {
     enrichmentsQuery,
   ]);
 
+  const firstError = [totalRes, enrichedRes].find(r => r.error)?.error ?? null;
+  if (firstError) {
+    return { data: null, error: firstError };
+  }
+
   const total = totalRes.count ?? 0;
   const enriched = enrichedRes.count ?? 0;
 
   return {
-    total_media: total,
-    enriched,
-    pending: total - enriched,
+    data: {
+      total_media: total,
+      enriched,
+      pending: total - enriched,
+    },
+    error: null,
   };
 }
 
 // ── Insert Event ───────────────────────────────────────────────
 
 export async function insertEvent(event: Omit<EventRow, "timestamp"> & { timestamp?: string }) {
-  await withRetry(
-    async () => {
-      const supabase = getAdminClient();
-      const { error } = await supabase.from("events").insert({
-        ...event,
-        timestamp: event.timestamp ?? new Date().toISOString(),
-      });
-      if (error) throw mapDbError(error, { table: "events", operation: "insert" });
-      logger.debug("insertEvent", { event_id: event.id, content_type: event.content_type });
-    },
-    { shouldRetry: shouldRetryDbError },
-  );
+  const result = await withRetryDb(async () => {
+    const supabase = getAdminClient();
+    return supabase.from("events").insert({
+      ...event,
+      timestamp: event.timestamp ?? new Date().toISOString(),
+    });
+  });
+
+  if (!result.error) {
+    logger.debug("insertEvent", { event_id: event.id, content_type: event.content_type });
+  }
+
+  return result;
 }
 
 // ── Insert Enrichment ──────────────────────────────────────────
@@ -300,22 +296,23 @@ export async function insertEnrichment(
   result: { description: string; objects: string[]; context: string; suggested_tags: string[] },
   userId?: string,
 ) {
-  await withRetry(
-    async () => {
-      const supabase = getAdminClient();
-      const { error } = await supabase.from("enrichments").insert({
-        event_id: eventId,
-        description: result.description,
-        objects: result.objects,
-        context: result.context,
-        tags: result.suggested_tags,
-        ...(userId ? { user_id: userId } : {}),
-      });
-      if (error) throw mapDbError(error, { table: "enrichments", operation: "insert" });
-      logger.debug("insertEnrichment", { event_id: eventId });
-    },
-    { shouldRetry: shouldRetryDbError },
-  );
+  const dbResult = await withRetryDb(async () => {
+    const supabase = getAdminClient();
+    return supabase.from("enrichments").insert({
+      event_id: eventId,
+      description: result.description,
+      objects: result.objects,
+      context: result.context,
+      tags: result.suggested_tags,
+      ...(userId ? { user_id: userId } : {}),
+    });
+  });
+
+  if (!dbResult.error) {
+    logger.debug("insertEnrichment", { event_id: eventId });
+  }
+
+  return dbResult;
 }
 
 // ── Upsert Watched Key ────────────────────────────────────────
@@ -328,42 +325,41 @@ export async function upsertWatchedKey(
   userId?: string,
   bucketConfigId?: string,
 ) {
-  await withRetry(
-    async () => {
-      const supabase = getAdminClient();
-      const { error } = await supabase.from("watched_keys").upsert(
-        {
-          s3_key: s3Key,
-          first_seen: new Date().toISOString(),
-          event_id: eventId,
-          etag,
-          size_bytes: sizeBytes,
-          ...(userId ? { user_id: userId } : {}),
-          ...(bucketConfigId !== undefined ? { bucket_config_id: bucketConfigId } : {}),
-        },
-        { onConflict: "s3_key" },
-      );
-      if (error) throw mapDbError(error, { table: "watched_keys", operation: "upsert" });
-      logger.debug("upsertWatchedKey", { s3_key: s3Key, etag });
-    },
-    { shouldRetry: shouldRetryDbError },
-  );
+  const result = await withRetryDb(async () => {
+    const supabase = getAdminClient();
+    return supabase.from("watched_keys").upsert(
+      {
+        s3_key: s3Key,
+        first_seen: new Date().toISOString(),
+        event_id: eventId,
+        etag,
+        size_bytes: sizeBytes,
+        ...(userId ? { user_id: userId } : {}),
+        ...(bucketConfigId !== undefined ? { bucket_config_id: bucketConfigId } : {}),
+      },
+      { onConflict: "s3_key" },
+    );
+  });
+
+  if (!result.error) {
+    logger.debug("upsertWatchedKey", { s3_key: s3Key, etag });
+  }
+
+  return result;
 }
 
 // ── Get Watched Keys ──────────────────────────────────────────
 
-export async function getWatchedKeys(userId?: string): Promise<Set<string>> {
+export async function getWatchedKeys(userId?: string) {
   const supabase = getAdminClient();
   let query = supabase.from("watched_keys").select("s3_key");
   if (userId) query = query.eq("user_id", userId);
-  const { data, error } = await query;
-  if (error) throw mapDbError(error, { table: "watched_keys", operation: "select" });
-  return new Set((data ?? []).map((r) => r.s3_key));
+  return query;
 }
 
 // ── Check Duplicate by Hash ───────────────────────────────────
 
-export async function findEventByHash(hash: string, userId?: string): Promise<string | null> {
+export async function findEventByHash(hash: string, userId?: string) {
   const supabase = getUserClient();
   let query = supabase
     .from("events")
@@ -371,10 +367,9 @@ export async function findEventByHash(hash: string, userId?: string): Promise<st
     .eq("type", "create")
     .eq("content_hash", hash);
   if (userId) query = query.eq("user_id", userId);
-  const { data } = await query
+  return query
     .limit(1)
     .maybeSingle();
-  return data?.id ?? null;
 }
 
 // ── Get Pending Enrichments ───────────────────────────────────
@@ -391,14 +386,14 @@ export async function getPendingEnrichments(userId?: string) {
   if (userId) photosQuery = photosQuery.eq("user_id", userId);
   const { data: photos, error: photosErr } = await photosQuery;
 
-  if (photosErr) throw mapDbError(photosErr, { table: "events", operation: "select" });
+  if (photosErr) return { data: null, error: photosErr };
 
   let enrichedQuery = supabase.from("enrichments").select("event_id");
   if (userId) enrichedQuery = enrichedQuery.eq("user_id", userId);
   const { data: enriched, error: enrichedErr } = await enrichedQuery;
 
-  if (enrichedErr) throw mapDbError(enrichedErr, { table: "enrichments", operation: "select" });
+  if (enrichedErr) return { data: null, error: enrichedErr };
 
   const enrichedIds = new Set((enriched ?? []).map((e) => e.event_id));
-  return (photos ?? []).filter((p) => !enrichedIds.has(p.id));
+  return { data: (photos ?? []).filter((p) => !enrichedIds.has(p.id)), error: null };
 }

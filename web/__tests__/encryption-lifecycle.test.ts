@@ -27,10 +27,10 @@ vi.mock("@/lib/media/db", async (importOriginal) => {
     ...actual,
     getAdminClient: () => ({ from: mockFrom }),
     getUserClient: () => ({ from: mockFrom }),
-    getWatchedKeys: vi.fn().mockResolvedValue(new Set()),
-    insertEvent: vi.fn().mockResolvedValue(undefined),
-    insertEnrichment: vi.fn().mockResolvedValue(undefined),
-    upsertWatchedKey: vi.fn().mockResolvedValue(undefined),
+    getWatchedKeys: vi.fn().mockResolvedValue({ data: [], error: null }),
+    insertEvent: vi.fn().mockResolvedValue({ data: null, error: null }),
+    insertEnrichment: vi.fn().mockResolvedValue({ data: null, error: null }),
+    upsertWatchedKey: vi.fn().mockResolvedValue({ data: null, error: null }),
   };
 });
 

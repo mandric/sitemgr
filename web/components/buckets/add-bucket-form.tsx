@@ -23,7 +23,12 @@ export function AddBucketForm({ userId }: { userId: string }) {
       const result = await addBucket(formData);
 
       if (result.error) {
-        setError(result.error);
+        const err = result.error as { message?: string; code?: string };
+        if (err.code === "23505") {
+          setError("A bucket with this name already exists");
+        } else {
+          setError(err.message ?? "Failed to add bucket");
+        }
       } else {
         // Reset form on success
         form.reset();

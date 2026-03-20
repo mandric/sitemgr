@@ -121,15 +121,15 @@ describe("upsertWatchedKey", () => {
     expect(row.size_bytes).toBe(2048);
   });
 
-  it("accepts null bucket_config_id without error", async () => {
+  it("returns { data, error } on success", async () => {
     const chain = chainable();
     mockFrom.mockReturnValue(chain);
-    mockUpsert.mockResolvedValue({ error: null });
+    mockUpsert.mockResolvedValue({ data: null, error: null });
 
     const { upsertWatchedKey } = await import("@/lib/media/db");
-    await expect(
-      upsertWatchedKey("photos/a.jpg", "evt-1", "abc", 100)
-    ).resolves.toBeUndefined();
+    const result = await upsertWatchedKey("photos/a.jpg", "evt-1", "abc", 100);
+
+    expect(result).toHaveProperty("error", null);
   });
 });
 
@@ -154,24 +154,7 @@ describe("queryEvents", () => {
 
     // Only one from() call, not one per event
     expect(mockFrom).toHaveBeenCalledTimes(1);
-    expect(result.events).toHaveLength(2);
-  });
-
-  it("returned events include enrichment data attached inline", async () => {
-    const chain = chainable();
-    chain.range = vi.fn().mockResolvedValue({
-      data: [
-        { id: "e1", type: "create", enrichments: [{ description: "a cat", objects: ["cat"] }] },
-      ],
-      count: 1,
-      error: null,
-    });
-    mockFrom.mockReturnValue(chain);
-
-    const { queryEvents } = await import("@/lib/media/db");
-    const result = await queryEvents({});
-
-    expect(result.events[0].enrichment).toEqual({ description: "a cat", objects: ["cat"] });
+    expect(result.data).toHaveLength(2);
   });
 
   it("with search option calls the search_events RPC", async () => {
@@ -200,8 +183,8 @@ describe("queryEvents", () => {
     const { queryEvents } = await import("@/lib/media/db");
     const result = await queryEvents({});
 
-    expect(result.events).toEqual([]);
-    expect(result.total).toBe(0);
+    expect(result.data).toEqual([]);
+    expect(result.count).toBe(0);
   });
 
   it("with empty string search returns empty results without calling RPC", async () => {
@@ -209,8 +192,8 @@ describe("queryEvents", () => {
     const result = await queryEvents({ search: "" });
 
     expect(mockRpc).not.toHaveBeenCalled();
-    expect(result.events).toEqual([]);
-    expect(result.total).toBe(0);
+    expect(result.data).toEqual([]);
+    expect(result.count).toBe(0);
   });
 
   it("caps result_limit at 100", async () => {
@@ -239,114 +222,107 @@ describe("queryEvents", () => {
     const rangeArgs = chain.range.mock.calls[0];
     expect(rangeArgs[1]).toBeLessThanOrEqual(99);
   });
+
+  it("returns error from Supabase without throwing", async () => {
+    const chain = chainable();
+    chain.range = vi.fn().mockResolvedValue({
+      data: null,
+      count: null,
+      error: { code: "42501", message: "insufficient privilege" },
+    });
+    mockFrom.mockReturnValue(chain);
+
+    const { queryEvents } = await import("@/lib/media/db");
+    const result = await queryEvents({});
+
+    expect(result.error).toBeDefined();
+    expect(result.error).toHaveProperty("code", "42501");
+  });
 });
 
-// ── Error mapping ──────────────────────────────────────────────
+// ── Error passthrough (replaces mapDbError tests) ──────────────
 
-describe("mapDbError", () => {
-  it("23505 error contains 'duplicate key'", async () => {
+describe("error passthrough", () => {
+  it("insertEvent returns error with code 23505 on duplicate key", async () => {
     mockFrom.mockReturnValue({
       insert: vi.fn().mockResolvedValue({
+        data: null,
         error: { code: "23505", message: "unique constraint" },
       }),
     });
 
     const { insertEvent } = await import("@/lib/media/db");
-    await expect(
-      insertEvent({
-        id: "e1", device_id: "d1", type: "create",
-        content_type: null, content_hash: null,
-        local_path: null, remote_path: null,
-        metadata: null, parent_id: null, user_id: "u1",
-      })
-    ).rejects.toThrow(/duplicate key/i);
+    const result = await insertEvent({
+      id: "e1", device_id: "d1", type: "create",
+      content_type: null, content_hash: null,
+      local_path: null, remote_path: null,
+      metadata: null, parent_id: null, user_id: "u1",
+    });
+
+    expect(result.error).toBeDefined();
+    expect((result.error as { code: string }).code).toBe("23505");
   });
 
-  it("23503 error contains 'FK violation'", async () => {
+  it("insertEnrichment returns error with code 23503 on FK violation", async () => {
     mockFrom.mockReturnValue({
       insert: vi.fn().mockResolvedValue({
+        data: null,
         error: { code: "23503", message: "foreign key violation" },
       }),
     });
 
     const { insertEnrichment } = await import("@/lib/media/db");
-    await expect(
-      insertEnrichment("no-such-event", {
-        description: "x", objects: [], context: "", suggested_tags: [],
-      })
-    ).rejects.toThrow(/FK violation/i);
+    const result = await insertEnrichment("no-such-event", {
+      description: "x", objects: [], context: "", suggested_tags: [],
+    });
+
+    expect(result.error).toBeDefined();
+    expect((result.error as { code: string }).code).toBe("23503");
   });
 
-  it("42501 error contains 'RLS denied'", async () => {
+  it("insertEvent returns error with code 42501 on RLS denied", async () => {
     mockFrom.mockReturnValue({
       insert: vi.fn().mockResolvedValue({
+        data: null,
         error: { code: "42501", message: "insufficient privilege" },
       }),
     });
 
     const { insertEvent } = await import("@/lib/media/db");
-    await expect(
-      insertEvent({
-        id: "e1", device_id: "d1", type: "create",
-        content_type: null, content_hash: null,
-        local_path: null, remote_path: null,
-        metadata: null, parent_id: null, user_id: "u1",
-      })
-    ).rejects.toThrow(/RLS denied/i);
+    const result = await insertEvent({
+      id: "e1", device_id: "d1", type: "create",
+      content_type: null, content_hash: null,
+      local_path: null, remote_path: null,
+      metadata: null, parent_id: null, user_id: "u1",
+    });
+
+    expect(result.error).toBeDefined();
+    expect((result.error as { code: string }).code).toBe("42501");
   });
 
-  it("error message includes table name", async () => {
+  it("full error object preserved (code, message, details, hint)", async () => {
+    const fullError = {
+      code: "23505",
+      message: "unique constraint",
+      details: "Key (id)=(e1) already exists.",
+      hint: null,
+    };
     mockFrom.mockReturnValue({
       insert: vi.fn().mockResolvedValue({
-        error: { code: "23505", message: "unique constraint" },
+        data: null,
+        error: fullError,
       }),
     });
 
     const { insertEvent } = await import("@/lib/media/db");
-    await expect(
-      insertEvent({
-        id: "e1", device_id: "d1", type: "create",
-        content_type: null, content_hash: null,
-        local_path: null, remote_path: null,
-        metadata: null, parent_id: null, user_id: "u1",
-      })
-    ).rejects.toThrow(/events/);
-  });
-
-  it("error message includes operation name", async () => {
-    mockFrom.mockReturnValue({
-      insert: vi.fn().mockResolvedValue({
-        error: { code: "23505", message: "unique constraint" },
-      }),
+    const result = await insertEvent({
+      id: "e1", device_id: "d1", type: "create",
+      content_type: null, content_hash: null,
+      local_path: null, remote_path: null,
+      metadata: null, parent_id: null, user_id: "u1",
     });
 
-    const { insertEvent } = await import("@/lib/media/db");
-    await expect(
-      insertEvent({
-        id: "e1", device_id: "d1", type: "create",
-        content_type: null, content_hash: null,
-        local_path: null, remote_path: null,
-        metadata: null, parent_id: null, user_id: "u1",
-      })
-    ).rejects.toThrow(/insert/);
-  });
-
-  it("unmapped code re-throws with original message", async () => {
-    mockFrom.mockReturnValue({
-      insert: vi.fn().mockResolvedValue({
-        error: { code: "99999", message: "something unusual" },
-      }),
-    });
-
-    const { insertEvent } = await import("@/lib/media/db");
-    await expect(
-      insertEvent({
-        id: "e1", device_id: "d1", type: "create",
-        content_type: null, content_hash: null,
-        local_path: null, remote_path: null,
-        metadata: null, parent_id: null, user_id: "u1",
-      })
-    ).rejects.toThrow(/something unusual/);
+    expect(result.error).toEqual(fullError);
   });
 });
 
@@ -355,7 +331,7 @@ describe("mapDbError", () => {
 describe("insertEvent", () => {
   it("inserts row with all required fields", async () => {
     mockFrom.mockReturnValue({
-      insert: mockInsert.mockResolvedValue({ error: null }),
+      insert: mockInsert.mockResolvedValue({ data: null, error: null }),
     });
 
     const { insertEvent } = await import("@/lib/media/db");
@@ -375,7 +351,7 @@ describe("insertEvent", () => {
 
   it("timestamp defaults to current ISO string when not provided", async () => {
     mockFrom.mockReturnValue({
-      insert: mockInsert.mockResolvedValue({ error: null }),
+      insert: mockInsert.mockResolvedValue({ data: null, error: null }),
     });
 
     const { insertEvent } = await import("@/lib/media/db");
@@ -394,22 +370,20 @@ describe("insertEvent", () => {
     expect(row.timestamp <= after).toBe(true);
   });
 
-  it("throws mapped error on duplicate event ID (code 23505)", async () => {
+  it("returns { data, error } on success", async () => {
     mockFrom.mockReturnValue({
-      insert: vi.fn().mockResolvedValue({
-        error: { code: "23505", message: "duplicate key value" },
-      }),
+      insert: mockInsert.mockResolvedValue({ data: null, error: null }),
     });
 
     const { insertEvent } = await import("@/lib/media/db");
-    await expect(
-      insertEvent({
-        id: "e1", device_id: "d1", type: "create",
-        content_type: null, content_hash: null,
-        local_path: null, remote_path: null, metadata: null,
-        parent_id: null, user_id: "u1",
-      })
-    ).rejects.toThrow(/duplicate key/i);
+    const result = await insertEvent({
+      id: "e1", device_id: "d1", type: "create",
+      content_type: null, content_hash: null,
+      local_path: null, remote_path: null, metadata: null,
+      parent_id: null, user_id: "u1",
+    });
+
+    expect(result).toHaveProperty("error", null);
   });
 });
 
@@ -418,7 +392,7 @@ describe("insertEvent", () => {
 describe("insertEnrichment", () => {
   it("inserts enrichment row linked to the given event_id", async () => {
     mockFrom.mockReturnValue({
-      insert: mockInsert.mockResolvedValue({ error: null }),
+      insert: mockInsert.mockResolvedValue({ data: null, error: null }),
     });
 
     const { insertEnrichment } = await import("@/lib/media/db");
@@ -432,26 +406,28 @@ describe("insertEnrichment", () => {
     expect(row.description).toBe("a cat");
   });
 
-  it("throws mapped FK violation error when event_id does not exist", async () => {
+  it("returns error on FK violation instead of throwing", async () => {
     mockFrom.mockReturnValue({
       insert: vi.fn().mockResolvedValue({
+        data: null,
         error: { code: "23503", message: "violates foreign key constraint" },
       }),
     });
 
     const { insertEnrichment } = await import("@/lib/media/db");
-    await expect(
-      insertEnrichment("bad-id", {
-        description: "x", objects: [], context: "", suggested_tags: [],
-      })
-    ).rejects.toThrow(/FK violation/i);
+    const result = await insertEnrichment("bad-id", {
+      description: "x", objects: [], context: "", suggested_tags: [],
+    });
+
+    expect(result.error).toBeDefined();
+    expect((result.error as { code: string }).code).toBe("23503");
   });
 });
 
 // ── getStats ───────────────────────────────────────────────────
 
 describe("getStats", () => {
-  it("returns correct shape", async () => {
+  it("returns correct shape in data field", async () => {
     const headChain = chainable();
     headChain.select = vi.fn().mockReturnValue(headChain);
     headChain.eq = vi.fn().mockReturnValue(headChain);
@@ -469,14 +445,15 @@ describe("getStats", () => {
       .mockResolvedValueOnce({ data: [{ type: "create", count: 5 }], error: null });
 
     const { getStats } = await import("@/lib/media/db");
-    const stats = await getStats();
+    const result = await getStats();
 
-    expect(stats).toHaveProperty("total_events");
-    expect(stats).toHaveProperty("by_content_type");
-    expect(stats).toHaveProperty("by_event_type");
-    expect(stats).toHaveProperty("watched_s3_keys");
-    expect(stats).toHaveProperty("enriched");
-    expect(stats).toHaveProperty("pending_enrichment");
+    expect(result.error).toBeNull();
+    expect(result.data).toHaveProperty("total_events");
+    expect(result.data).toHaveProperty("by_content_type");
+    expect(result.data).toHaveProperty("by_event_type");
+    expect(result.data).toHaveProperty("watched_s3_keys");
+    expect(result.data).toHaveProperty("enriched");
+    expect(result.data).toHaveProperty("pending_enrichment");
   });
 });
 
@@ -502,11 +479,12 @@ describe("getEnrichStatus", () => {
     mockFrom.mockReturnValue(headChain);
 
     const { getEnrichStatus } = await import("@/lib/media/db");
-    const status = await getEnrichStatus();
+    const result = await getEnrichStatus();
 
-    expect(status.total_media).toBe(10);
-    expect(status.enriched).toBe(4);
-    expect(status.pending).toBe(6);
+    expect(result.error).toBeNull();
+    expect(result.data!.total_media).toBe(10);
+    expect(result.data!.enriched).toBe(4);
+    expect(result.data!.pending).toBe(6);
   });
 
   it("pending is 0 when all events are enriched", async () => {
@@ -523,9 +501,9 @@ describe("getEnrichStatus", () => {
     mockFrom.mockReturnValue(headChain);
 
     const { getEnrichStatus } = await import("@/lib/media/db");
-    const status = await getEnrichStatus();
+    const result = await getEnrichStatus();
 
-    expect(status.pending).toBe(0);
+    expect(result.data!.pending).toBe(0);
   });
 
   it("handles no events", async () => {
@@ -542,10 +520,10 @@ describe("getEnrichStatus", () => {
     mockFrom.mockReturnValue(headChain);
 
     const { getEnrichStatus } = await import("@/lib/media/db");
-    const status = await getEnrichStatus();
+    const result = await getEnrichStatus();
 
-    expect(status.total_media).toBe(0);
-    expect(status.enriched).toBe(0);
-    expect(status.pending).toBe(0);
+    expect(result.data!.total_media).toBe(0);
+    expect(result.data!.enriched).toBe(0);
+    expect(result.data!.pending).toBe(0);
   });
 });
