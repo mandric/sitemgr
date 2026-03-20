@@ -15,7 +15,6 @@ import {
 
 let admin: SupabaseClient;
 let aliceClient: SupabaseClient;
-let bobClient: SupabaseClient;
 let anonClient: SupabaseClient;
 let aliceId: string;
 let bobId: string;
@@ -32,7 +31,6 @@ beforeAll(async () => {
 
   const bob = await createTestUser("bob-iso@test.local");
   bobId = bob.userId;
-  bobClient = bob.client;
 
   aliceSeed = await seedUserData(admin, aliceId, { eventCount: 2 });
   bobSeed = await seedUserData(admin, bobId, { eventCount: 1 });

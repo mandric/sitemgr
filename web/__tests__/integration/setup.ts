@@ -241,6 +241,7 @@ export async function seedUserData(
       "conversations",
       await admin.from("conversations").insert({
         user_id: userId,
+        phone_number: `+1555${prefix}`,
         history: JSON.stringify([{ role: "user", content: "hello" }]),
       }),
     );

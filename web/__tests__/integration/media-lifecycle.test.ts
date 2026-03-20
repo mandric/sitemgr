@@ -23,7 +23,6 @@ import {
 import {
   createS3Client,
   uploadS3Object,
-  listS3Objects,
 } from "../../lib/media/s3";
 
 let admin: SupabaseClient;
