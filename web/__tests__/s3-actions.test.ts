@@ -24,10 +24,10 @@ vi.mock("@/lib/media/db", async (importOriginal) => {
     ...actual,
     getAdminClient: () => ({ from: mockFrom }),
     getUserClient: () => ({ from: mockFrom }),
-    getWatchedKeys: vi.fn().mockResolvedValue(new Set()),
-    insertEvent: vi.fn().mockResolvedValue(undefined),
-    insertEnrichment: vi.fn().mockResolvedValue(undefined),
-    upsertWatchedKey: vi.fn().mockResolvedValue(undefined),
+    getWatchedKeys: vi.fn().mockResolvedValue({ data: [], error: null }),
+    insertEvent: vi.fn().mockResolvedValue({ data: null, error: null }),
+    insertEnrichment: vi.fn().mockResolvedValue({ data: null, error: null }),
+    upsertWatchedKey: vi.fn().mockResolvedValue({ data: null, error: null }),
   };
 });
 
@@ -45,7 +45,7 @@ vi.mock("@/lib/crypto/encryption", () => ({
 vi.mock("@/lib/crypto/encryption-versioned", () => ({
   encryptSecretVersioned: vi.fn().mockResolvedValue("v2:encrypted"),
   decryptSecretVersioned: vi.fn().mockResolvedValue("decrypted-secret"),
-  getEncryptionVersion: vi.fn().mockReturnValue(2),
+  getEncryptionVersion: vi.fn().mockReturnValue("current"),
   needsMigration: vi.fn().mockReturnValue(false),
 }));
 
@@ -87,10 +87,10 @@ describe("S3 action handlers", () => {
     mockS3Send.mockReset();
     vi.mocked(listS3Objects).mockReset();
     vi.mocked(downloadS3Object).mockReset();
-    vi.mocked(getWatchedKeys).mockReset().mockResolvedValue(new Set());
-    vi.mocked(insertEvent).mockReset().mockResolvedValue(undefined);
-    vi.mocked(insertEnrichment).mockReset().mockResolvedValue(undefined);
-    vi.mocked(upsertWatchedKey).mockReset().mockResolvedValue(undefined);
+    vi.mocked(getWatchedKeys).mockReset().mockResolvedValue({ data: [], error: null } as never);
+    vi.mocked(insertEvent).mockReset().mockResolvedValue({ data: null, error: null } as never);
+    vi.mocked(insertEnrichment).mockReset().mockResolvedValue({ data: null, error: null } as never);
+    vi.mocked(upsertWatchedKey).mockReset().mockResolvedValue({ data: null, error: null } as never);
   });
 
   afterEach(() => {
@@ -278,7 +278,7 @@ describe("S3 action handlers", () => {
 
       const insertedRow = mockInsert.mock.calls[0][0];
       expect(insertedRow.secret_access_key).toBe("v2:encrypted");
-      expect(insertedRow.encryption_key_version).toBe(2);
+      expect(insertedRow.encryption_key_version).toBe("current");
       expect(insertedRow.user_id).toBe("test-user-uuid");
     });
 
@@ -380,7 +380,7 @@ describe("S3 action handlers", () => {
         { key: "new.jpg", size: 2048, etag: "new", lastModified: "" },
         { key: "new2.txt", size: 512, etag: "new2", lastModified: "" },
       ]);
-      vi.mocked(getWatchedKeys).mockResolvedValue(new Set(["old.jpg"]));
+      vi.mocked(getWatchedKeys).mockResolvedValue({ data: [{ s3_key: "old.jpg" }], error: null } as never);
 
       const result = await executeAction(
         {
@@ -405,7 +405,7 @@ describe("S3 action handlers", () => {
         lastModified: "",
       }));
       vi.mocked(listS3Objects).mockResolvedValue(objects);
-      vi.mocked(getWatchedKeys).mockResolvedValue(new Set());
+      vi.mocked(getWatchedKeys).mockResolvedValue({ data: [], error: null } as never);
 
       const result = await executeAction(
         {
@@ -424,7 +424,7 @@ describe("S3 action handlers", () => {
       vi.mocked(listS3Objects).mockResolvedValue([
         { key: "photo.jpeg", size: 1024, etag: "abc", lastModified: "" },
       ]);
-      vi.mocked(getWatchedKeys).mockResolvedValue(new Set());
+      vi.mocked(getWatchedKeys).mockResolvedValue({ data: [], error: null } as never);
       vi.mocked(downloadS3Object).mockResolvedValue(Buffer.from("fake-image"));
 
       const result = await executeAction(

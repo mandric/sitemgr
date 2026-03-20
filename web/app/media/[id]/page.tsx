@@ -24,7 +24,8 @@ async function MediaDetailContent({
   } = await supabase.auth.getUser();
   if (!user) return redirect("/auth/login");
 
-  const event = await getMediaEvent(eventId);
+  const { data: event, error } = await getMediaEvent(eventId);
+  if (error) return <p className="text-red-500">Failed to load media detail.</p>;
   if (!event) return notFound();
 
   const meta = (event.metadata ?? {}) as Record<string, unknown>;

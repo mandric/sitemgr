@@ -36,14 +36,12 @@ export function BucketList({ buckets }: { buckets: Bucket[] }) {
     }
 
     setDeleting(bucketId);
-    try {
-      await deleteBucket(bucketId);
-    } catch (error) {
+    const { error } = await deleteBucket(bucketId);
+    if (error) {
       console.error("Failed to delete bucket:", error);
       alert("Failed to delete bucket");
-    } finally {
-      setDeleting(null);
     }
+    setDeleting(null);
   };
 
   return (

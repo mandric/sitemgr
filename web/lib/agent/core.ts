@@ -224,21 +224,35 @@ export async function executeAction(
           );
           break;
 
-        case "stats":
-          result = JSON.stringify(await getStats(userId ?? undefined));
+        case "stats": {
+          const statsResult = await getStats(userId ?? undefined);
+          if (statsResult.error) {
+            result = errorResponse(`Stats query failed: ${(statsResult.error as Error).message ?? statsResult.error}`, "internal");
+          } else {
+            result = JSON.stringify(statsResult.data);
+          }
           break;
+        }
 
-        case "show":
-          result = JSON.stringify(
-            (await showEvent(plan.params?.id as string, userId ?? undefined)) ?? {
-              error: "Event not found",
-            },
-          );
+        case "show": {
+          const showResult = await showEvent(plan.params?.id as string, userId ?? undefined);
+          if (showResult.error) {
+            result = errorResponse(`Show query failed: ${(showResult.error as Error).message ?? showResult.error}`, "internal");
+          } else {
+            result = JSON.stringify(showResult.data ?? { error: "Event not found" });
+          }
           break;
+        }
 
-        case "enrich_status":
-          result = JSON.stringify(await getEnrichStatus(userId ?? undefined));
+        case "enrich_status": {
+          const enrichResult = await getEnrichStatus(userId ?? undefined);
+          if (enrichResult.error) {
+            result = errorResponse(`Enrich status query failed: ${(enrichResult.error as Error).message ?? enrichResult.error}`, "internal");
+          } else {
+            result = JSON.stringify(enrichResult.data);
+          }
           break;
+        }
 
         case "query": {
           const p = plan.params ?? {};
@@ -250,7 +264,11 @@ export async function executeAction(
             until: p.until as string | undefined,
             limit: (p.limit as number) ?? 20,
           });
-          result = JSON.stringify({ results: queryResult.events, count: queryResult.total });
+          if (queryResult.error) {
+            result = errorResponse(`Query failed: ${(queryResult.error as Error).message ?? queryResult.error}`, "internal");
+          } else {
+            result = JSON.stringify({ results: queryResult.data, count: queryResult.count });
+          }
           break;
         }
 
@@ -759,7 +777,11 @@ async function indexBucket(
     const allObjects = await listS3Objects(s3.client, bucketName, prefix ?? "");
 
     // Get already-watched keys to find new ones
-    const watchedKeys = await getWatchedKeys(userId ?? undefined);
+    const watchedResult = await getWatchedKeys(userId ?? undefined);
+    if (watchedResult.error) {
+      return errorResponse(`Failed to fetch watched keys: ${(watchedResult.error as Error).message ?? watchedResult.error}`, "internal");
+    }
+    const watchedKeys = new Set((watchedResult.data ?? []).map((r: { s3_key: string }) => r.s3_key));
     const newObjects = allObjects.filter((o) => !watchedKeys.has(o.key));
 
     // Take only batch_size items
@@ -776,7 +798,7 @@ async function indexBucket(
             const mimeType = getMimeType(obj.key);
 
             // Create event
-            await insertEvent({
+            const insertResult = await insertEvent({
               id: eventId,
               device_id: `whatsapp:${phoneNumber}`,
               type: "create",
@@ -789,14 +811,14 @@ async function indexBucket(
               bucket_config_id: s3.config.id,
               user_id: userId!,
             });
+            if (insertResult.error) throw insertResult.error;
 
             // Track watched key
-            try {
-              await upsertWatchedKey(obj.key, eventId, obj.etag, obj.size, userId ?? undefined, s3.config.id);
-            } catch (upsertErr) {
+            const upsertResult = await upsertWatchedKey(obj.key, eventId, obj.etag, obj.size, userId ?? undefined, s3.config.id);
+            if (upsertResult.error) {
               logger.warn("upsertWatchedKey failed", {
                 key: obj.key,
-                error: upsertErr instanceof Error ? upsertErr.message : String(upsertErr),
+                error: (upsertResult.error as Error).message ?? String(upsertResult.error),
               });
             }
 
@@ -809,7 +831,8 @@ async function indexBucket(
                   obj.key,
                 );
                 const result = await enrichImage(imageBytes, mimeType);
-                await insertEnrichment(eventId, result, userId ?? undefined);
+                const enrichInsert = await insertEnrichment(eventId, result, userId ?? undefined);
+                if (enrichInsert.error) throw enrichInsert.error;
                 return { key: obj.key, status: "enriched" };
               } catch (enrichErr) {
                 logger.warn("enrichment failed", {

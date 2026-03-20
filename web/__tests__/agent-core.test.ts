@@ -17,14 +17,14 @@ vi.mock("@/lib/media/db", () => ({
     from: (...args: unknown[]) => mockAdminFrom(...args),
   })),
   getUserClient: vi.fn(),
-  queryEvents: vi.fn().mockResolvedValue({ events: [], total: 0 }),
-  showEvent: vi.fn().mockResolvedValue(null),
-  getStats: vi.fn().mockResolvedValue({ total_events: 0 }),
-  getEnrichStatus: vi.fn().mockResolvedValue({ total_media: 0, enriched: 0, pending: 0 }),
-  insertEvent: vi.fn().mockResolvedValue(undefined),
-  insertEnrichment: vi.fn().mockResolvedValue(undefined),
-  upsertWatchedKey: vi.fn().mockResolvedValue(undefined),
-  getWatchedKeys: vi.fn().mockResolvedValue(new Set()),
+  queryEvents: vi.fn().mockResolvedValue({ data: [], count: 0, error: null }),
+  showEvent: vi.fn().mockResolvedValue({ data: null, error: null }),
+  getStats: vi.fn().mockResolvedValue({ data: { total_events: 0 }, error: null }),
+  getEnrichStatus: vi.fn().mockResolvedValue({ data: { total_media: 0, enriched: 0, pending: 0 }, error: null }),
+  insertEvent: vi.fn().mockResolvedValue({ data: null, error: null }),
+  insertEnrichment: vi.fn().mockResolvedValue({ data: null, error: null }),
+  upsertWatchedKey: vi.fn().mockResolvedValue({ data: null, error: null }),
+  getWatchedKeys: vi.fn().mockResolvedValue({ data: [], error: null }),
 }));
 
 vi.mock("@/lib/media/s3", () => ({
@@ -250,7 +250,7 @@ describe("executeAction — request context", () => {
     vi.mocked(getStats).mockImplementation(async () => {
       callOrder.push("getStats");
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return { total_events: 0 } as any;
+      return { data: { total_events: 0 }, error: null } as any;
     });
 
     const { executeAction } = await import("@/lib/agent/core");
@@ -303,8 +303,8 @@ describe("executeAction — error response shape", () => {
     expect(parsed.errorType).toBe("not_found");
   });
 
-  it("when a media library function throws, response includes errorType internal", async () => {
-    vi.mocked(getStats).mockRejectedValueOnce(new Error("DB connection lost"));
+  it("when a media library function returns error, response includes errorType internal", async () => {
+    vi.mocked(getStats).mockResolvedValueOnce({ data: null, error: { code: "PGRST301", message: "DB connection lost" } } as never);
 
     const { executeAction } = await import("@/lib/agent/core");
     const result = await executeAction(
@@ -340,10 +340,10 @@ describe("indexBucket — concurrency and partial failure", () => {
     mockRunWithRequestId.mockImplementation((id: string, fn: () => unknown) => fn());
     setupAdminMock();
 
-    vi.mocked(getWatchedKeys).mockResolvedValue(new Set());
-    vi.mocked(insertEvent).mockResolvedValue(undefined);
-    vi.mocked(upsertWatchedKey).mockResolvedValue(undefined);
-    vi.mocked(insertEnrichment).mockResolvedValue(undefined);
+    vi.mocked(getWatchedKeys).mockResolvedValue({ data: [], error: null } as never);
+    vi.mocked(insertEvent).mockResolvedValue({ data: null, error: null } as never);
+    vi.mocked(upsertWatchedKey).mockResolvedValue({ data: null, error: null } as never);
+    vi.mocked(insertEnrichment).mockResolvedValue({ data: null, error: null } as never);
     vi.mocked(downloadS3Object).mockResolvedValue(Buffer.alloc(10));
     vi.mocked(enrichImage).mockResolvedValue({
       description: "test", objects: [], context: "",
@@ -393,9 +393,9 @@ describe("indexBucket — concurrency and partial failure", () => {
     ]);
 
     vi.mocked(insertEvent)
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error("insert failed"))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce({ data: null, error: null } as never)
+      .mockResolvedValueOnce({ data: null, error: { code: "PGRST301", message: "insert failed" } } as never)
+      .mockResolvedValueOnce({ data: null, error: null } as never);
 
     const { executeAction } = await import("@/lib/agent/core");
     const result = JSON.parse(await executeAction(
@@ -416,8 +416,8 @@ describe("indexBucket — concurrency and partial failure", () => {
     ]);
 
     vi.mocked(insertEvent)
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error("insert failed"));
+      .mockResolvedValueOnce({ data: null, error: null } as never)
+      .mockResolvedValueOnce({ data: null, error: { code: "PGRST301", message: "insert failed" } } as never);
 
     const { executeAction } = await import("@/lib/agent/core");
     const result = JSON.parse(await executeAction(

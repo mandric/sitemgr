@@ -30,13 +30,13 @@ export async function sendMessage(
     .select("id, bucket_name, endpoint_url, region, created_at")
     .eq("user_id", user.id);
 
-  const stats = await getStats(user.id);
+  const { data: stats } = await getStats(user.id);
 
   const contextPrefix = [
     `[User context]`,
     `Buckets: ${buckets?.length ?? 0} configured${buckets?.length ? ` (${buckets.map((b) => b.bucket_name).join(", ")})` : ""}`,
-    `Media: ${stats.total_events} events, ${stats.enriched} enriched, ${stats.pending_enrichment} pending enrichment`,
-    stats.by_content_type
+    `Media: ${stats?.total_events ?? 0} events, ${stats?.enriched ?? 0} enriched, ${stats?.pending_enrichment ?? 0} pending enrichment`,
+    stats?.by_content_type
       ? `Types: ${Object.entries(stats.by_content_type).map(([k, v]) => `${k}: ${v}`).join(", ")}`
       : "",
   ]

@@ -24,12 +24,16 @@ async function MediaContent({
   const limit = 24;
   const offset = (page - 1) * limit;
 
-  const { events, total } = await getMediaEvents({
+  const { data: events, count: total, error } = await getMediaEvents({
     search: resolvedParams.q,
     type: resolvedParams.type,
     offset,
     limit,
   });
+
+  if (error) {
+    return <p className="text-red-500">Failed to load media.</p>;
+  }
 
   const totalPages = Math.ceil(total / limit);
 

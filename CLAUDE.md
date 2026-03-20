@@ -1,3 +1,11 @@
+## Coding Principles
+
+### Don't reshape data without a reason
+
+When a library or service returns a consistent shape (e.g. Supabase's `{ data, error }`), pass it through as-is. Do not re-wrap, strip fields, map to thrown exceptions, or invent custom return shapes in intermediate layers. Callers decide how to handle the result — the db/data layer's job is query encapsulation, not return value transformation.
+
+This applies to error objects too — preserve the full object (`code`, `details`, `hint`, etc). Only strip or redact fields when there's a concrete reason (e.g. hiding internals from end users).
+
 ## Key Decisions
 
 ### v1 is cloud-based (not local-first)

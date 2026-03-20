@@ -15,7 +15,7 @@ export async function addBucket(formData: FormData) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return { error: "Not authenticated" };
+    return { data: null, error: { message: "Not authenticated" } };
   }
 
   const bucketName = formData.get("bucket_name") as string;
@@ -25,7 +25,7 @@ export async function addBucket(formData: FormData) {
   const secretAccessKey = formData.get("secret_access_key") as string;
 
   if (!bucketName || !endpointUrl || !accessKeyId || !secretAccessKey) {
-    return { error: "Missing required fields" };
+    return { data: null, error: { message: "Missing required fields" } };
   }
 
   try {
@@ -34,7 +34,7 @@ export async function addBucket(formData: FormData) {
     const keyVersion = getEncryptionVersion(encryptedSecret);
 
     // Insert into database
-    const { error } = await supabase.from("bucket_configs").insert({
+    const { data, error } = await supabase.from("bucket_configs").insert({
       user_id: user.id,
       bucket_name: bucketName,
       endpoint_url: endpointUrl,
@@ -42,23 +42,20 @@ export async function addBucket(formData: FormData) {
       access_key_id: accessKeyId,
       secret_access_key: encryptedSecret,
       encryption_key_version: keyVersion,
-    });
+    }).select().single();
 
     if (error) {
-      console.error("Database error:", error);
-
-      if (error.code === "23505") {
-        return { error: "A bucket with this name already exists" };
-      }
-
-      return { error: "Failed to save bucket configuration" };
+      return { data: null, error };
     }
 
     revalidatePath("/buckets");
-    return { success: true };
-  } catch (error) {
-    console.error("Failed to add bucket:", error);
-    return { error: "Failed to add bucket" };
+    return { data, error: null };
+  } catch (err) {
+    console.error("addBucket exception:", err);
+    return {
+      data: null,
+      error: { message: `Failed to add bucket: ${err instanceof Error ? err.message : String(err)}` },
+    };
   }
 }
 
@@ -70,7 +67,7 @@ export async function deleteBucket(bucketId: string) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    throw new Error("Not authenticated");
+    return { data: null, error: { message: "Not authenticated" } };
   }
 
   const { error } = await supabase
@@ -80,9 +77,9 @@ export async function deleteBucket(bucketId: string) {
     .eq("user_id", user.id);
 
   if (error) {
-    console.error("Failed to delete bucket:", error);
-    throw new Error("Failed to delete bucket");
+    return { data: null, error };
   }
 
   revalidatePath("/buckets");
+  return { data: null, error: null };
 }

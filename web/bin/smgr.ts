@@ -110,7 +110,7 @@ async function cmdQuery(args: string[]) {
 
   if (values.verbose) verboseMode = true;
   const userId = requireUserId();
-  const result = await queryEvents({
+  const { data, count, error } = await queryEvents({
     userId,
     search: values.search,
     type: values.type,
@@ -120,11 +120,12 @@ async function cmdQuery(args: string[]) {
     limit: parseInt(values.limit!, 10),
     offset: parseInt(values.offset!, 10),
   });
+  if (error) cliError(`Query failed: ${(error as Error).message ?? error}`, EXIT.SERVICE);
 
   if (values.format === "json") {
-    printJson(result);
+    printJson({ data, count });
   } else {
-    const events = result.events as Record<string, unknown>[];
+    const events = (data ?? []) as Record<string, unknown>[];
     console.log();
     console.log(
       "ID".padEnd(28) +
@@ -150,7 +151,7 @@ async function cmdQuery(args: string[]) {
           display
       );
     }
-    console.log(`\nShowing ${events.length} of ${result.total} events`);
+    console.log(`\nShowing ${events.length} of ${count ?? 0} events`);
   }
 }
 
@@ -159,14 +160,16 @@ async function cmdShow(args: string[]) {
   if (!eventId) cliError("Usage: smgr show <event_id>");
 
   const userId = requireUserId();
-  const event = await showEvent(eventId, userId);
+  const { data: event, error } = await showEvent(eventId, userId);
+  if (error) cliError(`Show failed: ${(error as Error).message ?? error}`, EXIT.SERVICE);
   if (!event) cliError(`Event not found: ${eventId}`);
 
   printJson(event);
 }
 
 async function cmdStats() {
-  const stats = await getStats(requireUserId());
+  const { data: stats, error } = await getStats(requireUserId());
+  if (error) cliError(`Stats failed: ${(error as Error).message ?? error}`, EXIT.SERVICE);
   printJson(stats);
 }
 
@@ -191,14 +194,16 @@ async function cmdEnrich(args: string[]) {
   const userId = requireUserId();
 
   if (values.status) {
-    const status = await getEnrichStatus(userId);
+    const { data: status, error } = await getEnrichStatus(userId);
+    if (error) cliError(`Enrich status failed: ${(error as Error).message ?? error}`, EXIT.SERVICE);
     printJson(status);
     return;
   }
 
   if (dryRun) {
-    const pending = await getPendingEnrichments(userId);
-    console.log(JSON.stringify({ pending: pending.length, items: pending.map((e) => e.id) }, null, 2));
+    const { data: pending, error } = await getPendingEnrichments(userId);
+    if (error) cliError(`Pending enrichments failed: ${(error as Error).message ?? error}`, EXIT.SERVICE);
+    console.log(JSON.stringify({ pending: (pending ?? []).length, items: (pending ?? []).map((e) => e.id) }, null, 2));
     return;
   }
 
@@ -206,7 +211,8 @@ async function cmdEnrich(args: string[]) {
 
   if (eventId) {
     // Enrich a specific event
-    const event = await showEvent(eventId, userId);
+    const { data: event, error: showErr } = await showEvent(eventId, userId);
+    if (showErr) cliError(`Show failed: ${(showErr as Error).message ?? showErr}`, EXIT.SERVICE);
     if (!event) cliError(`Event not found: ${eventId}`);
 
     const meta = (event.metadata as Record<string, unknown>) ?? {};
@@ -227,7 +233,8 @@ async function cmdEnrich(args: string[]) {
 
       console.error(`Enriching event ${eventId}...`);
       const result = await enrichImage(imageBytes, mime);
-      await insertEnrichment(eventId, result, userId);
+      const { error: enrichErr } = await insertEnrichment(eventId, result, userId);
+      if (enrichErr) cliError(`Failed to save enrichment: ${(enrichErr as Error).message ?? enrichErr}`, EXIT.SERVICE);
       console.error("Done.");
     } catch (err) {
       cliError(`Failed to download ${key}: ${err}`, exitCodeForS3Error(err), String(err));
@@ -236,8 +243,9 @@ async function cmdEnrich(args: string[]) {
   }
 
   if (values.pending) {
-    const pending = await getPendingEnrichments(userId);
-    if (pending.length === 0) {
+    const { data: pending, error: pendErr } = await getPendingEnrichments(userId);
+    if (pendErr) cliError(`Pending enrichments failed: ${(pendErr as Error).message ?? pendErr}`, EXIT.SERVICE);
+    if (!pending || pending.length === 0) {
       console.log(JSON.stringify({ enriched: 0, failed: 0, skipped: 0, total: 0 }, null, 2));
       return;
     }
@@ -274,7 +282,8 @@ async function cmdEnrich(args: string[]) {
           const imageBytes = await downloadS3Object(s3, bucket, s3Key);
           const mime = (meta.mime_type as string) ?? getMimeType(s3Key);
           const result = await enrichImage(imageBytes, mime);
-          await insertEnrichment(event.id, result, userId);
+          const { error: eErr } = await insertEnrichment(event.id, result, userId);
+          if (eErr) throw eErr;
           done++;
         } catch (err) {
           failed++;
@@ -340,7 +349,9 @@ async function cmdWatch(args: string[]) {
     try {
       const objects = await listS3Objects(s3, bucket, prefix);
       const mediaObjects = objects.filter((o) => isMediaKey(o.key));
-      const seenKeys = await getWatchedKeys(userId);
+      const { data: watchedData, error: watchedErr } = await getWatchedKeys(userId);
+      if (watchedErr) throw watchedErr;
+      const seenKeys = new Set((watchedData ?? []).map((r) => r.s3_key));
       const newObjects = mediaObjects.filter((o) => !seenKeys.has(o.key));
 
       if (newObjects.length > 0) {
@@ -353,9 +364,11 @@ async function cmdWatch(args: string[]) {
             const imageBytes = await downloadS3Object(s3, bucket, obj.key);
             const contentHash = sha256Bytes(imageBytes);
 
-            const existingId = await findEventByHash(contentHash, userId);
-            if (existingId) {
-              await upsertWatchedKey(obj.key, existingId, obj.etag, obj.size, userId);
+            const { data: existingEvent, error: hashErr } = await findEventByHash(contentHash, userId);
+            if (hashErr) logger.warn("findEventByHash failed", { error: String(hashErr) });
+            if (existingEvent?.id) {
+              const { error: upErr } = await upsertWatchedKey(obj.key, existingEvent.id, obj.etag, obj.size, userId);
+              if (upErr) logger.warn("upsertWatchedKey failed", { key: obj.key, error: String(upErr) });
               console.error(`    Already indexed (hash match)`);
               continue;
             }
@@ -365,7 +378,7 @@ async function cmdWatch(args: string[]) {
             const meta = s3Metadata(obj.key, obj.size, obj.etag);
             const remotePath = `s3://${bucket}/${obj.key}`;
 
-            await insertEvent({
+            const { error: insErr } = await insertEvent({
               id: eventId,
               device_id: deviceId,
               type: "create",
@@ -377,7 +390,9 @@ async function cmdWatch(args: string[]) {
               parent_id: null,
               user_id: userId,
             });
-            await upsertWatchedKey(obj.key, eventId, obj.etag, obj.size, userId);
+            if (insErr) throw insErr;
+            const { error: upErr2 } = await upsertWatchedKey(obj.key, eventId, obj.etag, obj.size, userId);
+            if (upErr2) logger.warn("upsertWatchedKey failed", { key: obj.key, error: String(upErr2) });
             console.error(`    Created event ${eventId}`);
 
             if (autoEnrich && contentType === "photo") {
@@ -386,7 +401,8 @@ async function cmdWatch(args: string[]) {
                 console.error("    Enriching...");
                 try {
                   const result = await enrichImage(imageBytes, mime);
-                  await insertEnrichment(eventId, result, userId);
+                  const { error: eErr } = await insertEnrichment(eventId, result, userId);
+                  if (eErr) throw eErr;
                   console.error("    Enriched.");
                 } catch (err) {
                   console.error(`    Enrichment failed: ${err}`);
@@ -395,7 +411,8 @@ async function cmdWatch(args: string[]) {
             }
           } catch (err) {
             console.error(`    Error: ${err}`);
-            await upsertWatchedKey(obj.key, null, obj.etag, obj.size, userId);
+            const { error: upErr3 } = await upsertWatchedKey(obj.key, null, obj.etag, obj.size, userId);
+            if (upErr3) logger.warn("upsertWatchedKey failed", { key: obj.key, error: String(upErr3) });
           }
         }
       }
@@ -469,9 +486,10 @@ async function cmdAdd(args: string[]) {
   const mimeType = getMimeType(fileName);
 
   // Check for duplicates
-  const existing = await findEventByHash(contentHash, userId);
-  if (existing) {
-    console.log(`File already indexed (event ${existing}), skipping.`);
+  const { data: existingEvent, error: hashErr } = await findEventByHash(contentHash, userId);
+  if (hashErr) logger.warn("findEventByHash failed", { error: String(hashErr) });
+  if (existingEvent?.id) {
+    console.log(`File already indexed (event ${existingEvent.id}), skipping.`);
     return;
   }
 
@@ -493,7 +511,7 @@ async function cmdAdd(args: string[]) {
     original_path: absPath,
   };
 
-  await insertEvent({
+  const { error: insErr } = await insertEvent({
     id: eventId,
     device_id: deviceId,
     type: "create",
@@ -505,9 +523,11 @@ async function cmdAdd(args: string[]) {
     parent_id: null,
     user_id: userId,
   });
+  if (insErr) cliError(`Failed to insert event: ${(insErr as Error).message ?? insErr}`, EXIT.SERVICE);
 
   // Track as watched key
-  await upsertWatchedKey(s3Key, eventId, "", stat.size, userId);
+  const { error: upErr } = await upsertWatchedKey(s3Key, eventId, "", stat.size, userId);
+  if (upErr) logger.warn("upsertWatchedKey failed", { key: s3Key, error: String(upErr) });
 
   console.error(`Created event ${eventId}`);
 
@@ -516,7 +536,8 @@ async function cmdAdd(args: string[]) {
     console.error("Enriching...");
     try {
       const result = await enrichImage(Buffer.from(fileBytes), mimeType);
-      await insertEnrichment(eventId, result, userId);
+      const { error: eErr } = await insertEnrichment(eventId, result, userId);
+      if (eErr) throw eErr;
       console.error("Enriched.");
     } catch (err) {
       console.error(`Enrichment failed: ${err}`);

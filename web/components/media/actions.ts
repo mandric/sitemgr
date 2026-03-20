@@ -22,8 +22,9 @@ export type MediaEvent = {
 };
 
 export type MediaQueryResult = {
-  events: MediaEvent[];
-  total: number;
+  data: MediaEvent[];
+  count: number;
+  error: unknown;
 };
 
 export async function getMediaEvents(opts: {
@@ -50,7 +51,7 @@ export async function getMediaEvents(opts: {
       until_filter: null,
       result_limit: limit,
     });
-    if (error) throw error;
+    if (error) return { data: [], count: 0, error };
 
     const events = (data ?? []) as MediaEvent[];
     // Attach enrichments for search results
@@ -64,7 +65,7 @@ export async function getMediaEvents(opts: {
         if (enrichment) evt.enrichment = enrichment;
       }
     }
-    return { events, total: events.length };
+    return { data: events, count: events.length, error: null };
   }
 
   let query = supabase
@@ -78,7 +79,7 @@ export async function getMediaEvents(opts: {
   if (opts.type) query = query.eq("content_type", opts.type);
 
   const { data, count, error } = await query;
-  if (error) throw error;
+  if (error) return { data: [], count: 0, error };
 
   const events = (data ?? []) as MediaEvent[];
 
@@ -106,12 +107,12 @@ export async function getMediaEvents(opts: {
     }
   }
 
-  return { events, total: count ?? events.length };
+  return { data: events, count: count ?? events.length, error: null };
 }
 
 export async function getMediaEvent(
   eventId: string,
-): Promise<MediaEvent | null> {
+): Promise<{ data: MediaEvent | null; error: unknown }> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -125,8 +126,8 @@ export async function getMediaEvent(
     .eq("user_id", user.id)
     .maybeSingle();
 
-  if (error) throw error;
-  if (!event) return null;
+  if (error) return { data: null, error };
+  if (!event) return { data: null, error: null };
 
   const { data: enrichment } = await supabase
     .from("enrichments")
@@ -135,7 +136,10 @@ export async function getMediaEvent(
     .maybeSingle();
 
   return {
-    ...event,
-    enrichment: enrichment ?? null,
-  } as MediaEvent;
+    data: {
+      ...event,
+      enrichment: enrichment ?? null,
+    } as MediaEvent,
+    error: null,
+  };
 }
