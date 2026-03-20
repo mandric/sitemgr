@@ -27,6 +27,31 @@ services:
       echo 'Bucket smgr-test ready'
       "
 
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ollama-setup:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      ollama pull moondream:1.8b &&
+      echo 'Model moondream:1.8b ready'
+      "
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+
   smgr:
     build: .
     depends_on:
@@ -46,3 +71,4 @@ services:
 
 volumes:
   smgr-data:
+  ollama-data:
