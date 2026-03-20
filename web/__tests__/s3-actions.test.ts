@@ -45,7 +45,7 @@ vi.mock("@/lib/crypto/encryption", () => ({
 vi.mock("@/lib/crypto/encryption-versioned", () => ({
   encryptSecretVersioned: vi.fn().mockResolvedValue("v2:encrypted"),
   decryptSecretVersioned: vi.fn().mockResolvedValue("decrypted-secret"),
-  getEncryptionVersion: vi.fn().mockReturnValue(2),
+  getEncryptionVersion: vi.fn().mockReturnValue("current"),
   needsMigration: vi.fn().mockReturnValue(false),
 }));
 
@@ -278,7 +278,7 @@ describe("S3 action handlers", () => {
 
       const insertedRow = mockInsert.mock.calls[0][0];
       expect(insertedRow.secret_access_key).toBe("v2:encrypted");
-      expect(insertedRow.encryption_key_version).toBe(2);
+      expect(insertedRow.encryption_key_version).toBe("current");
       expect(insertedRow.user_id).toBe("test-user-uuid");
     });
 
