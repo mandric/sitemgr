@@ -58,9 +58,9 @@ vi.mock("@/lib/retry", () => ({
 }));
 
 beforeEach(() => {
-  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
+  vi.stubEnv("SMGR_API_URL", "http://localhost:54321");
   vi.stubEnv("SUPABASE_SECRET_KEY", "test-service-key");
-  vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "test-anon-key");
+  vi.stubEnv("SMGR_API_KEY", "test-anon-key");
   vi.clearAllMocks();
 });
 

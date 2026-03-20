@@ -9,6 +9,7 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createLogger, LogComponent } from "@/lib/logger";
 import { withRetry } from "@/lib/retry";
+import { refreshSession, resolveApiConfig } from "@/lib/auth/cli-auth";
 
 const logger = createLogger(LogComponent.DB);
 
@@ -44,28 +45,32 @@ async function withRetryDb<T>(
 
 /** Creates a Supabase client with the service role key (bypasses RLS). */
 export function getAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const { url } = resolveApiConfig();
   const key = process.env.SUPABASE_SECRET_KEY?.replace(/\s+/g, "");
-  if (!url) {
-    throw new Error("NEXT_PUBLIC_SUPABASE_URL is required");
-  }
   if (!key) {
     throw new Error("SUPABASE_SECRET_KEY is required for admin client");
   }
   return createSupabaseClient(url, key);
 }
 
-/** Creates a Supabase client with the publishable key (respects RLS). */
+/** Creates a Supabase client with the publishable/anon key (respects RLS). */
 export function getUserClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.replace(/\s+/g, "");
-  if (!url) {
-    throw new Error("NEXT_PUBLIC_SUPABASE_URL is required");
-  }
-  if (!key) {
-    throw new Error("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required for user client");
-  }
-  return createSupabaseClient(url, key);
+  const { url, anonKey } = resolveApiConfig();
+  return createSupabaseClient(url, anonKey);
+}
+
+/**
+ * Creates a Supabase client authenticated with the CLI user's JWT.
+ * Returns null if no CLI session exists.
+ */
+export async function getAuthenticatedClient() {
+  const creds = await refreshSession();
+  if (!creds) return null;
+
+  const { url, anonKey } = resolveApiConfig();
+  return createSupabaseClient(url, anonKey, {
+    global: { headers: { Authorization: `Bearer ${creds.access_token}` } },
+  });
 }
 
 export interface EventRow {
@@ -146,11 +151,16 @@ export async function queryEvents(opts: QueryOptions) {
 
   const { data, count, error } = await query;
 
-  // Normalize enrichments: array from join → single object
+  // Normalize enrichments join → single "enrichment" property.
+  // PostgREST returns an object (one-to-one) or array (one-to-many)
+  // depending on FK uniqueness. Handle both.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const events = (data ?? []).map((evt: any) => {
-    if (Array.isArray(evt.enrichments) && evt.enrichments.length > 0) {
-      evt.enrichment = evt.enrichments[0];
+    const e = evt.enrichments;
+    if (Array.isArray(e) && e.length > 0) {
+      evt.enrichment = e[0];
+    } else if (e && typeof e === "object" && !Array.isArray(e)) {
+      evt.enrichment = e;
     }
     delete evt.enrichments;
     return evt;
@@ -179,9 +189,12 @@ export async function showEvent(eventId: string, userId?: string) {
   const { data: event, error } = await query.maybeSingle();
   if (error || !event) return { data: event, error };
 
-  // Normalize enrichments: array from join → single object
-  if (Array.isArray(event.enrichments) && event.enrichments.length > 0) {
-    event.enrichment = event.enrichments[0];
+  // Normalize enrichments join → single "enrichment" property
+  const e = event.enrichments;
+  if (Array.isArray(e) && e.length > 0) {
+    event.enrichment = e[0];
+  } else if (e && typeof e === "object" && !Array.isArray(e)) {
+    event.enrichment = e;
   }
   delete event.enrichments;
 
@@ -415,4 +428,32 @@ export async function getPendingEnrichments(userId?: string) {
 
   const enrichedIds = new Set((enriched ?? []).map((e) => e.event_id));
   return { data: (photos ?? []).filter((p) => !enrichedIds.has(p.id)), error: null };
+}
+
+// ── Model Config ──────────────────────────────────────────────
+
+export interface ModelConfigRow {
+  id: string;
+  user_id: string;
+  provider: string;
+  base_url: string | null;
+  model: string;
+  api_key_encrypted: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getModelConfig(userId: string, provider?: string) {
+  const supabase = getAdminClient();
+
+  let query = supabase
+    .from("model_configs")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("is_active", true);
+
+  if (provider) query = query.eq("provider", provider);
+
+  return await query.maybeSingle();
 }

@@ -37,9 +37,12 @@ import {
 } from "../lib/media/utils";
 import { createS3Client, listS3Objects, downloadS3Object, uploadS3Object } from "../lib/media/s3";
 import { enrichImage } from "../lib/media/enrichment";
+import type { ModelConfig } from "../lib/media/enrichment";
+import { getModelConfig } from "../lib/media/db";
 import { createLogger, LogComponent } from "../lib/logger";
 import { runWithRequestId } from "../lib/request-context";
 import { S3ErrorType } from "../lib/media/s3-errors";
+import { login, clearCredentials, loadCredentials } from "../lib/auth/cli-auth";
 
 const logger = createLogger(LogComponent.CLI);
 
@@ -54,6 +57,7 @@ const EXIT = {
 type ExitCode = typeof EXIT[keyof typeof EXIT];
 
 let verboseMode = false;
+let modelConfig: ModelConfig | undefined;
 
 function cliError(message: string, code: ExitCode = EXIT.USER, detail?: string): never {
   console.error(`Error: ${message}`);
@@ -77,13 +81,16 @@ function exitCodeForS3Error(err: unknown): ExitCode {
 
 function requireUserId(): string {
   const userId = process.env.SMGR_USER_ID;
-  if (!userId) {
-    cliError(
-      "Set SMGR_USER_ID environment variable (user UUID for tenant-scoped operations)",
-      EXIT.USER,
-    );
-  }
-  return userId;
+  if (userId) return userId;
+
+  // Fall back to stored CLI session
+  const creds = loadCredentials();
+  if (creds?.user_id) return creds.user_id;
+
+  cliError(
+    "Not logged in. Run 'smgr login' or set SMGR_USER_ID environment variable.",
+    EXIT.USER,
+  );
 }
 
 function printJson(obj: unknown) {
@@ -232,7 +239,7 @@ async function cmdEnrich(args: string[]) {
       const mime = (meta.mime_type as string) ?? getMimeType(key);
 
       console.error(`Enriching event ${eventId}...`);
-      const result = await enrichImage(imageBytes, mime);
+      const result = await enrichImage(imageBytes, mime, modelConfig);
       const { error: enrichErr } = await insertEnrichment(eventId, result, userId);
       if (enrichErr) cliError(`Failed to save enrichment: ${(enrichErr as Error).message ?? enrichErr}`, EXIT.SERVICE);
       console.error("Done.");
@@ -281,7 +288,7 @@ async function cmdEnrich(args: string[]) {
         try {
           const imageBytes = await downloadS3Object(s3, bucket, s3Key);
           const mime = (meta.mime_type as string) ?? getMimeType(s3Key);
-          const result = await enrichImage(imageBytes, mime);
+          const result = await enrichImage(imageBytes, mime, modelConfig);
           const { error: eErr } = await insertEnrichment(event.id, result, userId);
           if (eErr) throw eErr;
           done++;
@@ -400,7 +407,7 @@ async function cmdWatch(args: string[]) {
               if (mime.startsWith("image/")) {
                 console.error("    Enriching...");
                 try {
-                  const result = await enrichImage(imageBytes, mime);
+                  const result = await enrichImage(imageBytes, mime, modelConfig);
                   const { error: eErr } = await insertEnrichment(eventId, result, userId);
                   if (eErr) throw eErr;
                   console.error("    Enriched.");
@@ -535,7 +542,7 @@ async function cmdAdd(args: string[]) {
   if (values.enrich && contentType === "photo" && mimeType.startsWith("image/")) {
     console.error("Enriching...");
     try {
-      const result = await enrichImage(Buffer.from(fileBytes), mimeType);
+      const result = await enrichImage(Buffer.from(fileBytes), mimeType, modelConfig);
       const { error: eErr } = await insertEnrichment(eventId, result, userId);
       if (eErr) throw eErr;
       console.error("Enriched.");
@@ -545,6 +552,37 @@ async function cmdAdd(args: string[]) {
   }
 }
 
+// ── Auth Commands ────────────────────────────────────────────
+
+async function cmdLogin() {
+  try {
+    const creds = await login();
+    console.log(`Logged in as ${creds.email} (${creds.user_id})`);
+  } catch (err) {
+    cliError(`Login failed: ${(err as Error).message ?? err}`, EXIT.SERVICE);
+  }
+}
+
+async function cmdLogout() {
+  clearCredentials();
+  console.log("Logged out. Credentials removed.");
+}
+
+async function cmdWhoami() {
+  const creds = loadCredentials();
+  if (!creds) {
+    console.log("Not logged in. Run 'smgr login' to authenticate.");
+    return;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const expired = creds.expires_at <= now;
+
+  console.log(`Email:   ${creds.email}`);
+  console.log(`User ID: ${creds.user_id}`);
+  console.log(`Token:   ${expired ? "expired (run 'smgr login' to re-authenticate)" : "valid"}`);
+}
+
 // ── Main ─────────────────────────────────────────────────────
 
 if (process.argv.includes("--verbose")) verboseMode = true;
@@ -552,6 +590,9 @@ if (process.argv.includes("--verbose")) verboseMode = true;
 const [command, ...rest] = process.argv.slice(2);
 
 const commands: Record<string, (args: string[]) => Promise<void>> = {
+  login: () => cmdLogin(),
+  logout: () => cmdLogout(),
+  whoami: () => cmdWhoami(),
   query: cmdQuery,
   show: cmdShow,
   stats: () => cmdStats(),
@@ -564,12 +605,20 @@ if (!command || !(command in commands)) {
   console.log(`smgr — S3-event-driven media indexer
 
 Usage:
+  smgr login                    Authenticate with email/password
+  smgr logout                   Clear stored credentials
+  smgr whoami                   Show current session info
+
   smgr query [--search Q] [--type TYPE] [--format json] [--limit N]
   smgr show <event_id>
   smgr stats
   smgr enrich [--pending] [--status] [--concurrency N] [--dry-run] [<event_id>]
   smgr watch [--once] [--interval N] [--max-errors N]
   smgr add <file> [--prefix path/] [--no-enrich]
+
+Authentication:
+  Run 'smgr login' to authenticate. Credentials are stored in ~/.sitemgr/credentials.json.
+  Alternatively, set SMGR_USER_ID for non-interactive use (e.g., CI).
 
 Flags (all commands):
   --verbose         Show technical error details on failure
@@ -589,21 +638,39 @@ Exit codes:
   3  Internal error (unexpected exception)
 
 Environment:
-  NEXT_PUBLIC_SUPABASE_URL     Supabase project URL
-  SUPABASE_SECRET_KEY    Supabase service role key
-  SMGR_S3_BUCKET               S3 bucket name
-  SMGR_S3_ENDPOINT             Custom S3 endpoint (for Supabase Storage)
-  SMGR_S3_REGION               AWS region (default: us-east-1)
-  ANTHROPIC_API_KEY            For enrichment
-  SMGR_USER_ID                 User UUID for tenant-scoped operations
-  SMGR_DEVICE_ID               Device identifier (default: default)
-  SMGR_WATCH_INTERVAL          Poll interval in seconds (default: 60)
-  SMGR_AUTO_ENRICH             Auto-enrich on watch (default: true)`);
+  SMGR_API_URL           Backend API URL (required)
+  SMGR_API_KEY           Backend public key (required)
+  SMGR_S3_BUCKET         S3 bucket name
+  SMGR_S3_ENDPOINT       Custom S3 endpoint (for Supabase Storage)
+  SMGR_S3_REGION         AWS region (default: us-east-1)
+  ANTHROPIC_API_KEY      For enrichment
+  SMGR_USER_ID           User UUID (overrides login session)
+  SMGR_DEVICE_ID         Device identifier (default: default)
+  SMGR_WATCH_INTERVAL    Poll interval in seconds (default: 60)
+  SMGR_AUTO_ENRICH       Auto-enrich on watch (default: true)`);
   process.exit(command ? 1 : 0);
 }
 
 const requestId = crypto.randomUUID();
-runWithRequestId(requestId, () => {
+runWithRequestId(requestId, async () => {
+  // Load model config once at startup if a user ID is available
+  const creds = loadCredentials();
+  const userId = process.env.SMGR_USER_ID ?? creds?.user_id;
+  if (userId) {
+    const { data: configRow, error: configErr } = await getModelConfig(userId);
+    if (configErr) {
+      logger.warn("failed to load model config", { error: String(configErr) });
+    } else if (configRow) {
+      modelConfig = {
+        provider: configRow.provider,
+        baseUrl: configRow.base_url,
+        model: configRow.model,
+        apiKey: configRow.api_key_encrypted,
+      };
+      logger.info("loaded model config", { provider: configRow.provider, model: configRow.model });
+    }
+  }
+
   commands[command](rest).catch((err) => {
     logger.error("unhandled command error", { error: String(err), stack: err?.stack });
     cliError(err.message ?? String(err), EXIT.INTERNAL);

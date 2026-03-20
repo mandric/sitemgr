@@ -64,6 +64,7 @@ jobs:
   integration-tests:
     name: Integration Tests (Supabase Local)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -84,11 +85,9 @@ jobs:
         run: |
           set -euo pipefail
           STATUS_JSON=$(supabase status -o json)
-          echo "SUPABASE_URL=$(echo "$STATUS_JSON" | jq -r .API_URL)" >> $GITHUB_ENV
-          echo "NEXT_PUBLIC_SUPABASE_URL=$(echo "$STATUS_JSON" | jq -r .API_URL)" >> $GITHUB_ENV
+          echo "SMGR_API_URL=$(echo "$STATUS_JSON" | jq -r .API_URL)" >> $GITHUB_ENV
+          echo "SMGR_API_KEY=$(echo "$STATUS_JSON" | jq -r .ANON_KEY)" >> $GITHUB_ENV
           echo "SUPABASE_SECRET_KEY=$(echo "$STATUS_JSON" | jq -r .SERVICE_ROLE_KEY)" >> $GITHUB_ENV
-          echo "SUPABASE_PUBLISHABLE_KEY=$(echo "$STATUS_JSON" | jq -r .ANON_KEY)" >> $GITHUB_ENV
-          echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$(echo "$STATUS_JSON" | jq -r .ANON_KEY)" >> $GITHUB_ENV
           echo "STORAGE_S3_URL=$(echo "$STATUS_JSON" | jq -r .STORAGE_S3_URL)" >> $GITHUB_ENV
 
           AWS_ACCESS_KEY=$(supabase status | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
@@ -99,14 +98,14 @@ jobs:
       - name: Verify integration test env vars
         run: |
           missing=0
-          for var in SUPABASE_URL SUPABASE_SECRET_KEY SUPABASE_PUBLISHABLE_KEY NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; do
+          for var in SMGR_API_URL SMGR_API_KEY SUPABASE_SECRET_KEY; do
             if [ -z "${!var}" ] || [ "${!var}" = "null" ]; then
               echo "ERROR: $var is not set (value: '${!var}')"
               missing=1
             fi
           done
           if [ "$missing" -eq 1 ]; then
-            echo "::error::Required Supabase env vars are missing. DB tests would silently skip; media tests would get cryptic auth failures."
+            echo "::error::Required env vars are missing. Run supabase start and check supabase status -o json."
             exit 1
           fi
           echo "All required env vars verified"
@@ -117,12 +116,35 @@ jobs:
           echo "SMGR_S3_BUCKET=media" >> $GITHUB_ENV
           echo "SMGR_S3_REGION=local" >> $GITHUB_ENV
           echo "SMGR_DEVICE_ID=ci-test" >> $GITHUB_ENV
-          echo "SMGR_AUTO_ENRICH=false" >> $GITHUB_ENV
+          echo "SMGR_AUTO_ENRICH=true" >> $GITHUB_ENV
+          echo "SMGR_OLLAMA_URL=http://localhost:11434" >> $GITHUB_ENV
+          echo "SMGR_VISION_MODEL=moondream:1.8b" >> $GITHUB_ENV
           echo "AWS_ENDPOINT_URL_S3=${{ env.STORAGE_S3_URL }}" >> $GITHUB_ENV
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Restore Ollama model cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-moondream-1.8b-${{ runner.os }}
+
+      - name: Start Ollama server
+        run: |
+          ollama serve &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:11434/api/tags > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -sf http://localhost:11434/api/tags > /dev/null 2>&1 || { echo "::error::Ollama server failed to start within 30s"; exit 1; }
+
+      - name: Pull moondream model
+        run: ollama pull moondream:1.8b
 
       - name: Create storage bucket
         run: |
-          curl -sf -X POST "${{ env.SUPABASE_URL }}/storage/v1/bucket" \
+          curl -sf -X POST "${{ env.SMGR_API_URL }}/storage/v1/bucket" \
             -H "Authorization: Bearer ${{ env.SUPABASE_SECRET_KEY }}" \
             -H "Content-Type: application/json" \
             -d '{"id":"media","name":"media","public":false}' \
