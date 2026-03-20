@@ -98,14 +98,13 @@ function promptPassword(question: string): Promise<string> {
 
 /**
  * Resolves the API URL and public key for the backend.
- * CLI users set SMGR_API_URL / SMGR_API_KEY.
- * Falls back to NEXT_PUBLIC_* for the web app and existing setups.
+ * Set SMGR_API_URL and SMGR_API_KEY in your environment.
  */
 export function resolveApiConfig(): { url: string; anonKey: string } {
-  const url = (process.env.SMGR_API_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL)?.trim();
-  const anonKey = (process.env.SMGR_API_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)?.replace(/\s+/g, "");
-  if (!url) throw new Error("Set SMGR_API_URL (or NEXT_PUBLIC_SUPABASE_URL)");
-  if (!anonKey) throw new Error("Set SMGR_API_KEY (or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY)");
+  const url = process.env.SMGR_API_URL?.trim();
+  const anonKey = process.env.SMGR_API_KEY?.replace(/\s+/g, "");
+  if (!url) throw new Error("SMGR_API_URL is required");
+  if (!anonKey) throw new Error("SMGR_API_KEY is required");
   return { url, anonKey };
 }
 

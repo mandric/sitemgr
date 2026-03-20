@@ -5,9 +5,9 @@
 
 export default async function setup(): Promise<void> {
   const url =
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
+    process.env.SMGR_API_URL ?? "http://127.0.0.1:54321";
   const anonKey =
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "";
+    process.env.SMGR_API_KEY ?? "";
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);

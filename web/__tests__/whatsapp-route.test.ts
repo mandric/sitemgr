@@ -43,8 +43,8 @@ function makeRequest(body: Record<string, string>): NextRequest {
 
 describe("WhatsApp route", () => {
   beforeEach(() => {
-    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
-    vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "test-key");
+    vi.stubEnv("SMGR_API_URL", "http://localhost:54321");
+    vi.stubEnv("SMGR_API_KEY", "test-key");
     vi.stubEnv("TWILIO_ACCOUNT_SID", "AC_test_sid");
     vi.stubEnv("TWILIO_AUTH_TOKEN", "test_auth_token");
     vi.stubEnv("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886");

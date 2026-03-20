@@ -36,10 +36,10 @@ function cliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const cfg = getSupabaseConfig();
   return {
     ...process.env,
-    NEXT_PUBLIC_SUPABASE_URL: cfg.url,
+    SMGR_API_URL: cfg.url,
     // CLI runs server-side with service role; use serviceKey for both
     // so getUserClient() also bypasses RLS (no user JWT available in CLI)
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: cfg.serviceKey,
+    SMGR_API_KEY: cfg.serviceKey,
     SUPABASE_SECRET_KEY: cfg.serviceKey,
     SMGR_USER_ID: userId,
     SMGR_DEVICE_ID: "test-cli",
@@ -356,7 +356,7 @@ describe("smgr enrich error cases", () => {
 describe("exit codes", () => {
   it("should exit 1 when SUPABASE_SECRET_KEY is missing for stats", async () => {
     const result = await runCli(["stats"], { SUPABASE_SECRET_KEY: "" });
-    // stats uses getUserClient which needs NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
+    // stats uses getUserClient which needs SMGR_API_KEY
     // but SMGR_USER_ID check comes first — either way, non-zero
     expect(result.exitCode).not.toBe(0);
   });

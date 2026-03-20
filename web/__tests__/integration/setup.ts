@@ -6,8 +6,8 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 // Local Supabase defaults from `supabase start`
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "";
+const SUPABASE_URL = process.env.SMGR_API_URL ?? "http://127.0.0.1:54321";
+const SUPABASE_ANON_KEY = process.env.SMGR_API_KEY ?? "";
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SECRET_KEY ?? "";
 
 export function getSupabaseConfig() {

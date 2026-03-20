@@ -117,8 +117,8 @@ import {
 // ── Test Setup ─────────────────────────────────────────────
 
 beforeEach(() => {
-  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
-  vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "test-pub-key");
+  vi.stubEnv("SMGR_API_URL", "http://localhost:54321");
+  vi.stubEnv("SMGR_API_KEY", "test-pub-key");
   vi.stubEnv("SUPABASE_SECRET_KEY", "test-secret-key");
   vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test");
   mockCreateClient.mockClear();
