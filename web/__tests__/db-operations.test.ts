@@ -84,7 +84,7 @@ describe("upsertWatchedKey", () => {
     expect(row.bucket_config_id).toBe("bucket-42");
   });
 
-  it("onConflict is set to 's3_key,bucket_config_id'", async () => {
+  it("onConflict is set to 's3_key'", async () => {
     const chain = chainable();
     mockFrom.mockReturnValue(chain);
     mockUpsert.mockResolvedValue({ error: null });
@@ -93,7 +93,7 @@ describe("upsertWatchedKey", () => {
     await upsertWatchedKey("photos/a.jpg", "evt-1", "abc123", 1024, "user-1", "bucket-42");
 
     const [, opts] = mockUpsert.mock.calls[0];
-    expect(opts.onConflict).toBe("s3_key,bucket_config_id");
+    expect(opts.onConflict).toBe("s3_key");
   });
 
   it("ignoreDuplicates is NOT set", async () => {

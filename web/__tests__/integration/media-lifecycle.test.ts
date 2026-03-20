@@ -4,7 +4,6 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { S3Client } from "@aws-sdk/client-s3";
 import {
   getAdminClient,
   createTestUser,
@@ -32,7 +31,7 @@ let userId: string;
 let userClient: SupabaseClient;
 let userBId: string;
 let userBSeed: SeedResult;
-let s3: S3Client;
+let s3: ReturnType<typeof createS3Client>;
 let bucketName: string;
 const uploadedKeys: string[] = [];
 
@@ -111,6 +110,10 @@ describe("when uploading and searching for media", () => {
       type: "photo",
       content_type: "image/jpeg",
       content_hash: `hash-search-${Date.now()}`,
+      local_path: null,
+      remote_path: null,
+      metadata: null,
+      parent_id: null,
       user_id: userId,
     });
 
@@ -160,6 +163,10 @@ describe("when requesting statistics", () => {
       type: "photo",
       content_type: "image/jpeg",
       content_hash: `hash-stats-photo2-${Date.now()}`,
+      local_path: null,
+      remote_path: null,
+      metadata: null,
+      parent_id: null,
       user_id: userId,
     });
 
@@ -169,6 +176,10 @@ describe("when requesting statistics", () => {
       type: "video",
       content_type: "video/mp4",
       content_hash: `hash-stats-video-${Date.now()}`,
+      local_path: null,
+      remote_path: null,
+      metadata: null,
+      parent_id: null,
       user_id: userId,
     });
 
