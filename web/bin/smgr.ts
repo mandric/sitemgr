@@ -37,6 +37,8 @@ import {
 } from "../lib/media/utils";
 import { createS3Client, listS3Objects, downloadS3Object, uploadS3Object } from "../lib/media/s3";
 import { enrichImage } from "../lib/media/enrichment";
+import type { ModelConfig } from "../lib/media/enrichment";
+import { getModelConfig } from "../lib/media/db";
 import { createLogger, LogComponent } from "../lib/logger";
 import { runWithRequestId } from "../lib/request-context";
 import { S3ErrorType } from "../lib/media/s3-errors";
@@ -54,6 +56,7 @@ const EXIT = {
 type ExitCode = typeof EXIT[keyof typeof EXIT];
 
 let verboseMode = false;
+let modelConfig: ModelConfig | undefined;
 
 function cliError(message: string, code: ExitCode = EXIT.USER, detail?: string): never {
   console.error(`Error: ${message}`);
@@ -232,7 +235,7 @@ async function cmdEnrich(args: string[]) {
       const mime = (meta.mime_type as string) ?? getMimeType(key);
 
       console.error(`Enriching event ${eventId}...`);
-      const result = await enrichImage(imageBytes, mime);
+      const result = await enrichImage(imageBytes, mime, modelConfig);
       const { error: enrichErr } = await insertEnrichment(eventId, result, userId);
       if (enrichErr) cliError(`Failed to save enrichment: ${(enrichErr as Error).message ?? enrichErr}`, EXIT.SERVICE);
       console.error("Done.");
@@ -281,7 +284,7 @@ async function cmdEnrich(args: string[]) {
         try {
           const imageBytes = await downloadS3Object(s3, bucket, s3Key);
           const mime = (meta.mime_type as string) ?? getMimeType(s3Key);
-          const result = await enrichImage(imageBytes, mime);
+          const result = await enrichImage(imageBytes, mime, modelConfig);
           const { error: eErr } = await insertEnrichment(event.id, result, userId);
           if (eErr) throw eErr;
           done++;
@@ -400,7 +403,7 @@ async function cmdWatch(args: string[]) {
               if (mime.startsWith("image/")) {
                 console.error("    Enriching...");
                 try {
-                  const result = await enrichImage(imageBytes, mime);
+                  const result = await enrichImage(imageBytes, mime, modelConfig);
                   const { error: eErr } = await insertEnrichment(eventId, result, userId);
                   if (eErr) throw eErr;
                   console.error("    Enriched.");
@@ -535,7 +538,7 @@ async function cmdAdd(args: string[]) {
   if (values.enrich && contentType === "photo" && mimeType.startsWith("image/")) {
     console.error("Enriching...");
     try {
-      const result = await enrichImage(Buffer.from(fileBytes), mimeType);
+      const result = await enrichImage(Buffer.from(fileBytes), mimeType, modelConfig);
       const { error: eErr } = await insertEnrichment(eventId, result, userId);
       if (eErr) throw eErr;
       console.error("Enriched.");
@@ -603,7 +606,24 @@ Environment:
 }
 
 const requestId = crypto.randomUUID();
-runWithRequestId(requestId, () => {
+runWithRequestId(requestId, async () => {
+  // Load model config once at startup if a user ID is available
+  const userId = process.env.SMGR_USER_ID;
+  if (userId) {
+    const { data: configRow, error: configErr } = await getModelConfig(userId);
+    if (configErr) {
+      logger.warn("failed to load model config", { error: String(configErr) });
+    } else if (configRow) {
+      modelConfig = {
+        provider: configRow.provider,
+        baseUrl: configRow.base_url,
+        model: configRow.model,
+        apiKey: configRow.api_key_encrypted,
+      };
+      logger.info("loaded model config", { provider: configRow.provider, model: configRow.model });
+    }
+  }
+
   commands[command](rest).catch((err) => {
     logger.error("unhandled command error", { error: String(err), stack: err?.stack });
     cliError(err.message ?? String(err), EXIT.INTERNAL);
