@@ -170,11 +170,10 @@ jobs:
       - name: Set up environment for E2E tests
         run: |
           cd web
-          cat > .env.local <<EOF
-          # Supabase (local test instance)
-          NEXT_PUBLIC_SUPABASE_URL=${{ env.SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ env.SUPABASE_PUBLISHABLE_KEY }}
-          EOF
+          printf '%s\n' \
+            "NEXT_PUBLIC_SUPABASE_URL=${{ env.SUPABASE_URL }}" \
+            "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ env.SUPABASE_PUBLISHABLE_KEY }}" \
+            > .env.local
 
       - name: Run E2E tests
         run: cd web && npm run test:e2e

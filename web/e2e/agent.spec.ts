@@ -67,6 +67,7 @@ test.describe.configure({ mode: "serial" }); // Run tests serially to share setu
 
 test.describe("Site Manager Agent", () => {
   test.beforeAll(async ({ browser }) => {
+    test.setTimeout(60000); // 60s for signup + Mailpit email delivery
     // Create test user via signup (only once for all tests)
     const page = await browser.newPage();
     await page.goto("/auth/sign-up");
