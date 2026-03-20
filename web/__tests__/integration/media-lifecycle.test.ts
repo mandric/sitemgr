@@ -114,7 +114,7 @@ describe("when uploading and searching for media", () => {
     uploadedKeys.push(key);
 
     // Insert event (type: "create" matches what search_events SQL function filters)
-    await insertEvent({
+    const { error: evtErr } = await insertEvent({
       id: eventId,
       device_id: "test-device",
       type: "create",
@@ -126,9 +126,10 @@ describe("when uploading and searching for media", () => {
       parent_id: null,
       user_id: userId,
     });
+    expect(evtErr).toBeNull();
 
     // Insert enrichment with searchable description
-    await insertEnrichment(
+    const { error: enrErr } = await insertEnrichment(
       eventId,
       {
         description: "sunset over mountains",
@@ -138,6 +139,7 @@ describe("when uploading and searching for media", () => {
       },
       userId,
     );
+    expect(enrErr).toBeNull();
 
     // Search for it using correct parameter name (query_text, not p_query)
     const { data, error } = await admin.rpc("search_events", {
@@ -168,7 +170,7 @@ describe("when requesting statistics", () => {
 
   beforeAll(async () => {
     // Seed additional events for stats (type: "create" for content type stats)
-    await insertEvent({
+    const { error: e1 } = await insertEvent({
       id: evtPhoto2,
       device_id: "test-device",
       type: "create",
@@ -180,8 +182,9 @@ describe("when requesting statistics", () => {
       parent_id: null,
       user_id: userId,
     });
+    expect(e1).toBeNull();
 
-    await insertEvent({
+    const { error: e2 } = await insertEvent({
       id: evtVideo,
       device_id: "test-device",
       type: "create",
@@ -193,8 +196,9 @@ describe("when requesting statistics", () => {
       parent_id: null,
       user_id: userId,
     });
+    expect(e2).toBeNull();
 
-    await insertEnrichment(
+    const { error: e3 } = await insertEnrichment(
       evtPhoto2,
       {
         description: "another photo",
@@ -204,6 +208,7 @@ describe("when requesting statistics", () => {
       },
       userId,
     );
+    expect(e3).toBeNull();
   });
 
   it("should return correct counts by content type", async () => {
@@ -262,10 +267,12 @@ describe("when re-scanning a watched key", () => {
     const testKey = `${userId.slice(0, 8)}/watched-upsert-test.jpg`;
 
     // First upsert
-    await upsertWatchedKey(testKey, null, "etag-abc", 1000, userId);
+    const { error: u1 } = await upsertWatchedKey(testKey, null, "etag-abc", 1000, userId);
+    expect(u1).toBeNull();
 
     // Re-upsert with new etag
-    await upsertWatchedKey(testKey, null, "etag-def", 2000, userId);
+    const { error: u2 } = await upsertWatchedKey(testKey, null, "etag-def", 2000, userId);
+    expect(u2).toBeNull();
 
     // Verify only one row with updated etag
     const { data } = await admin

@@ -146,13 +146,23 @@ export async function queryEvents(opts: QueryOptions) {
 
   const { data, count, error } = await query;
 
+  // Normalize enrichments: array from join → single object
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const events = (data ?? []).map((evt: any) => {
+    if (Array.isArray(evt.enrichments) && evt.enrichments.length > 0) {
+      evt.enrichment = evt.enrichments[0];
+    }
+    delete evt.enrichments;
+    return evt;
+  });
+
   logger.info("queryEvents", {
     has_search: false,
-    result_count: (data ?? []).length,
+    result_count: events.length,
     duration_ms: Date.now() - start,
   });
 
-  return { data: data ?? [], count: count ?? (data ?? []).length, error };
+  return { data: events, count: count ?? events.length, error };
 }
 
 // ── Show ───────────────────────────────────────────────────────
@@ -166,7 +176,16 @@ export async function showEvent(eventId: string, userId?: string) {
     .eq("id", eventId);
   if (userId) query = query.eq("user_id", userId);
 
-  return query.maybeSingle();
+  const { data: event, error } = await query.maybeSingle();
+  if (error || !event) return { data: event, error };
+
+  // Normalize enrichments: array from join → single object
+  if (Array.isArray(event.enrichments) && event.enrichments.length > 0) {
+    event.enrichment = event.enrichments[0];
+  }
+  delete event.enrichments;
+
+  return { data: event, error };
 }
 
 // ── Stats ──────────────────────────────────────────────────────

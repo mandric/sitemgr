@@ -364,9 +364,11 @@ async function cmdWatch(args: string[]) {
             const imageBytes = await downloadS3Object(s3, bucket, obj.key);
             const contentHash = sha256Bytes(imageBytes);
 
-            const { data: existingEvent } = await findEventByHash(contentHash, userId);
+            const { data: existingEvent, error: hashErr } = await findEventByHash(contentHash, userId);
+            if (hashErr) logger.warn("findEventByHash failed", { error: String(hashErr) });
             if (existingEvent?.id) {
-              await upsertWatchedKey(obj.key, existingEvent.id, obj.etag, obj.size, userId);
+              const { error: upErr } = await upsertWatchedKey(obj.key, existingEvent.id, obj.etag, obj.size, userId);
+              if (upErr) logger.warn("upsertWatchedKey failed", { key: obj.key, error: String(upErr) });
               console.error(`    Already indexed (hash match)`);
               continue;
             }
@@ -389,7 +391,8 @@ async function cmdWatch(args: string[]) {
               user_id: userId,
             });
             if (insErr) throw insErr;
-            await upsertWatchedKey(obj.key, eventId, obj.etag, obj.size, userId);
+            const { error: upErr2 } = await upsertWatchedKey(obj.key, eventId, obj.etag, obj.size, userId);
+            if (upErr2) logger.warn("upsertWatchedKey failed", { key: obj.key, error: String(upErr2) });
             console.error(`    Created event ${eventId}`);
 
             if (autoEnrich && contentType === "photo") {
@@ -408,7 +411,8 @@ async function cmdWatch(args: string[]) {
             }
           } catch (err) {
             console.error(`    Error: ${err}`);
-            await upsertWatchedKey(obj.key, null, obj.etag, obj.size, userId);
+            const { error: upErr3 } = await upsertWatchedKey(obj.key, null, obj.etag, obj.size, userId);
+            if (upErr3) logger.warn("upsertWatchedKey failed", { key: obj.key, error: String(upErr3) });
           }
         }
       }
@@ -482,7 +486,8 @@ async function cmdAdd(args: string[]) {
   const mimeType = getMimeType(fileName);
 
   // Check for duplicates
-  const { data: existingEvent } = await findEventByHash(contentHash, userId);
+  const { data: existingEvent, error: hashErr } = await findEventByHash(contentHash, userId);
+  if (hashErr) logger.warn("findEventByHash failed", { error: String(hashErr) });
   if (existingEvent?.id) {
     console.log(`File already indexed (event ${existingEvent.id}), skipping.`);
     return;
@@ -521,7 +526,8 @@ async function cmdAdd(args: string[]) {
   if (insErr) cliError(`Failed to insert event: ${(insErr as Error).message ?? insErr}`, EXIT.SERVICE);
 
   // Track as watched key
-  await upsertWatchedKey(s3Key, eventId, "", stat.size, userId);
+  const { error: upErr } = await upsertWatchedKey(s3Key, eventId, "", stat.size, userId);
+  if (upErr) logger.warn("upsertWatchedKey failed", { key: s3Key, error: String(upErr) });
 
   console.error(`Created event ${eventId}`);
 

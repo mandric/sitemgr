@@ -157,6 +157,24 @@ describe("queryEvents", () => {
     expect(result.data).toHaveLength(2);
   });
 
+  it("returned events include enrichment data normalized from join", async () => {
+    const chain = chainable();
+    chain.range = vi.fn().mockResolvedValue({
+      data: [
+        { id: "e1", type: "create", enrichments: [{ description: "a cat", objects: ["cat"] }] },
+      ],
+      count: 1,
+      error: null,
+    });
+    mockFrom.mockReturnValue(chain);
+
+    const { queryEvents } = await import("@/lib/media/db");
+    const result = await queryEvents({});
+
+    expect(result.data[0].enrichment).toEqual({ description: "a cat", objects: ["cat"] });
+    expect(result.data[0].enrichments).toBeUndefined();
+  });
+
   it("with search option calls the search_events RPC", async () => {
     mockRpc.mockResolvedValue({
       data: [{ id: "e1" }],
