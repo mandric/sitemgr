@@ -41,6 +41,13 @@ Implement to match this exact output format first; the implementation should pro
 
 Each check line is indented with two spaces. Pass lines use `✓`, fail lines use `✗` followed by a colon and the failure reason.
 
+## Implementation Notes
+
+**File created:** `scripts/setup/verify.sh` (new file, `scripts/setup/` directory also created)
+**Permissions:** `chmod +x scripts/setup/verify.sh`
+**Deviations from plan:** None — implementation matches spec exactly.
+**Code review:** All reviewer issues were either contradicted by the spec or out of scope; no fixes applied.
+
 ## Tests (Manual Verification)
 
 These verification commands should be run after implementation to confirm correct behavior:
