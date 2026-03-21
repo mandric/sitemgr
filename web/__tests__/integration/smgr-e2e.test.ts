@@ -123,6 +123,14 @@ describe("smgr e2e pipeline", () => {
     // 3. Get admin client
     admin = getAdminClient();
 
+    // 3b. Ensure 'media' bucket exists (create if absent; ignore if already exists)
+    const { error: bucketErr } = await admin.storage.createBucket("media", {
+      public: false,
+    });
+    if (bucketErr && bucketErr.statusCode !== "409") {
+      throw new Error(`Failed to create media bucket: ${bucketErr.message}`);
+    }
+
     // 4. Insert model_configs row pointing at local Ollama
     const { error: configErr } = await admin.from("model_configs").insert({
       user_id: userId,

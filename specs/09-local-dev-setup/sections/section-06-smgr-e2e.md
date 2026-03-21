@@ -92,6 +92,14 @@ The `beforeAll` block currently has steps numbered 1–6. The bucket creation sh
 6. Verify uploads are visible
 ```
 
+## Implementation Notes (Actual)
+
+**File modified:** `web/__tests__/integration/smgr-e2e.test.ts`
+
+**Deviations from plan (code review fix):**
+
+1. **Use `statusCode !== "409"` instead of message string**: The plan spec used `!bucketErr.message.includes("already exists")`. Replaced with `bucketErr.statusCode !== "409"` — the HTTP status code is stable across Supabase Storage versions, while the message text is not versioned and can vary.
+
 ## Acceptance Criteria
 
 - The test suite runs to completion with Ollama active even when no `media` bucket was pre-created by `local-dev.sh`.
