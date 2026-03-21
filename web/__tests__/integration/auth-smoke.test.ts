@@ -9,7 +9,8 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { getSupabaseConfig, getAdminClient, createTestUser } from "./setup";
+import { getSupabaseConfig, getAdminClient, getS3Config, createTestUser } from "./setup";
+import { createS3Client, listS3Objects } from "../../lib/media/s3";
 
 describe("auth token smoke tests", () => {
   const cfg = getSupabaseConfig();
@@ -84,6 +85,38 @@ describe("auth token smoke tests", () => {
       });
       expect(error).toBeDefined();
       expect(error!.message).toMatch(/invalid/i);
+    });
+  });
+
+  describe("S3 storage credentials", () => {
+    it("can list objects in a bucket via S3 protocol", async () => {
+      const s3Cfg = getS3Config();
+      const s3 = createS3Client({
+        endpoint: s3Cfg.endpoint,
+        region: s3Cfg.region,
+        accessKeyId: s3Cfg.accessKeyId,
+        secretAccessKey: s3Cfg.secretAccessKey,
+      });
+
+      // ListObjects should succeed even on an empty/nonexistent prefix
+      const objects = await listS3Objects(s3, "media", "auth-smoke-test/");
+      expect(objects).toBeDefined();
+      expect(Array.isArray(objects)).toBe(true);
+    });
+
+    it("can create and delete a bucket via Supabase Storage API", async () => {
+      const admin = getAdminClient();
+      const bucket = `auth-smoke-${Date.now()}`;
+
+      const { error: createErr } = await admin.storage.createBucket(bucket, {
+        public: false,
+      });
+      expect(createErr).toBeNull();
+
+      const { error: deleteErr } = await admin.storage.deleteBucket(bucket);
+      expect(deleteErr).toBeNull();
+
+      await admin.removeAllChannels();
     });
   });
 
