@@ -63,12 +63,24 @@ Supabase CLI ≥ 2.78 switched GoTrue to ES256 JWT signing. The `SERVICE_ROLE_KE
 3. **Incomplete JWT**: Missing standard claims (`sub`, `aud`, `iat`) that services may expect
 4. **Likely only needed for GoTrue admin calls**: PostgREST and Storage may still accept the HS256 key (they may use a different JWT secret config). The only GoTrue admin calls in this codebase are in test setup (`auth.admin.createUser/deleteUser`)
 
-### What to do instead
+### Upstream status (as of March 2026)
 
-1. **Verify the scope**: Run integration tests with the unmodified HS256 `SERVICE_ROLE_KEY` — identify exactly which API calls fail
-2. **Report upstream**: If the CLI doesn't provide a working key, file an issue on `supabase/cli`
-3. **Remove the workaround**: Delete the Docker-introspection code from `local-dev.sh`
-4. **If GoTrue admin calls fail in tests**: Pin the Supabase CLI version until upstream fixes it, or restructure test setup to avoid `auth.admin.*` calls
+This is a known issue cluster. The relevant fixes have landed:
+
+- **[supabase/cli#4818](https://github.com/supabase/cli/pull/4818)** — Fixed `auth.admin.*` calls with service role key. Confirmed working in **CLI ≥ 2.76.4** (Feb 2026). This was the specific breakage our workaround addressed.
+- **[supabase/cli#4721](https://github.com/supabase/cli/pull/4721)** — Added hybrid JWT verification to Edge Functions (merged March 10, 2026). Accepts both HS256 and ES256 tokens automatically.
+- **[supabase/supabase#42037](https://github.com/supabase/supabase/issues/42037)** — Main issue thread. Fix confirmed: `supabase status -o env` now outputs working keys.
+
+**The workaround in commit `82b268d` was valid for CLI 2.71–2.76.3 but is now unnecessary.**
+
+Related open issues (no action needed from us):
+- [supabase/cli#4726](https://github.com/supabase/cli/issues/4726) — Feature request for `jwt_algorithm` config option in `config.toml` (not yet merged, but we don't need it)
+
+### What to do
+
+1. **Require Supabase CLI ≥ 2.76.4** — add a version check in `local-dev.sh`
+2. **Delete the ES256 workaround** — the keys from `supabase status -o json` work as-is on ≥ 2.76.4
+3. **Use keys from CLI directly** — no manual JWT construction, no Docker introspection
 
 ## Current naming mess
 
@@ -154,25 +166,16 @@ supabase status -o json
 
 ### Migration approach
 
-1. **Remove ES256 workaround** from `scripts/local-dev.sh` (lines 61-91)
-2. **Update `local-dev.sh` output** to use canonical names only
-3. **Update CLI** (`web/bin/smgr.ts`): Read `SUPABASE_SERVICE_ROLE_KEY` directly, remove fallback
-4. **Update CLI auth** (`web/lib/auth/cli-auth.ts`): Read `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
-5. **Update instrumentation** (`web/instrumentation.ts`): Validate `SUPABASE_SERVICE_ROLE_KEY`
-6. **Update integration tests**: Use canonical names in `setup.ts`, `globalSetup.ts`, test files
-7. **Update CI workflow** (`.github/workflows/ci.yml`): Use canonical names
-8. **Update `.env.example` files**: Single set of names with clear comments
-9. **Update `docs/ENV_VARS.md`**: Document canonical names and why each is a JWT or not
-
-### What to verify first
-
-Before removing the ES256 workaround:
-
-1. Run `supabase start` with CLI ≥ 2.78
-2. Use the unmodified `SERVICE_ROLE_KEY` from `supabase status -o json`
-3. Run integration tests — log which specific calls fail
-4. If only `auth.admin.*` calls fail, the workaround scope was wrong (should be in test setup, not env var generation)
-5. Check `supabase/cli` releases/issues for whether this is a known gap
+1. **Add CLI version check** to `scripts/local-dev.sh` — require ≥ 2.76.4, error with link to upstream issue if older
+2. **Remove ES256 workaround** from `scripts/local-dev.sh` (lines 61-91) — keys from `supabase status` work as-is
+3. **Update `local-dev.sh` output** to use canonical names only
+4. **Update CLI** (`web/bin/smgr.ts`): Read `SUPABASE_SERVICE_ROLE_KEY` directly, remove fallback
+5. **Update CLI auth** (`web/lib/auth/cli-auth.ts`): Read `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+6. **Update instrumentation** (`web/instrumentation.ts`): Validate `SUPABASE_SERVICE_ROLE_KEY`
+7. **Update integration tests**: Use canonical names in `setup.ts`, `globalSetup.ts`, test files
+8. **Update CI workflow** (`.github/workflows/ci.yml`): Use canonical names
+9. **Update `.env.example` files**: Single set of names with clear comments
+10. **Update `docs/ENV_VARS.md`**: Document canonical names and why each is a JWT or not
 
 ## Files to change
 
