@@ -1,0 +1,1205 @@
+diff --git a/docs/TESTING.md b/docs/TESTING.md
+index 9d388b5..8ccd1ea 100644
+--- a/docs/TESTING.md
++++ b/docs/TESTING.md
+@@ -70,18 +70,13 @@ source .env.local         # Load environment variables
+ # Terminal 1: Keep Supabase running
+ supabase start
+ 
+-# Terminal 2: Run tests
+-./tests/integration_test.sh
+-
+-# Terminal 3: Interactive testing
+-python3 prototype/smgr.py watch
+-python3 prototype/bot.py --stdio
++# Terminal 2: Run integration tests
++./scripts/test-integration.sh --skip-ollama
+ ```
+ 
+ **Reset:**
+ ```bash
+-supabase db reset         # Reset database to migrations
+-./tests/seed_test_data.sh # Re-populate with test data
++supabase db reset         # Wipes and replays all migrations; .env.local is unaffected
+ ```
+ 
+ ### 2. Continuous Integration (GitHub Actions)
+@@ -116,71 +111,25 @@ supabase db reset         # Reset database to migrations
+ 
+ ## Integration Test Suite
+ 
+-### Coverage
+-
+-**Current tests (`tests/integration_test.sh`):**
+-
+-| Test | What It Validates |
+-|------|-------------------|
+-| Database init | Migrations apply successfully |
+-| Stats query | Database is queryable |
+-| Storage upload | Supabase Storage API works |
+-| S3 watcher | Detects new objects in bucket |
+-| Event creation | Events are created correctly |
+-| Query by type | Content type filtering works |
+-| Show event | Event detail retrieval works |
+-| Bot conversation | Natural language → query translation |
+-| Stats consistency | Database state is coherent |
+-
+-**Future tests (roadmap):**
+-- [ ] Enrichment with mock LLM
+-- [ ] Full-text search ranking
+-- [ ] Edge Function POST webhook handling
+-- [ ] Multi-device event handling
+-- [ ] Error recovery (API failures, network errors)
+-- [ ] Performance benchmarks
++The canonical integration test runner is `./scripts/test-integration.sh`, which sources `.env.local` automatically and runs the vitest integration project under `web/__tests__/integration/`.
+ 
+ ### Running Tests
+ 
+-**Quick validation:**
++**Integration tests (requires Supabase running):**
+ ```bash
+-./tests/integration_test.sh
++./scripts/test-integration.sh --skip-ollama
+ ```
+ 
+-**With fresh test data:**
++**With Ollama enrichment (optional):**
+ ```bash
+-./tests/seed_test_data.sh
+-./tests/integration_test.sh
++./scripts/test-integration.sh
+ ```
+ 
+-**Individual test scenario:**
++**Unit tests only (no Supabase required):**
+ ```bash
+-# Edit integration_test.sh to comment out tests you don't want
+-# Or extract specific commands
+-source .env.local
+-python3 prototype/smgr.py init
+-python3 prototype/smgr.py stats
++cd web && npm test
+ ```
+ 
+-### Test Fixtures
+-
+-**Location:** `tests/fixtures/photos/`
+-
+-**Current:** Minimal 1x1 JPEG placeholders (for speed)
+-
+-**To add real photos:**
+-```bash
+-cp ~/Pictures/test_*.jpg tests/fixtures/photos/
+-./tests/seed_test_data.sh
+-```
+-
+-**Naming convention:** Use descriptive names that indicate expected content:
+-- `bed_frame_broken.jpg` - Should be recognized as furniture damage
+-- `wood_cutting.jpg` - Should be recognized as woodworking
+-- `finished_repair.jpg` - Should be recognized as completed project
+-
+-This enables validating enrichment accuracy when implemented.
+-
+ ## Deployment Testing
+ 
+ ### Test Environment Auto-Deploy
+@@ -230,43 +179,10 @@ supabase db dump --project-ref <your-ref>
+ 
+ ## Test Data Management
+ 
+-### Seeding Test Data
+-
+-**Purpose:** Populate environment with realistic data for testing
+-
+-**Script:** `tests/seed_test_data.sh`
++Integration tests create and destroy their own isolated data per run. No manual seeding is required. To reset the local database:
+ 
+-**What it does:**
+-1. Generates test photos (or uses existing fixtures)
+-2. Uploads to Supabase Storage
+-3. Runs `smgr watch` to detect uploads
+-4. Optionally enriches photos (if API key configured)
+-
+-**Usage:**
+-```bash
+-# Seed with default fixtures
+-./tests/seed_test_data.sh
+-
+-# Check what was created
+-python3 prototype/smgr.py stats
+-python3 prototype/smgr.py query --type photo
+-```
+-
+-### Reset Test Data
+-
+-**Local:**
+ ```bash
+-supabase db reset
+-./tests/seed_test_data.sh
+-```
+-
+-**Cloud test environment:**
+-```bash
+-# Reset database
+-supabase db reset --linked
+-
+-# Or re-run deployment
+-git push origin develop --force-with-lease
++supabase db reset    # Wipes and replays all migrations
+ ```
+ 
+ ## Debugging Failed Tests
+@@ -286,10 +202,9 @@ git push origin develop --force-with-lease
+    echo $SMGR_S3_ENDPOINT
+    ```
+ 
+-3. **Run test commands manually:**
++3. **Check environment health:**
+    ```bash
+-   python3 prototype/smgr.py init
+-   python3 prototype/smgr.py stats
++   ./scripts/setup/verify.sh
+    ```
+ 
+ 4. **Check Supabase logs:**
+@@ -343,7 +258,7 @@ As components stabilize, add unit tests for:
+ - Storage provider interface
+ - Query provider interface
+ 
+-**Test framework:** `pytest` with fixtures and mocking
++**Test framework:** `vitest` (already in use for unit tests)
+ 
+ **Coverage target:** 60-80% for stable components
+ 
+@@ -353,20 +268,18 @@ As components stabilize, add unit tests for:
+ 
+ | Component | Integration | Unit | Total |
+ |-----------|-------------|------|-------|
+-| smgr.py CLI | 30% | 0% | 30% |
+-| bot.py | 10% | 0% | 10% |
+-| Edge Function | 5% | 0% | 5% |
+-| Database | 40% | N/A | 40% |
++| smgr CLI (TypeScript) | 30% | 0% | 30% |
++| API routes / webhooks | 10% | 0% | 10% |
++| Database / migrations | 40% | N/A | 40% |
+ | **Overall** | **~20%** | **0%** | **~20%** |
+ 
+ ### Target Coverage (3 months)
+ 
+ | Component | Integration | Unit | Total |
+ |-----------|-------------|------|-------|
+-| smgr.py CLI | 60% | 40% | 70% |
+-| bot.py | 40% | 30% | 50% |
+-| Edge Function | 50% | 30% | 60% |
+-| Database | 70% | N/A | 70% |
++| smgr CLI (TypeScript) | 60% | 40% | 70% |
++| API routes / webhooks | 40% | 30% | 50% |
++| Database / migrations | 70% | N/A | 70% |
+ | **Overall** | **~55%** | **~25%** | **~65%** |
+ 
+ ### Success Metrics
+diff --git a/tests/README.md b/tests/README.md
+deleted file mode 100644
+index ed55808..0000000
+--- a/tests/README.md
++++ /dev/null
+@@ -1,222 +0,0 @@
+-# Integration Tests
+-
+-This directory contains integration tests for sitemgr using Supabase local environment.
+-
+-## Quick Start
+-
+-### Local Development
+-
+-```bash
+-# 1. Start Supabase local environment
+-./scripts/local-dev.sh
+-
+-# 2. Load environment variables
+-source .env.local
+-
+-# 3. Run integration tests
+-./tests/integration_test.sh
+-
+-# 4. Seed test data (optional)
+-./tests/seed_test_data.sh
+-```
+-
+-### What Gets Tested
+-
+-The integration test suite validates:
+-
+-- ✅ Database initialization
+-- ✅ Storage bucket creation
+-- ✅ Photo upload to Supabase Storage
+-- ✅ S3 watcher detection
+-- ✅ Event creation and querying
+-- ✅ Full-text search
+-- ✅ Bot conversation (if ANTHROPIC_API_KEY is set)
+-- ✅ Database consistency
+-
+-## Test Structure
+-
+-```
+-tests/
+-  integration_test.sh       # Main test suite
+-  seed_test_data.sh         # Populate with test data
+-  fixtures/
+-    photos/                 # Test images
+-    expected_enrichments/   # Expected LLM responses (future)
+-  README.md                 # This file
+-```
+-
+-## Requirements
+-
+-- Supabase CLI installed
+-- Python 3.12+
+-- jq (for JSON parsing)
+-- curl
+-
+-### Installing Prerequisites
+-
+-**macOS:**
+-```bash
+-brew install supabase/tap/supabase jq
+-```
+-
+-**Ubuntu/Debian:**
+-```bash
+-# Supabase CLI
+-curl -fsSL https://raw.githubusercontent.com/supabase/supabase/master/install.sh | sh
+-
+-# jq
+-sudo apt-get install jq
+-```
+-
+-## Environment Variables
+-
+-The test suite uses these environment variables (auto-configured by `local-dev.sh`):
+-
+-```bash
+-SUPABASE_URL                  # Local Supabase API (http://localhost:54321)
+-SUPABASE_SECRET_KEY     # Admin key from supabase status
+-SMGR_S3_ENDPOINT              # Storage API endpoint
+-SMGR_S3_BUCKET                # Bucket name (default: media)
+-SMGR_DEVICE_ID                # Device identifier for tests
+-SMGR_AUTO_ENRICH              # Enable auto-enrichment (default: false)
+-ANTHROPIC_API_KEY             # Optional: for bot tests
+-```
+-
+-## Running Tests
+-
+-### Run All Tests
+-```bash
+-./tests/integration_test.sh
+-```
+-
+-### Run Tests in CI Mode (fail fast)
+-```bash
+-EXIT_ON_FAIL=true ./tests/integration_test.sh
+-```
+-
+-### Seed Test Data First
+-```bash
+-./tests/seed_test_data.sh
+-./tests/integration_test.sh
+-```
+-
+-## Test Fixtures
+-
+-### Creating Test Photos
+-
+-The `seed_test_data.sh` script generates minimal test JPEGs. For realistic testing with actual photos:
+-
+-1. Add real photos to `tests/fixtures/photos/`
+-2. Run the seed script to upload them
+-
+-```bash
+-# Example: copy some test photos
+-cp ~/Pictures/test_photo_*.jpg tests/fixtures/photos/
+-
+-# Upload them
+-./tests/seed_test_data.sh
+-```
+-
+-### Test Data Naming Convention
+-
+-Use descriptive names that indicate what the photo should contain:
+-- `bed_frame_broken.jpg` - Photo of damaged furniture
+-- `wood_cutting.jpg` - Woodworking process shot
+-- `finished_repair.jpg` - Completed project
+-
+-This helps validate enrichment accuracy when implemented.
+-
+-## Continuous Integration
+-
+-The CI pipeline (`.github/workflows/ci.yml`) runs the same tests:
+-
+-1. Starts Supabase local environment
+-2. Configures environment variables
+-3. Runs `integration_test.sh`
+-4. Tests Edge Function
+-5. Cleans up
+-
+-### CI Environment
+-
+-CI uses the same Supabase local setup as development:
+-- Same database schema (migrations applied)
+-- Same Storage API (S3-compatible)
+-- Same Edge Functions (Deno runtime)
+-
+-**No MinIO or Docker Compose needed** - Supabase CLI provides everything.
+-
+-## Troubleshooting
+-
+-### Supabase not starting
+-
+-```bash
+-# Check if already running
+-supabase status
+-
+-# Stop and restart
+-supabase stop
+-supabase start
+-```
+-
+-### Tests failing with "connection refused"
+-
+-Ensure Supabase is running:
+-```bash
+-curl http://localhost:54321/health
+-```
+-
+-### Storage upload fails
+-
+-Check if the bucket exists:
+-```bash
+-source .env.local
+-curl -H "Authorization: Bearer $SUPABASE_SECRET_KEY" \
+-  "$SUPABASE_URL/storage/v1/bucket"
+-```
+-
+-### Bot tests skipped
+-
+-Bot tests require an Anthropic API key:
+-```bash
+-# Add to .env.local
+-echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env.local
+-source .env.local
+-```
+-
+-## Adding New Tests
+-
+-1. Add test scenario to `integration_test.sh`:
+-```bash
+-test_start "Your test name"
+-# ... test code ...
+-if [ condition ]; then
+-    test_pass
+-else
+-    test_fail "Error message"
+-fi
+-```
+-
+-2. Test locally:
+-```bash
+-./tests/integration_test.sh
+-```
+-
+-3. Commit and push (CI will run automatically)
+-
+-## Performance
+-
+-Integration tests typically take **30-60 seconds** to run:
+-- Supabase startup: ~10s (cached in CI)
+-- Test execution: ~20-30s
+-- Cleanup: ~5s
+-
+-For faster iteration during development, keep Supabase running and run individual test commands directly.
+-
+-## Future Enhancements
+-
+-- [ ] Mock LLM responses for enrichment tests
+-- [ ] Performance benchmarks (query speed, upload throughput)
+-- [ ] Edge Function POST webhook tests
+-- [ ] Multi-device event handling tests
+-- [ ] Storage quota and error handling tests
+-- [ ] Bot conversation flow validation
+diff --git a/tests/edge_function_bucket_test.ts b/tests/edge_function_bucket_test.ts
+deleted file mode 100644
+index 96d0b8b..0000000
+--- a/tests/edge_function_bucket_test.ts
++++ /dev/null
+@@ -1,248 +0,0 @@
+-// Integration tests for bucket configuration database operations
+-// Run with: deno test --allow-env --allow-net tests/edge_function_bucket_test.ts
+-
+-import { assertEquals, assertExists } from "https://deno.land/std@0.208.0/assert/mod.ts";
+-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+-
+-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "http://localhost:54321";
+-const SUPABASE_SECRET_KEY = Deno.env.get("SUPABASE_SECRET_KEY")!;
+-const ENCRYPTION_KEY = Deno.env.get("ENCRYPTION_KEY") || "test-encryption-key-32-chars!!";
+-const TEST_PHONE = "whatsapp:+15555551234";
+-
+-const supabase = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY);
+-
+-// Helper to encrypt secret (same as Edge Function)
+-async function encryptSecret(plaintext: string): Promise<string> {
+-  const encoder = new TextEncoder();
+-  const data = encoder.encode(plaintext);
+-  const keyData = encoder.encode(ENCRYPTION_KEY);
+-
+-  const key = await crypto.subtle.importKey(
+-    "raw",
+-    await crypto.subtle.digest("SHA-256", keyData),
+-    { name: "AES-GCM", length: 256 },
+-    false,
+-    ["encrypt"],
+-  );
+-
+-  const iv = crypto.getRandomValues(new Uint8Array(12));
+-  const encrypted = await crypto.subtle.encrypt(
+-    { name: "AES-GCM", iv },
+-    key,
+-    data,
+-  );
+-
+-  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+-  combined.set(iv, 0);
+-  combined.set(new Uint8Array(encrypted), iv.length);
+-
+-  return btoa(String.fromCharCode(...combined));
+-}
+-
+-// Cleanup before tests
+-async function cleanup() {
+-  await supabase
+-    .from("bucket_configs")
+-    .delete()
+-    .eq("phone_number", TEST_PHONE);
+-}
+-
+-Deno.test("Bucket Database - Add bucket config", async () => {
+-  await cleanup();
+-
+-  const encryptedSecret = await encryptSecret("test-secret-key");
+-
+-  const { data, error } = await supabase.from("bucket_configs").insert({
+-    phone_number: TEST_PHONE,
+-    bucket_name: "test-bucket",
+-    endpoint_url: "https://s3.us-east-1.amazonaws.com",
+-    access_key_id: "AKIATEST",
+-    secret_access_key: encryptedSecret,
+-    region: "us-east-1",
+-  }).select().single();
+-
+-  assertEquals(error, null, "Should create bucket config without error");
+-  assertExists(data, "Should return bucket config");
+-  assertEquals(data.bucket_name, "test-bucket");
+-  assertEquals(data.endpoint_url, "https://s3.us-east-1.amazonaws.com");
+-  assertEquals(data.access_key_id, "AKIATEST");
+-  assertEquals(data.region, "us-east-1");
+-
+-  // Verify secret is encrypted
+-  assertEquals(
+-    data.secret_access_key !== "test-secret-key",
+-    true,
+-    "Secret should be encrypted"
+-  );
+-
+-  await cleanup();
+-});
+-
+-Deno.test("Bucket Database - List buckets for user", async () => {
+-  await cleanup();
+-
+-  const encryptedSecret = await encryptSecret("test-secret");
+-
+-  // Add two buckets
+-  await supabase.from("bucket_configs").insert([
+-    {
+-      phone_number: TEST_PHONE,
+-      bucket_name: "bucket-1",
+-      endpoint_url: "https://s3.amazonaws.com",
+-      access_key_id: "KEY1",
+-      secret_access_key: encryptedSecret,
+-    },
+-    {
+-      phone_number: TEST_PHONE,
+-      bucket_name: "bucket-2",
+-      endpoint_url: "https://s3.eu-west-1.amazonaws.com",
+-      access_key_id: "KEY2",
+-      secret_access_key: encryptedSecret,
+-    },
+-  ]);
+-
+-  // Query buckets
+-  const { data: buckets, error } = await supabase
+-    .from("bucket_configs")
+-    .select("*")
+-    .eq("phone_number", TEST_PHONE);
+-
+-  assertEquals(error, null);
+-  assertExists(buckets);
+-  assertEquals(buckets.length, 2);
+-  assertEquals(buckets[0].bucket_name, "bucket-1");
+-  assertEquals(buckets[1].bucket_name, "bucket-2");
+-
+-  await cleanup();
+-});
+-
+-Deno.test("Bucket Database - Remove bucket", async () => {
+-  await cleanup();
+-
+-  // Add bucket
+-  await supabase.from("bucket_configs").insert({
+-    phone_number: TEST_PHONE,
+-    bucket_name: "test-bucket-remove",
+-    endpoint_url: "https://s3.amazonaws.com",
+-    access_key_id: "AKIATEST",
+-    secret_access_key: await encryptSecret("secret"),
+-  });
+-
+-  // Verify it exists
+-  const { data: before } = await supabase
+-    .from("bucket_configs")
+-    .select("*")
+-    .eq("phone_number", TEST_PHONE);
+-  assertEquals(before?.length, 1);
+-
+-  // Remove it
+-  const { error } = await supabase
+-    .from("bucket_configs")
+-    .delete()
+-    .eq("phone_number", TEST_PHONE)
+-    .eq("bucket_name", "test-bucket-remove");
+-
+-  assertEquals(error, null);
+-
+-  // Verify it's gone
+-  const { data: after } = await supabase
+-    .from("bucket_configs")
+-    .select("*")
+-    .eq("phone_number", TEST_PHONE);
+-  assertEquals(after?.length || 0, 0);
+-
+-  await cleanup();
+-});
+-
+-Deno.test("Bucket Database - Duplicate bucket name rejected", async () => {
+-  await cleanup();
+-
+-  const encryptedSecret = await encryptSecret("secret");
+-
+-  // Add first bucket
+-  await supabase.from("bucket_configs").insert({
+-    phone_number: TEST_PHONE,
+-    bucket_name: "duplicate-test",
+-    endpoint_url: "https://s3.amazonaws.com",
+-    access_key_id: "KEY1",
+-    secret_access_key: encryptedSecret,
+-  });
+-
+-  // Try to add duplicate
+-  const { error } = await supabase.from("bucket_configs").insert({
+-    phone_number: TEST_PHONE,
+-    bucket_name: "duplicate-test",
+-    endpoint_url: "https://s3.amazonaws.com",
+-    access_key_id: "KEY2",
+-    secret_access_key: encryptedSecret,
+-  });
+-
+-  assertExists(error, "Should reject duplicate bucket name");
+-  assertEquals(error.code, "23505", "Should be unique constraint violation");
+-
+-  await cleanup();
+-});
+-
+-Deno.test("Bucket Database - Required fields enforced", async () => {
+-  await cleanup();
+-
+-  // Try without endpoint_url
+-  const { error: error1 } = await supabase.from("bucket_configs").insert({
+-    phone_number: TEST_PHONE,
+-    bucket_name: "incomplete",
+-    access_key_id: "KEY",
+-    secret_access_key: "encrypted",
+-    // endpoint_url missing
+-  });
+-
+-  assertExists(error1, "Should reject missing endpoint_url");
+-
+-  // Try without access_key_id
+-  const { error: error2 } = await supabase.from("bucket_configs").insert({
+-    phone_number: TEST_PHONE,
+-    bucket_name: "incomplete-2",
+-    endpoint_url: "https://s3.amazonaws.com",
+-    secret_access_key: "encrypted",
+-    // access_key_id missing
+-  });
+-
+-  assertExists(error2, "Should reject missing access_key_id");
+-
+-  await cleanup();
+-});
+-
+-Deno.test("Bucket Database - Encryption/decryption works", async () => {
+-  await cleanup();
+-
+-  const plaintext = "my-secret-access-key-12345";
+-  const encrypted = await encryptSecret(plaintext);
+-
+-  // Verify encrypted is different from plaintext
+-  assertEquals(encrypted !== plaintext, true);
+-
+-  // Decrypt
+-  const encoder = new TextEncoder();
+-  const decoder = new TextDecoder();
+-  const keyData = encoder.encode(ENCRYPTION_KEY);
+-
+-  const key = await crypto.subtle.importKey(
+-    "raw",
+-    await crypto.subtle.digest("SHA-256", keyData),
+-    { name: "AES-GCM", length: 256 },
+-    false,
+-    ["decrypt"],
+-  );
+-
+-  const combined = Uint8Array.from(atob(encrypted), (c) => c.charCodeAt(0));
+-  const iv = combined.slice(0, 12);
+-  const encryptedData = combined.slice(12);
+-
+-  const decrypted = await crypto.subtle.decrypt(
+-    { name: "AES-GCM", iv },
+-    key,
+-    encryptedData,
+-  );
+-
+-  const decryptedText = decoder.decode(decrypted);
+-  assertEquals(decryptedText, plaintext, "Decryption should recover original plaintext");
+-});
+diff --git a/tests/edge_function_scan_test.ts b/tests/edge_function_scan_test.ts
+deleted file mode 100644
+index d063e57..0000000
+--- a/tests/edge_function_scan_test.ts
++++ /dev/null
+@@ -1,154 +0,0 @@
+-// End-to-end test: Configure bucket → Scan → Enrich
+-// Tests the full pipeline with a real S3-compatible storage (local Supabase)
+-// Run with: deno test --allow-env --allow-net --allow-read tests/edge_function_scan_test.ts
+-
+-import { assertEquals, assertExists } from "https://deno.land/std@0.208.0/assert/mod.ts";
+-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+-
+-const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "http://localhost:54321";
+-const SUPABASE_SECRET_KEY = Deno.env.get("SUPABASE_SECRET_KEY")!;
+-const STORAGE_S3_URL = Deno.env.get("STORAGE_S3_URL") || "http://localhost:54321/storage/v1/s3";
+-const AWS_ACCESS_KEY_ID = Deno.env.get("AWS_ACCESS_KEY_ID")!;
+-const AWS_SECRET_ACCESS_KEY = Deno.env.get("AWS_SECRET_ACCESS_KEY")!;
+-const ENCRYPTION_KEY = Deno.env.get("ENCRYPTION_KEY") || "test-encryption-key-32-chars!!";
+-const TEST_PHONE = "whatsapp:+15555559999";
+-
+-const supabase = createClient(SUPABASE_URL, SUPABASE_SECRET_KEY);
+-
+-// Set environment for Edge Function
+-Deno.env.set("SUPABASE_URL", SUPABASE_URL);
+-Deno.env.set("SUPABASE_SECRET_KEY", SUPABASE_SECRET_KEY);
+-Deno.env.set("ENCRYPTION_KEY", ENCRYPTION_KEY);
+-Deno.env.set("ANTHROPIC_API_KEY", "test-key");
+-Deno.env.set("TWILIO_ACCOUNT_SID", "test-sid");
+-Deno.env.set("TWILIO_AUTH_TOKEN", "test-token");
+-Deno.env.set("TWILIO_WHATSAPP_FROM", "whatsapp:+10000000000");
+-
+-async function cleanup() {
+-  // Delete test bucket config
+-  await supabase
+-    .from("bucket_configs")
+-    .delete()
+-    .eq("phone_number", TEST_PHONE);
+-
+-  // Delete test events
+-  await supabase
+-    .from("events")
+-    .delete()
+-    .like("id", "test-scan-%");
+-
+-  // Delete test file from storage
+-  await supabase
+-    .storage
+-    .from("media")
+-    .remove(["test-scans/test_photo.jpg"]);
+-}
+-
+-// Helper to encrypt secret (same as Edge Function)
+-async function encryptSecret(plaintext: string): Promise<string> {
+-  const encoder = new TextEncoder();
+-  const data = encoder.encode(plaintext);
+-  const keyData = encoder.encode(ENCRYPTION_KEY);
+-
+-  const key = await crypto.subtle.importKey(
+-    "raw",
+-    await crypto.subtle.digest("SHA-256", keyData),
+-    { name: "AES-GCM", length: 256 },
+-    false,
+-    ["encrypt"],
+-  );
+-
+-  const iv = crypto.getRandomValues(new Uint8Array(12));
+-  const encrypted = await crypto.subtle.encrypt(
+-    { name: "AES-GCM", iv },
+-    key,
+-    data,
+-  );
+-
+-  const combined = new Uint8Array(iv.length + encrypted.byteLength);
+-  combined.set(iv, 0);
+-  combined.set(new Uint8Array(encrypted), iv.length);
+-
+-  return btoa(String.fromCharCode(...combined));
+-}
+-
+-Deno.test("End-to-end: Configure test bucket", async () => {
+-  await cleanup();
+-
+-  // Add bucket config pointing to local Supabase S3
+-  const encryptedSecret = await encryptSecret(AWS_SECRET_ACCESS_KEY);
+-
+-  const { data, error } = await supabase.from("bucket_configs").insert({
+-    phone_number: TEST_PHONE,
+-    bucket_name: "media",
+-    endpoint_url: STORAGE_S3_URL,
+-    region: "local",
+-    access_key_id: AWS_ACCESS_KEY_ID,
+-    secret_access_key: encryptedSecret,
+-  }).select().single();
+-
+-  assertEquals(error, null, "Should create bucket config without error");
+-  assertExists(data, "Should return bucket config");
+-  assertEquals(data.bucket_name, "media");
+-
+-  console.log("✓ Test bucket configured:", data.id);
+-});
+-
+-Deno.test("End-to-end: Upload test file to S3", async () => {
+-  // Create minimal test JPEG (1x1 red pixel)
+-  const testImageBase64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AKwA//9k=";
+-
+-  const imageData = Uint8Array.from(atob(testImageBase64), c => c.charCodeAt(0));
+-
+-  // Upload to Supabase Storage
+-  const { data, error } = await supabase
+-    .storage
+-    .from("media")
+-    .upload("test-scans/test_photo.jpg", imageData, {
+-      contentType: "image/jpeg",
+-      upsert: true,
+-    });
+-
+-  assertEquals(error, null, "Should upload without error");
+-  assertExists(data, "Should return upload data");
+-
+-  console.log("✓ Test file uploaded:", data.path);
+-});
+-
+-Deno.test("End-to-end: Verify file exists in storage", async () => {
+-  const { data: files, error } = await supabase
+-    .storage
+-    .from("media")
+-    .list("test-scans");
+-
+-  assertEquals(error, null, "Should list files without error");
+-  assertExists(files, "Should return file list");
+-  assertEquals(files.length > 0, true, "Should have at least one file");
+-
+-  const testFile = files.find(f => f.name === "test_photo.jpg");
+-  assertExists(testFile, "Should find test_photo.jpg");
+-
+-  console.log("✓ File exists in storage:", testFile.name);
+-});
+-
+-// Note: Actual bucket scanning would require implementing the scan functionality
+-// in the Edge Function. For now, this test verifies the infrastructure is ready.
+-Deno.test("End-to-end: Bucket config ready for scanning", async () => {
+-  const { data: config } = await supabase
+-    .from("bucket_configs")
+-    .select("*")
+-    .eq("phone_number", TEST_PHONE)
+-    .single();
+-
+-  assertExists(config, "Bucket config should exist");
+-  assertEquals(config.bucket_name, "media");
+-  assertEquals(config.endpoint_url, STORAGE_S3_URL);
+-
+-  console.log("✓ Bucket config ready for scanning");
+-  console.log("  - Bucket:", config.bucket_name);
+-  console.log("  - Endpoint:", config.endpoint_url);
+-  console.log("  - Region:", config.region);
+-
+-  // Cleanup
+-  await cleanup();
+-});
+diff --git a/tests/integration_test.sh b/tests/integration_test.sh
+deleted file mode 100755
+index 504780a..0000000
+--- a/tests/integration_test.sh
++++ /dev/null
+@@ -1,227 +0,0 @@
+-#!/bin/bash
+-# Integration tests for sitemgr using local Supabase
+-# Tests the full pipeline: upload → detect → enrich → query
+-# Uses the TypeScript CLI (web/bin/smgr.ts)
+-
+-set -e
+-
+-# Colors for output
+-RED='\033[0;31m'
+-GREEN='\033[0;32m'
+-YELLOW='\033[1;33m'
+-NC='\033[0m' # No Color
+-
+-TEST_COUNT=0
+-PASS_COUNT=0
+-FAIL_COUNT=0
+-
+-# CLI command helper — runs smgr via npm in the web directory
+-SMGR="npx tsx bin/smgr.ts"
+-WEB_DIR="$(cd "$(dirname "$0")/../web" && pwd)"
+-
+-smgr() {
+-    (cd "$WEB_DIR" && $SMGR "$@")
+-}
+-
+-# Test helper functions
+-test_start() {
+-    TEST_COUNT=$((TEST_COUNT + 1))
+-    echo ""
+-    echo -e "${YELLOW}=== Test $TEST_COUNT: $1 ===${NC}"
+-}
+-
+-test_pass() {
+-    PASS_COUNT=$((PASS_COUNT + 1))
+-    echo -e "${GREEN}PASS${NC}"
+-}
+-
+-test_fail() {
+-    FAIL_COUNT=$((FAIL_COUNT + 1))
+-    echo -e "${RED}FAIL: $1${NC}"
+-    if [ "${EXIT_ON_FAIL:-true}" = "true" ]; then
+-        exit 1
+-    fi
+-}
+-
+-# Check prerequisites
+-echo "================================================"
+-echo "  sitemgr Integration Tests"
+-echo "================================================"
+-echo ""
+-
+-# Ensure Supabase is running (check if Kong gateway is up)
+-# Kong returns 404 for root path, but that means it's running
+-if ! curl -s http://localhost:54321 > /dev/null 2>&1; then
+-  echo "Error: Supabase not running on localhost:54321"
+-  echo "Start it with: ./scripts/local-dev.sh"
+-  exit 1
+-fi
+-
+-# Load environment
+-if [ -f .env.local ]; then
+-    echo "Loading environment from .env.local..."
+-    # shellcheck disable=SC2046
+-    export $(grep -v '^#' .env.local | xargs)
+-else
+-    echo "Warning: .env.local not found. Run ./scripts/local-dev.sh first."
+-    # Set defaults
+-    export SUPABASE_URL=${SUPABASE_URL:-http://localhost:54321}
+-    export SUPABASE_SECRET_KEY=${SUPABASE_SECRET_KEY:-}
+-    export SMGR_S3_ENDPOINT=${SMGR_S3_ENDPOINT:-$SUPABASE_URL/storage/v1}
+-    export SMGR_S3_BUCKET=${SMGR_S3_BUCKET:-media}
+-    export SMGR_DEVICE_ID=${SMGR_DEVICE_ID:-test}
+-    export SMGR_AUTO_ENRICH=${SMGR_AUTO_ENRICH:-false}
+-fi
+-
+-# Extract service role key if not set
+-if [ -z "$SUPABASE_SECRET_KEY" ]; then
+-    SUPABASE_SECRET_KEY=$(supabase status -o json 2>/dev/null | jq -r .service_role_key)
+-fi
+-
+-echo "Supabase URL: $SUPABASE_URL"
+-echo "Storage Endpoint: $SMGR_S3_ENDPOINT"
+-echo "S3 Bucket: $SMGR_S3_BUCKET"
+-echo ""
+-
+-# ============================================================
+-# Test 1: Stats on empty/existing database
+-# ============================================================
+-test_start "Stats query"
+-
+-STATS=$(smgr stats)
+-echo "$STATS"
+-
+-if echo "$STATS" | jq -e '.total_events' > /dev/null 2>&1; then
+-    test_pass
+-else
+-    test_fail "Stats command failed or returned invalid JSON"
+-fi
+-
+-# ============================================================
+-# Test 2: Create test image and upload to storage
+-# ============================================================
+-test_start "Upload test image to Supabase Storage"
+-
+-# Storage REST API endpoint (different from S3 API endpoint)
+-STORAGE_REST_API="$SUPABASE_URL/storage/v1"
+-
+-# Cleanup: delete test file if it exists from previous run
+-curl -sf -X DELETE "$STORAGE_REST_API/object/$SMGR_S3_BUCKET/photos/test_integration.jpg" \
+-  -H "Authorization: Bearer $SUPABASE_SECRET_KEY" > /dev/null 2>&1 || true
+-
+-# Create a minimal test JPEG (1x1 red pixel)
+-TEST_IMAGE_PATH="/tmp/test_image_$$.jpg"
+-echo '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AKwA//9k=' | base64 -d > "$TEST_IMAGE_PATH"
+-
+-# Upload via Supabase Storage REST API (not S3 API)
+-if UPLOAD_RESPONSE=$(curl -sf -X POST "$STORAGE_REST_API/object/$SMGR_S3_BUCKET/photos/test_integration.jpg" \
+-  -H "Authorization: Bearer $SUPABASE_SECRET_KEY" \
+-  -H "Content-Type: image/jpeg" \
+-  --data-binary "@$TEST_IMAGE_PATH" 2>&1); then
+-    echo "Upload successful"
+-    test_pass
+-else
+-    echo "Upload response: $UPLOAD_RESPONSE"
+-    test_fail "Failed to upload to Supabase Storage"
+-fi
+-
+-rm -f "$TEST_IMAGE_PATH"
+-
+-# ============================================================
+-# Test 3: Watch detects new S3 object
+-# ============================================================
+-test_start "S3 watcher detects new object"
+-
+-smgr watch --once
+-
+-# Check if event was created
+-STATS_AFTER=$(smgr stats)
+-echo "$STATS_AFTER"
+-
+-TOTAL_EVENTS=$(echo "$STATS_AFTER" | jq -r '.total_events')
+-if [ "$TOTAL_EVENTS" -ge 1 ] 2>/dev/null; then
+-    test_pass
+-else
+-    test_fail "Expected at least 1 event after watch"
+-fi
+-
+-# ============================================================
+-# Test 4: Query returns the uploaded photo
+-# ============================================================
+-test_start "Query returns uploaded photo"
+-
+-QUERY_RESULT=$(smgr query --format json --type photo)
+-echo "$QUERY_RESULT"
+-
+-if echo "$QUERY_RESULT" | jq -e '.events[0].id' > /dev/null 2>&1; then
+-    EVENT_ID=$(echo "$QUERY_RESULT" | jq -r '.events[0].id')
+-    echo "Found event: $EVENT_ID"
+-    test_pass
+-else
+-    test_fail "No events returned from query"
+-fi
+-
+-# ============================================================
+-# Test 5: Show event details
+-# ============================================================
+-test_start "Show event details"
+-
+-if [ -n "$EVENT_ID" ]; then
+-    SHOW_RESULT=$(smgr show "$EVENT_ID")
+-    echo "$SHOW_RESULT"
+-
+-    if echo "$SHOW_RESULT" | jq -e '.id' > /dev/null 2>&1; then
+-        test_pass
+-    else
+-        test_fail "Failed to show event details"
+-    fi
+-else
+-    echo "Skipping (no event ID from previous test)"
+-    test_fail "No event ID available"
+-fi
+-
+-# ============================================================
+-# Test 6: Database stats are consistent
+-# ============================================================
+-test_start "Database consistency check"
+-
+-FINAL_STATS=$(smgr stats)
+-echo "$FINAL_STATS"
+-
+-# Check for expected fields
+-if echo "$FINAL_STATS" | jq -e '.total_events' > /dev/null 2>&1 && \
+-   echo "$FINAL_STATS" | jq -e '.by_content_type' > /dev/null 2>&1; then
+-    test_pass
+-else
+-    test_fail "Stats output missing expected fields"
+-fi
+-
+-# ============================================================
+-# Cleanup
+-# ============================================================
+-echo ""
+-echo "Cleaning up test artifacts..."
+-STORAGE_REST_API="$SUPABASE_URL/storage/v1"
+-curl -sf -X DELETE "$STORAGE_REST_API/object/$SMGR_S3_BUCKET/photos/test_integration.jpg" \
+-  -H "Authorization: Bearer $SUPABASE_SECRET_KEY" > /dev/null 2>&1 || true
+-echo "Done"
+-
+-# ============================================================
+-# Summary
+-# ============================================================
+-echo ""
+-echo "================================================"
+-echo "  Test Summary"
+-echo "================================================"
+-echo "Total:  $TEST_COUNT"
+-echo -e "Passed: ${GREEN}$PASS_COUNT${NC}"
+-echo -e "Failed: ${RED}$FAIL_COUNT${NC}"
+-echo ""
+-
+-if [ $FAIL_COUNT -eq 0 ]; then
+-    echo -e "${GREEN}All tests passed!${NC}"
+-    exit 0
+-else
+-    echo -e "${RED}Some tests failed${NC}"
+-    exit 1
+-fi
+diff --git a/tests/seed_test_data.sh b/tests/seed_test_data.sh
+deleted file mode 100755
+index fa0121b..0000000
+--- a/tests/seed_test_data.sh
++++ /dev/null
+@@ -1,124 +0,0 @@
+-#!/bin/bash
+-# Seed test environment with realistic test data
+-# Creates sample photos and enrichments for testing
+-
+-set -e
+-
+-echo "================================================"
+-echo "  Seeding Test Data"
+-echo "================================================"
+-echo ""
+-
+-# Load environment
+-if [ -f .env.local ]; then
+-    echo "Loading environment from .env.local..."
+-    # shellcheck disable=SC2046
+-    export $(grep -v '^#' .env.local | xargs)
+-fi
+-
+-# Check if Supabase is running
+-if ! curl -sf http://localhost:54321/health > /dev/null 2>&1; then
+-  echo "Error: Supabase not running. Start with: ./scripts/local-dev.sh"
+-  exit 1
+-fi
+-
+-# Extract service role key if not set
+-if [ -z "$SUPABASE_SECRET_KEY" ]; then
+-    SUPABASE_SECRET_KEY=$(supabase status -o json 2>/dev/null | jq -r .service_role_key)
+-fi
+-
+-SUPABASE_URL=${SUPABASE_URL:-http://localhost:54321}
+-STORAGE_ENDPOINT="$SUPABASE_URL/storage/v1"
+-BUCKET=${SMGR_S3_BUCKET:-media}
+-
+-echo "Storage: $STORAGE_ENDPOINT"
+-echo "Bucket:  $BUCKET"
+-echo ""
+-
+-# Ensure database is initialized
+-python3 prototype/smgr.py init
+-
+-# Create fixtures directory if it doesn't exist
+-mkdir -p tests/fixtures/photos
+-
+-# Generate test photos if they don't exist
+-# (Using base64-encoded 1x1 JPEGs with different "colors" for different test cases)
+-TEST_PHOTOS=(
+-    "bed_frame_broken.jpg"
+-    "wood_cutting.jpg"
+-    "glue_application.jpg"
+-    "clamping.jpg"
+-    "finished_repair.jpg"
+-)
+-
+-echo "Creating test photo fixtures..."
+-for photo in "${TEST_PHOTOS[@]}"; do
+-    if [ ! -f "tests/fixtures/photos/$photo" ]; then
+-        # Create minimal JPEG (all will be same 1x1 red pixel for now)
+-        echo '/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AKwA//9k=' \
+-            | base64 -d > "tests/fixtures/photos/$photo"
+-        echo "  Created: $photo"
+-    else
+-        echo "  Exists:  $photo"
+-    fi
+-done
+-
+-echo ""
+-echo "Uploading test photos to Supabase Storage..."
+-UPLOAD_COUNT=0
+-
+-for photo in "${TEST_PHOTOS[@]}"; do
+-    echo -n "  $photo ... "
+-
+-    if RESPONSE=$(curl -sf -X POST "$STORAGE_ENDPOINT/object/$BUCKET/test-photos/$photo" \
+-        -H "Authorization: Bearer $SUPABASE_SECRET_KEY" \
+-        -H "Content-Type: image/jpeg" \
+-        --data-binary "@tests/fixtures/photos/$photo" 2>&1); then
+-        echo "✓"
+-        UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
+-    else
+-        # Might already exist, try to check
+-        if echo "$RESPONSE" | grep -q "already exists"; then
+-            echo "✓ (already exists)"
+-            UPLOAD_COUNT=$((UPLOAD_COUNT + 1))
+-        else
+-            echo "✗ failed"
+-            echo "    Error: $RESPONSE"
+-        fi
+-    fi
+-done
+-
+-echo ""
+-echo "Running watch to detect uploaded photos..."
+-python3 prototype/smgr.py watch --once
+-
+-echo ""
+-echo "Checking stats..."
+-STATS=$(python3 prototype/smgr.py stats)
+-echo "$STATS" | jq .
+-
+-# Check if enrichment is enabled and we have an API key
+-if [ "$SMGR_AUTO_ENRICH" = "true" ] && [ -n "$ANTHROPIC_API_KEY" ]; then
+-    echo ""
+-    echo "Enriching photos (this will use your Anthropic API key)..."
+-    python3 prototype/smgr.py enrich --pending
+-else
+-    echo ""
+-    echo "Skipping enrichment (SMGR_AUTO_ENRICH=$SMGR_AUTO_ENRICH)"
+-    if [ -z "$ANTHROPIC_API_KEY" ]; then
+-        echo "Note: Set ANTHROPIC_API_KEY in .env.local to enable enrichment"
+-    fi
+-fi
+-
+-echo ""
+-echo "================================================"
+-echo "  ✅ Test Data Seeded"
+-echo "================================================"
+-echo "Uploaded:     $UPLOAD_COUNT photos"
+-echo "Total events: $(echo "$STATS" | jq -r .total_events)"
+-echo ""
+-echo "Try these commands:"
+-echo "  python3 prototype/smgr.py query --type photo"
+-echo "  python3 prototype/smgr.py stats"
+-echo "  python3 prototype/bot.py --stdio"
+-echo ""

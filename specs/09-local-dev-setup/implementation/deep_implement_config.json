@@ -1,0 +1,67 @@
+{
+  "plugin_root": "/Users/mandric/.claude/plugins/cache/local-plugins/deep-implement/0.2.1",
+  "sections_dir": "/Users/mandric/dev/github.com/mandric/sitemgr/specs/09-local-dev-setup/sections",
+  "target_dir": "/Users/mandric/dev/github.com/mandric/sitemgr",
+  "state_dir": "/Users/mandric/dev/github.com/mandric/sitemgr/specs/09-local-dev-setup/implementation",
+  "git_root": "/Users/mandric/dev/github.com/mandric/sitemgr",
+  "commit_style": "simple",
+  "test_command": "uv run pytest",
+  "sections": [
+    "section-01-local-dev-sh",
+    "section-02-test-integration-sh",
+    "section-03-setup-sh",
+    "section-04-env-examples",
+    "section-05-delete-legacy",
+    "section-06-smgr-e2e",
+    "section-07-verify-sh",
+    "section-08-docs-readme",
+    "section-09-deploy-sh"
+  ],
+  "sections_state": {
+    "section-01-local-dev-sh": {
+      "status": "complete",
+      "commit_hash": "aaefc1f"
+    },
+    "section-02-test-integration-sh": {
+      "status": "complete",
+      "commit_hash": "52a1a06"
+    },
+    "section-03-setup-sh": {
+      "status": "complete",
+      "commit_hash": "be524cc"
+    },
+    "section-04-env-examples": {
+      "status": "complete",
+      "commit_hash": "38135e8"
+    },
+    "section-05-delete-legacy": {
+      "status": "complete",
+      "commit_hash": "0a21bb6"
+    },
+    "section-06-smgr-e2e": {
+      "status": "complete",
+      "commit_hash": "a6e49d0"
+    },
+    "section-07-verify-sh": {
+      "status": "complete",
+      "commit_hash": "cf7e8b2"
+    },
+    "section-08-docs-readme": {
+      "status": "complete",
+      "commit_hash": "ee7c84f"
+    },
+    "section-09-deploy-sh": {
+      "status": "complete",
+      "commit_hash": "1253060"
+    }
+  },
+  "pre_commit": {
+    "present": false,
+    "type": "none",
+    "config_file": null,
+    "native_hook": null,
+    "may_modify_files": false,
+    "detected_formatters": []
+  },
+  "created_at": "2026-03-21T18:56:35.166748+00:00"
+}

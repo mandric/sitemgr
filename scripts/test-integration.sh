@@ -76,7 +76,7 @@ if [ "$SKIP_OLLAMA" = false ]; then
   echo ""
   echo "=== Starting Ollama ==="
 
-  docker compose up -d ollama
+  docker-compose up -d ollama
   echo "Waiting for Ollama to be healthy..."
 
   for i in $(seq 1 30); do
@@ -86,7 +86,7 @@ if [ "$SKIP_OLLAMA" = false ]; then
     fi
     if [ "$i" = 30 ]; then
       echo "Error: Ollama did not become healthy within 5 minutes."
-      echo "Check: docker compose logs ollama"
+      echo "Check: docker-compose logs ollama"
       exit 1
     fi
     sleep 10
@@ -94,7 +94,7 @@ if [ "$SKIP_OLLAMA" = false ]; then
 
   # Pull the model (no-op if already present)
   echo "Ensuring moondream:1.8b model is available..."
-  docker compose exec ollama ollama pull moondream:1.8b
+  docker-compose exec ollama ollama pull moondream:1.8b
   echo "  Model ready."
 else
   echo ""
@@ -108,4 +108,8 @@ echo "=== Running integration tests ==="
 echo ""
 
 cd web
-npx vitest run --project integration --reporter=verbose
+if [ "$SKIP_OLLAMA" = true ]; then
+  npx vitest run --project integration --reporter=verbose --exclude '__tests__/integration/smgr-e2e.test.ts'
+else
+  npx vitest run --project integration --reporter=verbose
+fi
