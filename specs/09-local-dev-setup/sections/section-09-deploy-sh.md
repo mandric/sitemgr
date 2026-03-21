@@ -10,6 +10,13 @@ This section has no dependencies on other sections and can be implemented in par
 
 ---
 
+## Implementation Notes
+
+**Files modified:** `scripts/deploy.sh` (2 locations)
+**Files checked (no changes needed):** `scripts/lib.sh`, `.github/workflows/ci.yml`
+**Deviations from plan:** None.
+**Verification:** `grep '\bENCRYPTION_KEY\b' ... | grep -v ENCRYPTION_KEY_CURRENT|...` returned no matches — PASS.
+
 ## Verification Test (run after changes)
 
 ```bash
