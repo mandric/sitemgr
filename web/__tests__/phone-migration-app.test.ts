@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ── Mock Supabase ──────────────────────────────────────────────
 
-const { mockCreateClient } = vi.hoisted(() => {
+const { mockCreateClient, fromChain } = vi.hoisted(() => {
   const mockChain = () => {
     const chain: Record<string, unknown> = {};
     chain.select = vi.fn().mockReturnValue(chain);
@@ -117,9 +117,8 @@ import {
 // ── Test Setup ─────────────────────────────────────────────
 
 beforeEach(() => {
-  vi.stubEnv("SMGR_API_URL", "http://localhost:54321");
-  vi.stubEnv("SMGR_API_KEY", "test-pub-key");
-  vi.stubEnv("SUPABASE_SECRET_KEY", "test-secret-key");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
+  vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-secret-key");
   vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test");
   mockCreateClient.mockClear();
 });
@@ -135,7 +134,7 @@ describe("db.ts userId parameters", () => {
     const client = mockCreateClient();
     const fromMock = client.from;
 
-    await queryEvents({ userId: "user-123", limit: 10 });
+    await queryEvents(client as never, { userId: "user-123", limit: 10 });
 
     expect(fromMock).toHaveBeenCalledWith("events");
     const chain = fromMock.mock.results[0]?.value;
@@ -145,7 +144,7 @@ describe("db.ts userId parameters", () => {
   it("queryEvents passes p_user_id to search RPC", async () => {
     const client = mockCreateClient();
 
-    await queryEvents({ userId: "user-123", search: "beach" });
+    await queryEvents(client as never, { userId: "user-123", search: "beach" });
 
     expect(client.rpc).toHaveBeenCalledWith("search_events", expect.objectContaining({
       p_user_id: "user-123",
@@ -156,7 +155,7 @@ describe("db.ts userId parameters", () => {
     const client = mockCreateClient();
     const fromMock = client.from;
 
-    await showEvent("event-1", "user-123");
+    await showEvent(client as never, "event-1", "user-123");
 
     expect(fromMock).toHaveBeenCalledWith("events");
   });
@@ -164,7 +163,7 @@ describe("db.ts userId parameters", () => {
   it("getStats passes userId to RPC calls and count queries", async () => {
     const client = mockCreateClient();
 
-    await getStats("user-123");
+    await getStats(client as never, { userId: "user-123" });
 
     expect(client.rpc).toHaveBeenCalledWith("stats_by_content_type", { p_user_id: "user-123" });
     expect(client.rpc).toHaveBeenCalledWith("stats_by_event_type", { p_user_id: "user-123" });
@@ -174,7 +173,7 @@ describe("db.ts userId parameters", () => {
     const client = mockCreateClient();
     const fromMock = client.from;
 
-    await getEnrichStatus("user-123");
+    await getEnrichStatus(client as never, "user-123");
 
     expect(fromMock).toHaveBeenCalledWith("events");
     expect(fromMock).toHaveBeenCalledWith("enrichments");
@@ -185,6 +184,7 @@ describe("db.ts userId parameters", () => {
     const fromMock = client.from;
 
     await insertEnrichment(
+      client as never,
       "event-1",
       { description: "test", objects: [], context: "test", suggested_tags: [] },
       "user-123",
@@ -201,7 +201,7 @@ describe("db.ts userId parameters", () => {
     const client = mockCreateClient();
     const fromMock = client.from;
 
-    await upsertWatchedKey("key.jpg", "event-1", "etag", 1024, "user-123");
+    await upsertWatchedKey(client as never, "key.jpg", "event-1", "etag", 1024, "user-123");
 
     expect(fromMock).toHaveBeenCalledWith("watched_keys");
     const chain = fromMock.mock.results[0]?.value;
@@ -215,7 +215,7 @@ describe("db.ts userId parameters", () => {
     const client = mockCreateClient();
     const fromMock = client.from;
 
-    await getWatchedKeys("user-123");
+    await getWatchedKeys(client as never, "user-123");
 
     expect(fromMock).toHaveBeenCalledWith("watched_keys");
     const chain = fromMock.mock.results[0]?.value;
@@ -226,7 +226,7 @@ describe("db.ts userId parameters", () => {
     const client = mockCreateClient();
     const fromMock = client.from;
 
-    await findEventByHash("hash-abc", "user-123");
+    await findEventByHash(client as never, "hash-abc", "user-123");
 
     expect(fromMock).toHaveBeenCalledWith("events");
     const chain = fromMock.mock.results[0]?.value;
@@ -237,7 +237,7 @@ describe("db.ts userId parameters", () => {
     const client = mockCreateClient();
     const fromMock = client.from;
 
-    await getPendingEnrichments("user-123");
+    await getPendingEnrichments(client as never, "user-123");
 
     expect(fromMock).toHaveBeenCalledWith("events");
   });
@@ -245,29 +245,25 @@ describe("db.ts userId parameters", () => {
 
 describe("core.ts resolveUserId", () => {
   it("resolveUserId queries user_profiles by phone_number", async () => {
-    const client = mockCreateClient();
-    const fromMock = client.from;
-
-    // Mock the maybeSingle to return a user
-    const chain = fromMock.mock.results[0]?.value;
-    chain.maybeSingle.mockResolvedValueOnce({
+    // Set up fromChain.maybeSingle to return a user before resolveUserId is called
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (fromChain as any).maybeSingle.mockResolvedValueOnce({
       data: { id: "resolved-user-id" },
       error: null,
     });
 
     const result = await resolveUserId("+1234567890");
 
+    const client = mockCreateClient();
+    const fromMock = client.from;
     expect(fromMock).toHaveBeenCalledWith("user_profiles");
-    expect(chain.eq).toHaveBeenCalledWith("phone_number", "+1234567890");
+    expect(fromChain.eq).toHaveBeenCalledWith("phone_number", "+1234567890");
     expect(result).toBe("resolved-user-id");
   });
 
   it("resolveUserId returns null when no user found", async () => {
-    const client = mockCreateClient();
-    const fromMock = client.from;
-
-    const chain = fromMock.mock.results[0]?.value;
-    chain.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (fromChain as any).maybeSingle.mockResolvedValueOnce({ data: null, error: null });
 
     const result = await resolveUserId("+9999999999");
     expect(result).toBeNull();
@@ -276,15 +272,9 @@ describe("core.ts resolveUserId", () => {
 
 describe("core.ts executeAction userId propagation", () => {
   it("executeAction passes resolved userId to getStats", async () => {
-    // This test verifies the integration: executeAction resolves phone → userId
-    // then passes it through to the DB functions.
-    // The mock setup ensures resolveUserId returns a known value.
-    const client = mockCreateClient();
-    const fromMock = client.from;
-
-    // Mock resolveUserId path
-    const chain = fromMock.mock.results[0]?.value;
-    chain.maybeSingle.mockResolvedValueOnce({
+    // Set up fromChain.maybeSingle to resolve a user
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (fromChain as any).maybeSingle.mockResolvedValueOnce({
       data: { id: "test-user-uuid" },
       error: null,
     });
@@ -294,6 +284,8 @@ describe("core.ts executeAction userId propagation", () => {
       "whatsapp:+1234567890",
     );
 
+    const client = mockCreateClient();
+    const fromMock = client.from;
     // Should have called user_profiles to resolve
     expect(fromMock).toHaveBeenCalledWith("user_profiles");
     // Result should be valid JSON (stats output)

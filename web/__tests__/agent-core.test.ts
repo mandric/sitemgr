@@ -206,6 +206,8 @@ describe("sendMessageToAgent", () => {
 describe("executeAction — request context", () => {
   beforeEach(() => {
     vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
     vi.clearAllMocks();
     mockRunWithRequestId.mockImplementation((id: string, fn: () => unknown) => fn());
     setupAdminMock();
@@ -265,6 +267,8 @@ describe("executeAction — request context", () => {
 describe("executeAction — error response shape", () => {
   beforeEach(() => {
     vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
     vi.clearAllMocks();
     mockRunWithRequestId.mockImplementation((id: string, fn: () => unknown) => fn());
     setupAdminMock();
@@ -336,6 +340,8 @@ describe("executeAction — error response shape", () => {
 describe("indexBucket — concurrency and partial failure", () => {
   beforeEach(() => {
     vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
     vi.clearAllMocks();
     mockRunWithRequestId.mockImplementation((id: string, fn: () => unknown) => fn());
     setupAdminMock();
