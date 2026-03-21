@@ -19,5 +19,13 @@
     "frontend-design@local-plugins": true,
     "feature-dev@local-plugins": true,
     "ralph-wiggum@local-plugins": true
+  },
+  "extraKnownMarketplaces": {
+    "local-plugins": {
+      "source": {
+        "source": "file",
+        "path": ".claude/plugins/.claude-plugin/marketplace.json"
+      }
+    }
   }
 }
