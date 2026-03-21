@@ -194,3 +194,17 @@ supabase status -o json
 | `.env.example` | Consolidate to canonical names |
 | `docs/ENV_VARS.md` | Update documentation |
 | `scripts/setup/verify.sh` | Check canonical names |
+| `web/__tests__/integration/auth-smoke.test.ts` | **New** — canary tests for auth token validity |
+
+## Auth smoke tests
+
+Added `web/__tests__/integration/auth-smoke.test.ts` as a canary for auth token regressions.
+
+**What it tests:**
+- **Service role key**: `auth.admin.listUsers()`, `createUser`/`deleteUser`, PostgREST RLS bypass
+- **Anon key**: PostgREST accepts it, auth endpoints reachable
+- **User JWT**: Valid session after sign-in, PostgREST queries, `getUser()` round-trip
+
+**Why it exists:** Existing tests exercise auth indirectly — they create users and insert data, but if a JWT algorithm change breaks tokens, the failure shows up as "insert failed" or "permission denied" deep in a tenant-isolation test. These smoke tests fail first with clear messages like "auth.admin.listUsers rejected the service role key."
+
+**No data setup/teardown:** Tests create only transient users (cleaned up in `afterAll`), no seeding needed. Runs fast.
