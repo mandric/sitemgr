@@ -18,6 +18,12 @@ This section depends on:
 
 Do not write this section until sections 01, 02, and 07 are complete.
 
+## Implementation Notes
+
+**File created:** `docs/setup/README.md` (new file, `docs/setup/` directory also created)
+**Deviation from plan:** Added a 4th step (`./scripts/local-dev.sh` to start Supabase) because `print_setup_env_vars` requires Supabase to be running first. The spec said step 2 "starts Supabase" but the script implementation only reads status — code review caught this and user approved the fix.
+**Final line count:** 36 lines (well under the 100-line limit)
+
 ## Verification (Manual)
 
 No automated tests apply to a documentation file. Manual review checklist:
