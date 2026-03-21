@@ -61,6 +61,7 @@ if [ ! -f ".env.local" ]; then
   exit 1
 fi
 set -a
+# shellcheck disable=SC1091
 source .env.local
 set +a
 
