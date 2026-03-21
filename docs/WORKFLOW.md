@@ -17,7 +17,7 @@ git checkout -b feature/my-feature
 
 # 4. Test locally
 ./scripts/local-dev.sh          # Start Supabase local
-./tests/integration_test.sh     # Run tests
+./scripts/test-integration.sh --skip-ollama  # Run tests
 
 # 5. Commit and push
 git add .
@@ -111,10 +111,10 @@ Manual trigger → Approval required
 ./scripts/local-dev.sh
 
 # Run tests
-./tests/integration_test.sh
+./scripts/test-integration.sh --skip-ollama
 
-# Run specific smgr commands
-uv run python prototype/smgr.py stats
+# Check environment health
+./scripts/setup/verify.sh
 uv run python prototype/smgr.py query --type photo
 uv run python prototype/smgr.py watch --once
 

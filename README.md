@@ -101,7 +101,7 @@ cd web && npm test
 cd web && npm run test:e2e
 
 # Run integration tests
-./tests/integration_test.sh
+./scripts/test-integration.sh --skip-ollama
 ```
 
 ### Deployment
@@ -122,4 +122,4 @@ See [INTEGRATION_TESTS_SETUP.md](INTEGRATION_TESTS_SETUP.md) for complete setup 
 - [docs/TESTING.md](docs/TESTING.md) - Testing strategy
 - [design/vision.md](design/vision.md) - Project vision
 - [design/architecture.md](design/architecture.md) - System architecture
-- [tests/README.md](tests/README.md) - Test documentation
+- [docs/TESTING.md](docs/TESTING.md) - Testing strategy and test runner docs

@@ -10,11 +10,8 @@ I've built a complete integration testing setup using Supabase local environment
 scripts/
   local-dev.sh              # One-command local environment setup
 
-tests/
-  integration_test.sh       # Core integration test suite (8 tests)
-  seed_test_data.sh        # Populate with test data
-  README.md                # Detailed testing docs
-  fixtures/                # (will be created on first run)
+scripts/
+  test-integration.sh      # Integration test runner (sources .env.local automatically)
 
 .github/workflows/
   ci.yml                   # Updated to use Supabase local (not MinIO)
@@ -79,7 +76,7 @@ source .env.local
 ### 4. Run Integration Tests
 
 ```bash
-./tests/integration_test.sh
+./scripts/test-integration.sh --skip-ollama
 ```
 
 Expected output:
@@ -108,7 +105,6 @@ Failed: 0
 ### 5. (Optional) Seed Test Data
 
 ```bash
-./tests/seed_test_data.sh
 ```
 
 This uploads 5 test photos and creates events.
@@ -117,13 +113,13 @@ This uploads 5 test photos and creates events.
 
 ```bash
 # Check stats
-python3 prototype/smgr.py stats
+cd web && npx smgr stats
 
 # Query photos
-python3 prototype/smgr.py query --type photo
+cd web && npx smgr query --type photo
 
 # Test the bot (interactive)
-python3 prototype/bot.py --stdio
+# (bot.py removed — now Vercel API routes) --stdio
 ```
 
 ## Quick Start (CI)
@@ -194,13 +190,12 @@ source .env.local
 source .env.local
 
 # Run tests (anytime)
-./tests/integration_test.sh
+./scripts/test-integration.sh --skip-ollama
 
 # Reset database
 supabase db reset
 
 # Re-seed data
-./tests/seed_test_data.sh
 
 # Stop Supabase
 supabase stop
@@ -250,16 +245,15 @@ open http://localhost:54323
 ### Play with the App
 
 1. **Start environment:** `./scripts/local-dev.sh`
-2. **Seed data:** `./tests/seed_test_data.sh`
 3. **Try the CLI:**
    ```bash
-   python3 prototype/smgr.py stats
-   python3 prototype/smgr.py query --type photo
-   python3 prototype/smgr.py show <event-id>
+   cd web && npx smgr stats
+   cd web && npx smgr query --type photo
+   cd web && npx smgr show <event-id>
    ```
 4. **Try the bot:**
    ```bash
-   python3 prototype/bot.py --stdio
+   # (bot.py removed — now Vercel API routes) --stdio
    # Type: "how many photos do I have?"
    # Type: "show me photos"
    ```
@@ -283,7 +277,7 @@ Then you can WhatsApp the bot!
 
 ### Add More Tests
 
-Edit `tests/integration_test.sh`:
+Edit the vitest integration tests under `web/__tests__/integration/`:
 
 ```bash
 test_start "Your new test"
@@ -302,7 +296,6 @@ fi
 cp ~/Pictures/test*.jpg tests/fixtures/photos/
 
 # Upload them
-./tests/seed_test_data.sh
 ```
 
 ## Troubleshooting
@@ -333,7 +326,7 @@ Set `ANTHROPIC_API_KEY` in `.env.local`
 ## Documentation
 
 - **Testing strategy:** `docs/TESTING.md`
-- **Test suite details:** `tests/README.md`
+- **Test suite details:** `docs/TESTING.md`
 - **Architecture:** `design/architecture.md`
 
 ## Summary
@@ -350,7 +343,7 @@ You now have:
 ```bash
 ./scripts/local-dev.sh
 source .env.local
-./tests/integration_test.sh
+./scripts/test-integration.sh --skip-ollama
 ```
 
 If tests pass, you're ready to build! 🚀

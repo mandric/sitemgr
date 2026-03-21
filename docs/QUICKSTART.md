@@ -182,7 +182,7 @@ It's safe to run multiple times - it will:
 ./scripts/local-dev.sh
 
 # Run tests
-./tests/integration_test.sh
+./scripts/test-integration.sh --skip-ollama
 
 # Test bot locally
 uv run python prototype/bot.py --stdio

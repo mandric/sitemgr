@@ -70,18 +70,13 @@ source .env.local         # Load environment variables
 # Terminal 1: Keep Supabase running
 supabase start
 
-# Terminal 2: Run tests
-./tests/integration_test.sh
-
-# Terminal 3: Interactive testing
-python3 prototype/smgr.py watch
-python3 prototype/bot.py --stdio
+# Terminal 2: Run integration tests
+./scripts/test-integration.sh --skip-ollama
 ```
 
 **Reset:**
 ```bash
-supabase db reset         # Reset database to migrations
-./tests/seed_test_data.sh # Re-populate with test data
+supabase db reset         # Wipes and replays all migrations; .env.local is unaffected
 ```
 
 ### 2. Continuous Integration (GitHub Actions)
@@ -116,70 +111,24 @@ supabase db reset         # Reset database to migrations
 
 ## Integration Test Suite
 
-### Coverage
-
-**Current tests (`tests/integration_test.sh`):**
-
-| Test | What It Validates |
-|------|-------------------|
-| Database init | Migrations apply successfully |
-| Stats query | Database is queryable |
-| Storage upload | Supabase Storage API works |
-| S3 watcher | Detects new objects in bucket |
-| Event creation | Events are created correctly |
-| Query by type | Content type filtering works |
-| Show event | Event detail retrieval works |
-| Bot conversation | Natural language → query translation |
-| Stats consistency | Database state is coherent |
-
-**Future tests (roadmap):**
-- [ ] Enrichment with mock LLM
-- [ ] Full-text search ranking
-- [ ] Edge Function POST webhook handling
-- [ ] Multi-device event handling
-- [ ] Error recovery (API failures, network errors)
-- [ ] Performance benchmarks
+The canonical integration test runner is `./scripts/test-integration.sh`, which sources `.env.local` automatically and runs the vitest integration project under `web/__tests__/integration/`.
 
 ### Running Tests
 
-**Quick validation:**
+**Integration tests (requires Supabase running):**
 ```bash
-./tests/integration_test.sh
+./scripts/test-integration.sh --skip-ollama
 ```
 
-**With fresh test data:**
+**With Ollama enrichment (optional):**
 ```bash
-./tests/seed_test_data.sh
-./tests/integration_test.sh
+./scripts/test-integration.sh
 ```
 
-**Individual test scenario:**
+**Unit tests only (no Supabase required):**
 ```bash
-# Edit integration_test.sh to comment out tests you don't want
-# Or extract specific commands
-source .env.local
-python3 prototype/smgr.py init
-python3 prototype/smgr.py stats
+cd web && npm test
 ```
-
-### Test Fixtures
-
-**Location:** `tests/fixtures/photos/`
-
-**Current:** Minimal 1x1 JPEG placeholders (for speed)
-
-**To add real photos:**
-```bash
-cp ~/Pictures/test_*.jpg tests/fixtures/photos/
-./tests/seed_test_data.sh
-```
-
-**Naming convention:** Use descriptive names that indicate expected content:
-- `bed_frame_broken.jpg` - Should be recognized as furniture damage
-- `wood_cutting.jpg` - Should be recognized as woodworking
-- `finished_repair.jpg` - Should be recognized as completed project
-
-This enables validating enrichment accuracy when implemented.
 
 ## Deployment Testing
 
@@ -230,43 +179,10 @@ supabase db dump --project-ref <your-ref>
 
 ## Test Data Management
 
-### Seeding Test Data
+Integration tests create and destroy their own isolated data per run. No manual seeding is required. To reset the local database:
 
-**Purpose:** Populate environment with realistic data for testing
-
-**Script:** `tests/seed_test_data.sh`
-
-**What it does:**
-1. Generates test photos (or uses existing fixtures)
-2. Uploads to Supabase Storage
-3. Runs `smgr watch` to detect uploads
-4. Optionally enriches photos (if API key configured)
-
-**Usage:**
 ```bash
-# Seed with default fixtures
-./tests/seed_test_data.sh
-
-# Check what was created
-python3 prototype/smgr.py stats
-python3 prototype/smgr.py query --type photo
-```
-
-### Reset Test Data
-
-**Local:**
-```bash
-supabase db reset
-./tests/seed_test_data.sh
-```
-
-**Cloud test environment:**
-```bash
-# Reset database
-supabase db reset --linked
-
-# Or re-run deployment
-git push origin develop --force-with-lease
+supabase db reset    # Wipes and replays all migrations
 ```
 
 ## Debugging Failed Tests
@@ -286,10 +202,9 @@ git push origin develop --force-with-lease
    echo $SMGR_S3_ENDPOINT
    ```
 
-3. **Run test commands manually:**
+3. **Check environment health:**
    ```bash
-   python3 prototype/smgr.py init
-   python3 prototype/smgr.py stats
+   ./scripts/setup/verify.sh
    ```
 
 4. **Check Supabase logs:**
@@ -343,7 +258,7 @@ As components stabilize, add unit tests for:
 - Storage provider interface
 - Query provider interface
 
-**Test framework:** `pytest` with fixtures and mocking
+**Test framework:** `vitest` (already in use for unit tests)
 
 **Coverage target:** 60-80% for stable components
 
@@ -353,20 +268,18 @@ As components stabilize, add unit tests for:
 
 | Component | Integration | Unit | Total |
 |-----------|-------------|------|-------|
-| smgr.py CLI | 30% | 0% | 30% |
-| bot.py | 10% | 0% | 10% |
-| Edge Function | 5% | 0% | 5% |
-| Database | 40% | N/A | 40% |
+| smgr CLI (TypeScript) | 30% | 0% | 30% |
+| API routes / webhooks | 10% | 0% | 10% |
+| Database / migrations | 40% | N/A | 40% |
 | **Overall** | **~20%** | **0%** | **~20%** |
 
 ### Target Coverage (3 months)
 
 | Component | Integration | Unit | Total |
 |-----------|-------------|------|-------|
-| smgr.py CLI | 60% | 40% | 70% |
-| bot.py | 40% | 30% | 50% |
-| Edge Function | 50% | 30% | 60% |
-| Database | 70% | N/A | 70% |
+| smgr CLI (TypeScript) | 60% | 40% | 70% |
+| API routes / webhooks | 40% | 30% | 50% |
+| Database / migrations | 70% | N/A | 70% |
 | **Overall** | **~55%** | **~25%** | **~65%** |
 
 ### Success Metrics
