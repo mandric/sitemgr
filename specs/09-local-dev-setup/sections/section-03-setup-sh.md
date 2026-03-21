@@ -128,3 +128,11 @@ The function should not `exit` directly — it should return a non-zero status a
 - The script exits non-zero when any prerequisite is missing
 - The script exits zero when all prerequisites are satisfied and `npm install` succeeds
 - No `supabase status`, curl, or bucket creation logic is added (those belong in `local-dev.sh`)
+
+## Implementation Notes (Actual)
+
+**File modified:** `scripts/setup.sh`
+
+**Deviations from plan (code review fix):**
+
+1. **Added numeric guard for `node_major`**: Added `[[ "$node_major" =~ ^[0-9]+$ ]]` before the arithmetic `-lt 20` comparison. Under `set -euo pipefail`, a non-numeric result from `node -v | sed ... | cut ...` would cause an opaque `integer expression expected` crash rather than a clean diagnostic. The guard appends a descriptive message to `missing[]` for unexpected version strings.
