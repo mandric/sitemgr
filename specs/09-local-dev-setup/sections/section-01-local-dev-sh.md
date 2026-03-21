@@ -175,3 +175,17 @@ To save environment variables:
 - No `awk`, `grep "Access Key"`, or `grep "Secret Key"` patterns remain in the script
 - No `curl` bucket-creation call remains in the script
 - Running the script with Supabase stopped exits non-zero with a clear message
+
+## Implementation Notes (Actual)
+
+**File modified:** `scripts/local-dev.sh` (full rewrite)
+
+**Deviations from plan (code review fixes):**
+
+1. **Validation before output**: Moved all missing-field validation before the `cat <<EOF` heredoc. The plan placed validation after printing, which would emit partial dotenv to stdout before catching errors — producing a silently corrupted `.env.local` when redirected.
+
+2. **`if`-guard for validation checks**: Replaced bare `[ -z "$x" ] || [ "$x" = "null" ] && missing+=("X")` with `if [ -z "$x" ] || [ "$x" = "null" ]; then missing+=("X"); fi`. Under `set -euo pipefail`, the bare form evaluates to exit-1 on the success path, killing the script before validation could run.
+
+3. **Removed `|| true` from `supabase status` call**: Propagates failures with a clear error message instead of silently continuing with empty output.
+
+4. **Added `jq` presence check**: `print_setup_env_vars` checks for `jq` before use and emits an actionable install hint if missing.
