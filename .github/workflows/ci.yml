@@ -27,7 +27,7 @@ jobs:
         run: cd web && npm run typecheck
 
       - name: Lint shell scripts
-        run: shellcheck scripts/*.sh tests/*.sh
+        run: find scripts -name '*.sh' -print0 | xargs -0 shellcheck
 
   build:
     name: Build
