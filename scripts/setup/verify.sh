@@ -4,7 +4,7 @@ set -euo pipefail
 # Source .env.local if it exists (so script works without manual sourcing)
 if [ -f ".env.local" ]; then
   set -a
-  # shellcheck source=.env.local
+  # shellcheck disable=SC1091
   source .env.local
   set +a
 fi
