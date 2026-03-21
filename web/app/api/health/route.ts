@@ -9,7 +9,10 @@ export async function GET() {
 
   // Check Supabase DB connectivity
   try {
-    const supabase = getAdminClient();
+    const supabase = getAdminClient({
+      url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    });
     const { error } = await supabase
       .from("events")
       .select("id", { count: "exact", head: true })

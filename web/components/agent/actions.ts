@@ -7,7 +7,7 @@ import {
   saveConversationHistory,
   type Message,
 } from "@/lib/agent/core";
-import { getStats } from "@/lib/media/db";
+import { getStats, getUserClient } from "@/lib/media/db";
 
 export async function sendMessage(
   message: string,
@@ -30,7 +30,11 @@ export async function sendMessage(
     .select("id, bucket_name, endpoint_url, region, created_at")
     .eq("user_id", user.id);
 
-  const { data: stats } = await getStats(user.id);
+  const statsClient = getUserClient({
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    anonKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+  });
+  const { data: stats } = await getStats(statsClient, { userId: user.id });
 
   const contextPrefix = [
     `[User context]`,

@@ -8,8 +8,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import pLimit from "p-limit";
 import { AGENT_SYSTEM_PROMPT, WHATSAPP_PLANNER_PROMPT } from "./system-prompt";
-import { getAdminClient } from "@/lib/media/db";
 import {
+  getAdminClient,
   queryEvents,
   showEvent,
   getStats,
@@ -42,6 +42,14 @@ import { runWithRequestId } from "@/lib/request-context";
 import { createLogger, LogComponent } from "@/lib/logger";
 
 const logger = createLogger(LogComponent.Agent);
+
+/** Create an admin Supabase client from server env vars. */
+function createAdminClient() {
+  return getAdminClient({
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  });
+}
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -169,7 +177,7 @@ export async function planAction(
 
 /** Resolve a phone number to a user_id via user_profiles lookup. */
 export async function resolveUserId(phoneNumber: string): Promise<string | null> {
-  const supabase = getAdminClient();
+  const supabase = createAdminClient();
   const { data } = await supabase
     .from("user_profiles")
     .select("id")
@@ -225,7 +233,8 @@ export async function executeAction(
           break;
 
         case "stats": {
-          const statsResult = await getStats(userId ?? undefined);
+          const statsClient = createAdminClient();
+          const statsResult = await getStats(statsClient, { userId: userId ?? undefined });
           if (statsResult.error) {
             result = errorResponse(`Stats query failed: ${(statsResult.error as Error).message ?? statsResult.error}`, "internal");
           } else {
@@ -235,7 +244,8 @@ export async function executeAction(
         }
 
         case "show": {
-          const showResult = await showEvent(plan.params?.id as string, userId ?? undefined);
+          const showClient = createAdminClient();
+          const showResult = await showEvent(showClient, plan.params?.id as string, userId ?? undefined);
           if (showResult.error) {
             result = errorResponse(`Show query failed: ${(showResult.error as Error).message ?? showResult.error}`, "internal");
           } else {
@@ -245,7 +255,8 @@ export async function executeAction(
         }
 
         case "enrich_status": {
-          const enrichResult = await getEnrichStatus(userId ?? undefined);
+          const enrichClient = createAdminClient();
+          const enrichResult = await getEnrichStatus(enrichClient, userId ?? undefined);
           if (enrichResult.error) {
             result = errorResponse(`Enrich status query failed: ${(enrichResult.error as Error).message ?? enrichResult.error}`, "internal");
           } else {
@@ -256,7 +267,8 @@ export async function executeAction(
 
         case "query": {
           const p = plan.params ?? {};
-          const queryResult = await queryEvents({
+          const queryClient = createAdminClient();
+          const queryResult = await queryEvents(queryClient, {
             userId: userId ?? undefined,
             search: p.search as string | undefined,
             type: p.type as string | undefined,
@@ -397,7 +409,7 @@ async function addBucket(
   // Use versioned encryption for new buckets
   const encryptedSecret = await encryptSecretVersioned(secretAccessKey);
   const keyVersion = getEncryptionVersion(encryptedSecret);
-  const supabase = getAdminClient();
+  const supabase = createAdminClient();
 
   const { data, error } = await supabase
     .from("bucket_configs")
@@ -440,7 +452,7 @@ async function listBuckets(phoneNumber: string, userId: string | null): Promise<
     return errorResponse("Could not resolve user for this phone number", "not_found");
   }
 
-  const supabase = getAdminClient();
+  const supabase = createAdminClient();
 
   const { data, error } = await supabase
     .from("bucket_configs")
@@ -471,7 +483,7 @@ async function removeBucket(
     return errorResponse("Could not resolve user for this phone number", "not_found");
   }
 
-  const supabase = getAdminClient();
+  const supabase = createAdminClient();
 
   const { error } = await supabase
     .from("bucket_configs")
@@ -559,7 +571,7 @@ async function getBucketConfig(
   userId?: string | null,
 ): Promise<BucketConfigResult> {
   if (!bucketName) return { exists: false };
-  const supabase = getAdminClient();
+  const supabase = createAdminClient();
 
   if (!userId) return { exists: false };
 
@@ -777,7 +789,8 @@ async function indexBucket(
     const allObjects = await listS3Objects(s3.client, bucketName, prefix ?? "");
 
     // Get already-watched keys to find new ones
-    const watchedResult = await getWatchedKeys(userId ?? undefined);
+    const indexClient = createAdminClient();
+    const watchedResult = await getWatchedKeys(indexClient, userId ?? undefined);
     if (watchedResult.error) {
       return errorResponse(`Failed to fetch watched keys: ${(watchedResult.error as Error).message ?? watchedResult.error}`, "internal");
     }
@@ -798,7 +811,7 @@ async function indexBucket(
             const mimeType = getMimeType(obj.key);
 
             // Create event
-            const insertResult = await insertEvent({
+            const insertResult = await insertEvent(indexClient, {
               id: eventId,
               device_id: `whatsapp:${phoneNumber}`,
               type: "create",
@@ -814,7 +827,7 @@ async function indexBucket(
             if (insertResult.error) throw insertResult.error;
 
             // Track watched key
-            const upsertResult = await upsertWatchedKey(obj.key, eventId, obj.etag, obj.size, userId ?? undefined, s3.config.id);
+            const upsertResult = await upsertWatchedKey(indexClient, obj.key, eventId, obj.etag, obj.size, userId ?? undefined, s3.config.id);
             if (upsertResult.error) {
               logger.warn("upsertWatchedKey failed", {
                 key: obj.key,
@@ -831,7 +844,7 @@ async function indexBucket(
                   obj.key,
                 );
                 const result = await enrichImage(imageBytes, mimeType);
-                const enrichInsert = await insertEnrichment(eventId, result, userId ?? undefined);
+                const enrichInsert = await insertEnrichment(indexClient, eventId, result, userId ?? undefined);
                 if (enrichInsert.error) throw enrichInsert.error;
                 return { key: obj.key, status: "enriched" };
               } catch (enrichErr) {
@@ -897,7 +910,7 @@ export async function getConversationHistory(
   phone: string,
   userId?: string | null,
 ): Promise<Message[]> {
-  const supabase = getAdminClient();
+  const supabase = createAdminClient();
 
   if (userId) {
     const { data } = await supabase
@@ -923,7 +936,7 @@ export async function saveConversationHistory(
   history: Message[],
   userId?: string | null,
 ): Promise<void> {
-  const supabase = getAdminClient();
+  const supabase = createAdminClient();
   const trimmed = history.slice(-20);
 
   if (userId) {

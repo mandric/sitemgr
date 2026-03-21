@@ -114,7 +114,7 @@ describe("when uploading and searching for media", () => {
     uploadedKeys.push(key);
 
     // Insert event (type: "create" matches what search_events SQL function filters)
-    const { error: evtErr } = await insertEvent({
+    const { error: evtErr } = await insertEvent(admin, {
       id: eventId,
       device_id: "test-device",
       type: "create",
@@ -130,6 +130,7 @@ describe("when uploading and searching for media", () => {
 
     // Insert enrichment with searchable description
     const { error: enrErr } = await insertEnrichment(
+      admin,
       eventId,
       {
         description: "sunset over mountains",
@@ -170,7 +171,7 @@ describe("when requesting statistics", () => {
 
   beforeAll(async () => {
     // Seed additional events for stats (type: "create" for content type stats)
-    const { error: e1 } = await insertEvent({
+    const { error: e1 } = await insertEvent(admin, {
       id: evtPhoto2,
       device_id: "test-device",
       type: "create",
@@ -184,7 +185,7 @@ describe("when requesting statistics", () => {
     });
     expect(e1).toBeNull();
 
-    const { error: e2 } = await insertEvent({
+    const { error: e2 } = await insertEvent(admin, {
       id: evtVideo,
       device_id: "test-device",
       type: "create",
@@ -199,6 +200,7 @@ describe("when requesting statistics", () => {
     expect(e2).toBeNull();
 
     const { error: e3 } = await insertEnrichment(
+      admin,
       evtPhoto2,
       {
         description: "another photo",
@@ -267,11 +269,11 @@ describe("when re-scanning a watched key", () => {
     const testKey = `${userId.slice(0, 8)}/watched-upsert-test.jpg`;
 
     // First upsert
-    const { error: u1 } = await upsertWatchedKey(testKey, null, "etag-abc", 1000, userId);
+    const { error: u1 } = await upsertWatchedKey(admin, testKey, null, "etag-abc", 1000, userId);
     expect(u1).toBeNull();
 
     // Re-upsert with new etag
-    const { error: u2 } = await upsertWatchedKey(testKey, null, "etag-def", 2000, userId);
+    const { error: u2 } = await upsertWatchedKey(admin, testKey, null, "etag-def", 2000, userId);
     expect(u2).toBeNull();
 
     // Verify only one row with updated etag

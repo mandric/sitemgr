@@ -202,7 +202,7 @@ describe("smgr query --search", () => {
 
   beforeAll(async () => {
     // Insert an event + enrichment with a unique keyword for FTS
-    const { error: evtErr } = await insertEvent({
+    const { error: evtErr } = await insertEvent(admin, {
       id: ftsEventId,
       device_id: "test-cli",
       type: "create",
@@ -217,6 +217,7 @@ describe("smgr query --search", () => {
     if (evtErr) throw evtErr;
 
     const { error: enrErr } = await insertEnrichment(
+      admin,
       ftsEventId,
       {
         description: "a majestic flamingo standing in shallow water",
@@ -314,7 +315,7 @@ describe("smgr enrich --dry-run", () => {
   beforeAll(async () => {
     // Insert a photo event without enrichment
     unenrichedEventId = `cli-dryrun-${Date.now()}`;
-    const { error } = await insertEvent({
+    const { error } = await insertEvent(admin, {
       id: unenrichedEventId,
       device_id: "test-cli",
       type: "create",

@@ -4,14 +4,28 @@
  * All functions return Supabase's { data, error } shape as-is.
  * Callers decide how to handle errors — the db layer's job is
  * query encapsulation and retry on writes.
+ *
+ * Client factories are parameterized — callers provide config explicitly.
+ * This module has zero dependency on cli-auth.
  */
 
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createLogger, LogComponent } from "@/lib/logger";
 import { withRetry } from "@/lib/retry";
-import { refreshSession, resolveApiConfig } from "@/lib/auth/cli-auth";
 
 const logger = createLogger(LogComponent.DB);
+
+// ── Config types ──────────────────────────────────────────────
+
+export interface SupabaseConfig {
+  url: string;
+  serviceKey: string;
+}
+
+export interface SupabaseUserConfig {
+  url: string;
+  anonKey: string;
+}
 
 // ── Retry support ──────────────────────────────────────────────
 
@@ -44,33 +58,17 @@ async function withRetryDb<T>(
 // ── Clients ────────────────────────────────────────────────────
 
 /** Creates a Supabase client with the service role key (bypasses RLS). */
-export function getAdminClient() {
-  const { url } = resolveApiConfig();
-  const key = process.env.SUPABASE_SECRET_KEY?.replace(/\s+/g, "");
-  if (!key) {
-    throw new Error("SUPABASE_SECRET_KEY is required for admin client");
-  }
-  return createSupabaseClient(url, key);
+export function getAdminClient(config: SupabaseConfig) {
+  if (!config.url) throw new Error("url is required for admin client");
+  if (!config.serviceKey) throw new Error("serviceKey is required for admin client");
+  return createSupabaseClient(config.url, config.serviceKey);
 }
 
 /** Creates a Supabase client with the publishable/anon key (respects RLS). */
-export function getUserClient() {
-  const { url, anonKey } = resolveApiConfig();
-  return createSupabaseClient(url, anonKey);
-}
-
-/**
- * Creates a Supabase client authenticated with the CLI user's JWT.
- * Returns null if no CLI session exists.
- */
-export async function getAuthenticatedClient() {
-  const creds = await refreshSession();
-  if (!creds) return null;
-
-  const { url, anonKey } = resolveApiConfig();
-  return createSupabaseClient(url, anonKey, {
-    global: { headers: { Authorization: `Bearer ${creds.access_token}` } },
-  });
+export function getUserClient(config: SupabaseUserConfig) {
+  if (!config.url) throw new Error("url is required for user client");
+  if (!config.anonKey) throw new Error("anonKey is required for user client");
+  return createSupabaseClient(config.url, config.anonKey);
 }
 
 export interface EventRow {
@@ -101,8 +99,7 @@ export interface QueryOptions {
   offset?: number;
 }
 
-export async function queryEvents(opts: QueryOptions) {
-  const supabase = getUserClient();
+export async function queryEvents(client: SupabaseClient, opts: QueryOptions) {
   const start = Date.now();
 
   // Empty search guard
@@ -117,7 +114,7 @@ export async function queryEvents(opts: QueryOptions) {
 
   // Full-text search via RPC
   if (opts.search) {
-    const { data, error } = await supabase.rpc("search_events", {
+    const { data, error } = await client.rpc("search_events", {
       p_user_id: opts.userId,
       query_text: opts.search,
       content_type_filter: opts.type ?? null,
@@ -136,7 +133,7 @@ export async function queryEvents(opts: QueryOptions) {
 
   // Standard query with joined enrichments (no N+1)
   const effectiveLimit = Math.min(opts.limit ?? 20, 100);
-  let query = supabase
+  let query = client
     .from("events")
     .select("*, enrichments(description, objects, context, tags)", { count: "exact" })
     .eq("type", "create")
@@ -177,10 +174,8 @@ export async function queryEvents(opts: QueryOptions) {
 
 // ── Show ───────────────────────────────────────────────────────
 
-export async function showEvent(eventId: string, userId?: string) {
-  const supabase = getUserClient();
-
-  let query = supabase
+export async function showEvent(client: SupabaseClient, eventId: string, userId?: string) {
+  let query = client
     .from("events")
     .select("*, enrichments(description, objects, context, tags)")
     .eq("id", eventId);
@@ -203,12 +198,12 @@ export async function showEvent(eventId: string, userId?: string) {
 
 // ── Stats ──────────────────────────────────────────────────────
 
-export async function getStats(userId?: string) {
-  const supabase = getUserClient();
+export async function getStats(client: SupabaseClient, opts?: { userId?: string; deviceId?: string }) {
+  const userId = opts?.userId;
 
-  let eventsQuery = supabase.from("events").select("*", { count: "exact", head: true });
-  let enrichmentsQuery = supabase.from("enrichments").select("*", { count: "exact", head: true });
-  let watchedQuery = supabase.from("watched_keys").select("*", { count: "exact", head: true });
+  let eventsQuery = client.from("events").select("*", { count: "exact", head: true });
+  let enrichmentsQuery = client.from("enrichments").select("*", { count: "exact", head: true });
+  let watchedQuery = client.from("watched_keys").select("*", { count: "exact", head: true });
 
   if (userId) {
     eventsQuery = eventsQuery.eq("user_id", userId);
@@ -218,8 +213,8 @@ export async function getStats(userId?: string) {
 
   const [byContentType, byEventType, totalRes, enrichedRes, watchedRes] =
     await Promise.all([
-      supabase.rpc("stats_by_content_type", { p_user_id: userId }),
-      supabase.rpc("stats_by_event_type", { p_user_id: userId }),
+      client.rpc("stats_by_content_type", { p_user_id: userId }),
+      client.rpc("stats_by_event_type", { p_user_id: userId }),
       eventsQuery,
       enrichmentsQuery,
       watchedQuery,
@@ -255,7 +250,7 @@ export async function getStats(userId?: string) {
       watched_s3_keys: watched,
       enriched,
       pending_enrichment: Math.max(0, photoCount - enriched),
-      device_id: process.env.SMGR_DEVICE_ID ?? "default",
+      device_id: opts?.deviceId ?? "default",
     },
     error: null,
   };
@@ -263,15 +258,13 @@ export async function getStats(userId?: string) {
 
 // ── Enrich Status ──────────────────────────────────────────────
 
-export async function getEnrichStatus(userId?: string) {
-  const supabase = getUserClient();
-
-  let eventsQuery = supabase
+export async function getEnrichStatus(client: SupabaseClient, userId?: string) {
+  let eventsQuery = client
     .from("events")
     .select("*", { count: "exact", head: true })
     .eq("type", "create")
     .eq("content_type", "photo");
-  let enrichmentsQuery = supabase
+  let enrichmentsQuery = client
     .from("enrichments")
     .select("*", { count: "exact", head: true });
 
@@ -305,10 +298,9 @@ export async function getEnrichStatus(userId?: string) {
 
 // ── Insert Event ───────────────────────────────────────────────
 
-export async function insertEvent(event: Omit<EventRow, "timestamp"> & { timestamp?: string }) {
+export async function insertEvent(client: SupabaseClient, event: Omit<EventRow, "timestamp"> & { timestamp?: string }) {
   const result = await withRetryDb(async () => {
-    const supabase = getAdminClient();
-    return supabase.from("events").insert({
+    return client.from("events").insert({
       ...event,
       timestamp: event.timestamp ?? new Date().toISOString(),
     });
@@ -324,13 +316,13 @@ export async function insertEvent(event: Omit<EventRow, "timestamp"> & { timesta
 // ── Insert Enrichment ──────────────────────────────────────────
 
 export async function insertEnrichment(
+  client: SupabaseClient,
   eventId: string,
   result: { description: string; objects: string[]; context: string; suggested_tags: string[] },
   userId?: string,
 ) {
   const dbResult = await withRetryDb(async () => {
-    const supabase = getAdminClient();
-    return supabase.from("enrichments").insert({
+    return client.from("enrichments").insert({
       event_id: eventId,
       description: result.description,
       objects: result.objects,
@@ -350,6 +342,7 @@ export async function insertEnrichment(
 // ── Upsert Watched Key ────────────────────────────────────────
 
 export async function upsertWatchedKey(
+  client: SupabaseClient,
   s3Key: string,
   eventId: string | null,
   etag: string,
@@ -358,8 +351,7 @@ export async function upsertWatchedKey(
   bucketConfigId?: string,
 ) {
   const result = await withRetryDb(async () => {
-    const supabase = getAdminClient();
-    return supabase.from("watched_keys").upsert(
+    return client.from("watched_keys").upsert(
       {
         s3_key: s3Key,
         first_seen: new Date().toISOString(),
@@ -382,18 +374,16 @@ export async function upsertWatchedKey(
 
 // ── Get Watched Keys ──────────────────────────────────────────
 
-export async function getWatchedKeys(userId?: string) {
-  const supabase = getAdminClient();
-  let query = supabase.from("watched_keys").select("s3_key");
+export async function getWatchedKeys(client: SupabaseClient, userId?: string) {
+  let query = client.from("watched_keys").select("s3_key");
   if (userId) query = query.eq("user_id", userId);
   return query;
 }
 
 // ── Check Duplicate by Hash ───────────────────────────────────
 
-export async function findEventByHash(hash: string, userId?: string) {
-  const supabase = getUserClient();
-  let query = supabase
+export async function findEventByHash(client: SupabaseClient, hash: string, userId?: string) {
+  let query = client
     .from("events")
     .select("id")
     .eq("type", "create")
@@ -406,10 +396,8 @@ export async function findEventByHash(hash: string, userId?: string) {
 
 // ── Get Pending Enrichments ───────────────────────────────────
 
-export async function getPendingEnrichments(userId?: string) {
-  const supabase = getAdminClient();
-
-  let photosQuery = supabase
+export async function getPendingEnrichments(client: SupabaseClient, userId?: string) {
+  let photosQuery = client
     .from("events")
     .select("id, content_hash, content_type, local_path, remote_path, metadata")
     .eq("type", "create")
@@ -420,7 +408,7 @@ export async function getPendingEnrichments(userId?: string) {
 
   if (photosErr) return { data: null, error: photosErr };
 
-  let enrichedQuery = supabase.from("enrichments").select("event_id");
+  let enrichedQuery = client.from("enrichments").select("event_id");
   if (userId) enrichedQuery = enrichedQuery.eq("user_id", userId);
   const { data: enriched, error: enrichedErr } = await enrichedQuery;
 
@@ -444,10 +432,8 @@ export interface ModelConfigRow {
   updated_at: string;
 }
 
-export async function getModelConfig(userId: string, provider?: string) {
-  const supabase = getAdminClient();
-
-  let query = supabase
+export async function getModelConfig(client: SupabaseClient, userId: string, provider?: string) {
+  let query = client
     .from("model_configs")
     .select("*")
     .eq("user_id", userId)
