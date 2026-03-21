@@ -246,7 +246,8 @@ describe("db.ts userId parameters", () => {
 describe("core.ts resolveUserId", () => {
   it("resolveUserId queries user_profiles by phone_number", async () => {
     // Set up fromChain.maybeSingle to return a user before resolveUserId is called
-    fromChain.maybeSingle.mockResolvedValueOnce({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (fromChain as any).maybeSingle.mockResolvedValueOnce({
       data: { id: "resolved-user-id" },
       error: null,
     });
@@ -261,7 +262,8 @@ describe("core.ts resolveUserId", () => {
   });
 
   it("resolveUserId returns null when no user found", async () => {
-    fromChain.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (fromChain as any).maybeSingle.mockResolvedValueOnce({ data: null, error: null });
 
     const result = await resolveUserId("+9999999999");
     expect(result).toBeNull();
@@ -271,7 +273,8 @@ describe("core.ts resolveUserId", () => {
 describe("core.ts executeAction userId propagation", () => {
   it("executeAction passes resolved userId to getStats", async () => {
     // Set up fromChain.maybeSingle to resolve a user
-    fromChain.maybeSingle.mockResolvedValueOnce({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (fromChain as any).maybeSingle.mockResolvedValueOnce({
       data: { id: "test-user-uuid" },
       error: null,
     });
