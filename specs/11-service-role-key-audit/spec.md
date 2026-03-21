@@ -2,11 +2,12 @@
 
 ## Overview
 
-Audit how Supabase keys are used, named, and constructed across the codebase. The goals:
+Audit how Supabase keys are used, named, and constructed across the codebase, and refactor integration tests to go through our application layer instead of calling Supabase directly. The goals:
 
 1. Remove the hand-crafted ES256 JWT workaround — we should never manually sign JWTs
 2. Consolidate the scattered env var naming into a clear, single-source pattern
 3. Make it obvious which key is which, where each one flows, and why some are JWTs
+4. Integration tests call our code (`db.ts`, `s3.ts`, API routes) — not raw Supabase SDK
 
 ## Core principle: never manually construct JWTs
 
@@ -172,10 +173,73 @@ supabase status -o json
 4. **Update CLI** (`web/bin/smgr.ts`): Read `SUPABASE_SERVICE_ROLE_KEY` directly, remove fallback
 5. **Update CLI auth** (`web/lib/auth/cli-auth.ts`): Read `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
 6. **Update instrumentation** (`web/instrumentation.ts`): Validate `SUPABASE_SERVICE_ROLE_KEY`
-7. **Update integration tests**: Use canonical names in `setup.ts`, `globalSetup.ts`, test files
+7. **Refactor integration tests**: Use canonical names AND replace raw Supabase SDK calls with our `db.ts`/`s3.ts` functions. Re-export app modules from `setup.ts`. Start Next.js dev server in `globalSetup.ts` for HTTP-layer tests.
 8. **Update CI workflow** (`.github/workflows/ci.yml`): Use canonical names
 9. **Update `.env.example` files**: Single set of names with clear comments
 10. **Update `docs/ENV_VARS.md`**: Document canonical names and why each is a JWT or not
+
+## Integration tests: call our code, not Supabase directly
+
+While we're touching every integration test file for the env var rename, also refactor tests to go through our application layer.
+
+### Principle
+
+**Test assertions call our code; test setup/teardown can use admin SDK.**
+
+- Queries: `queryEvents()`, `getStats()`, `getEnrichStatus()` from `db.ts` — not `client.from("events").select()` or `client.rpc("search_events")`
+- Writes: `insertEvent()`, `insertEnrichment()`, `upsertWatchedKey()` from `db.ts` — not `admin.from("events").insert()`
+- S3: `uploadS3Object()`, `listS3Objects()`, `downloadS3Object()` from `s3.ts` — not raw AWS SDK commands
+- HTTP: `fetch("/api/...")` against the running Next.js dev server for API route tests
+
+**Exception:** Test-only infra (creating auth users, seeding bulk data, cleanup) still uses Supabase admin SDK directly — there's no app-layer equivalent for `auth.admin.createUser()`.
+
+### Why do this now
+
+We're already in every test file renaming `SUPABASE_SECRET_KEY` → `SUPABASE_SERVICE_ROLE_KEY` and `SMGR_API_KEY` → `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`. That means we're touching imports and client construction in every test. It's the natural time to also change `client.from("events").select()` → `queryEvents(client, opts)`.
+
+### What changes in test files
+
+**`setup.ts`** — re-export our app modules:
+```typescript
+// Re-export app modules so tests use our code
+export { getAdminClient, getUserClient, queryEvents, showEvent, getStats,
+         getEnrichStatus, insertEvent, insertEnrichment, upsertWatchedKey,
+         getWatchedKeys, findEventByHash, getPendingEnrichments } from "@/lib/media/db";
+export { createS3Client, listS3Objects, downloadS3Object,
+         uploadS3Object } from "@/lib/media/s3";
+
+// Test-only helpers stay as raw Supabase SDK:
+// createTestUser(), cleanupTestData(), seedUserData()
+```
+
+**Test files** — replace raw Supabase calls with our functions:
+```typescript
+// BEFORE (raw Supabase)
+const { data } = await aliceClient.rpc("search_events", { p_user_id: aliceId, query_text: "test" });
+const { data: events } = await aliceClient.from("events").select("*");
+
+// AFTER (our code)
+const { data } = await queryEvents(aliceClient, { userId: aliceId, search: "test" });
+const { data: events } = await queryEvents(aliceClient, { userId: aliceId });
+```
+
+**`globalSetup.ts`** — start Next.js dev server for HTTP-layer tests:
+```typescript
+export async function setup() {
+  // 1. Validate Supabase is running (existing check)
+  // 2. Start Next.js dev server
+  const server = spawn("npm", ["run", "dev"], { cwd: "web", stdio: "pipe" });
+  // Wait for server ready (poll /api/health)
+  globalThis.__WEB_SERVER__ = server;
+}
+export async function teardown() {
+  globalThis.__WEB_SERVER__?.kill();
+}
+```
+
+### Why this matters
+
+If tests call Supabase directly, we're proving Supabase works — not our app. By going through `db.ts` and `s3.ts`, we validate our retry logic, error handling, client factories, query builders, and TypeScript type contracts. A passing test means our code works end-to-end.
 
 ## Files to change
 
@@ -185,8 +249,11 @@ supabase status -o json
 | `web/bin/smgr.ts` | Read canonical names, remove `SUPABASE_SECRET_KEY` / `SMGR_API_URL` fallbacks |
 | `web/lib/auth/cli-auth.ts` | Read `NEXT_PUBLIC_SUPABASE_URL` + `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` |
 | `web/instrumentation.ts` | Validate `SUPABASE_SERVICE_ROLE_KEY` instead of `SUPABASE_SECRET_KEY` |
-| `web/__tests__/integration/setup.ts` | Use canonical names |
-| `web/__tests__/integration/globalSetup.ts` | Use canonical names |
+| `web/__tests__/integration/setup.ts` | Use canonical names + re-export `db.ts`/`s3.ts` modules |
+| `web/__tests__/integration/globalSetup.ts` | Use canonical names + start Next.js dev server |
+| `web/__tests__/integration/tenant-isolation.test.ts` | Replace raw Supabase calls with `queryEvents()`, `getStats()`, etc. |
+| `web/__tests__/integration/media-lifecycle.test.ts` | Replace raw Supabase calls with `insertEvent()`, `queryEvents()`, etc. |
+| `web/__tests__/integration/media-storage.test.ts` | Replace raw AWS SDK with `uploadS3Object()`, `listS3Objects()`, etc. |
 | `web/__tests__/integration/smgr-cli.test.ts` | Use canonical names |
 | `web/__tests__/integration/smgr-e2e.test.ts` | Use canonical names |
 | `.github/workflows/ci.yml` | Use canonical names throughout |
@@ -201,10 +268,12 @@ supabase status -o json
 Added `web/__tests__/integration/auth-smoke.test.ts` as a canary for auth token regressions.
 
 **What it tests:**
-- **Service role key**: `auth.admin.listUsers()`, `createUser`/`deleteUser`, PostgREST RLS bypass
-- **Anon key**: PostgREST accepts it, auth endpoints reachable
-- **User JWT**: Valid session after sign-in, PostgREST queries, `getUser()` round-trip
+- **Service role key**: `auth.admin.listUsers()`, `createUser`/`deleteUser`, `getAdminClient()` from `db.ts` can query with RLS bypass
+- **Anon key**: `getUserClient()` from `db.ts` connects, auth endpoints reachable
+- **User JWT**: Valid session after sign-in, `queryEvents()` from `db.ts` works, `getUser()` round-trip
 
 **Why it exists:** Existing tests exercise auth indirectly — they create users and insert data, but if a JWT algorithm change breaks tokens, the failure shows up as "insert failed" or "permission denied" deep in a tenant-isolation test. These smoke tests fail first with clear messages like "auth.admin.listUsers rejected the service role key."
+
+**Note:** Auth user creation/deletion (`auth.admin.*`) is one of the exceptions where raw Supabase SDK is fine — there's no app-layer equivalent for admin auth operations. But everything else (querying data, checking RLS) goes through our `db.ts` functions.
 
 **No data setup/teardown:** Tests create only transient users (cleaned up in `afterAll`), no seeding needed. Runs fast.
