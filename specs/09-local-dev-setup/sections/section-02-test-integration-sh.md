@@ -122,9 +122,20 @@ The following elements remain exactly as-is:
 After the changes, the high-level flow of the script is:
 
 1. Parse `--skip-ollama` flag
-2. Check dependencies (`supabase`, `docker`, `jq`, `node`)
+2. Check dependencies (`supabase`, `docker`, `node`) — `jq` removed (no longer needed)
 3. Install npm deps if missing
 4. Idempotent Supabase start
 5. **Source `.env.local`** (new — replaces all extraction logic)
-6. Optionally start Ollama and wait for health
-7. Run vitest integration suite
+6. Validate `SMGR_API_URL` is set (sentinel check for stale `.env.local`)
+7. Optionally start Ollama and wait for health
+8. Run vitest integration suite
+
+## Implementation Notes (Actual)
+
+**File modified:** `scripts/test-integration.sh`
+
+**Deviations from plan (code review fixes):**
+
+1. **Removed `check_cmd jq`**: `jq` is no longer used in the script after the extraction block was removed. The check was dead code that would incorrectly block developers who don't have `jq`.
+
+2. **Added `SMGR_API_URL` sentinel check**: After `source .env.local`, checks that `SMGR_API_URL` is non-empty. A stale `.env.local` from an older `local-dev.sh` would otherwise silently produce confusing test failures at runtime.
