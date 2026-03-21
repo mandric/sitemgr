@@ -1,0 +1,29 @@
+{
+  "plugin_root": "/home/user/sitemgr/.claude/plugins/deep-implement",
+  "sections_dir": "/home/user/sitemgr/specs/01-db-cli-auth-decoupling/sections",
+  "target_dir": "/home/user/sitemgr",
+  "state_dir": "/home/user/sitemgr/specs/01-db-cli-auth-decoupling/implementation",
+  "git_root": "/home/user/sitemgr",
+  "commit_style": "simple",
+  "test_command": "uv run pytest",
+  "sections": [
+    "section-01-refactor-db",
+    "section-02-auth-helper",
+    "section-03-api-endpoints",
+    "section-04-api-client",
+    "section-05-health-route",
+    "section-06-rewrite-cli",
+    "section-07-update-server-consumers",
+    "section-08-cleanup"
+  ],
+  "sections_state": {},
+  "pre_commit": {
+    "present": false,
+    "type": "none",
+    "config_file": null,
+    "native_hook": null,
+    "may_modify_files": false,
+    "detected_formatters": []
+  },
+  "created_at": "2026-03-21T00:50:42.594749+00:00"
+}
