@@ -111,6 +111,14 @@ ENCRYPTION_KEY_CURRENT=
 
 ---
 
+## Implementation Notes (Actual)
+
+**Files modified:** `.env.example` (root), `web/.env.example`
+
+**Deviations from plan (code review fix):**
+
+1. **Added `DATABASE_URL=` to `web/.env.example`**: The plan's variable list in the section spec omitted `DATABASE_URL`, but `local-dev.sh print_setup_env_vars` outputs it. Added under the Supabase section so the file accurately documents all vars the script produces.
+
 ## Key Decisions
 
 - `ENCRYPTION_KEY_PREVIOUS=` is included as a commented line (not omitted) so developers are aware it exists during key rotation. They should not uncomment it unless actively rotating keys.
