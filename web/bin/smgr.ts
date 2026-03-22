@@ -104,15 +104,11 @@ function exitCodeForS3Error(err: unknown): ExitCode {
 // ── Helpers ──────────────────────────────────────────────────
 
 function requireUserId(): string {
-  const userId = process.env.SMGR_USER_ID;
-  if (userId) return userId;
-
-  // Fall back to stored CLI session
   const creds = loadCredentials();
   if (creds?.user_id) return creds.user_id;
 
   cliError(
-    "Not logged in. Run 'smgr login' or set SMGR_USER_ID environment variable.",
+    "Not logged in. Run 'smgr login' to authenticate.",
     EXIT.USER,
   );
 }
@@ -649,7 +645,6 @@ Usage:
 
 Authentication:
   Run 'smgr login' to authenticate. Credentials are stored in ~/.sitemgr/credentials.json.
-  Alternatively, set SMGR_USER_ID for non-interactive use (e.g., CI).
 
 Flags (all commands):
   --verbose         Show technical error details on failure
@@ -675,7 +670,6 @@ Environment:
   SMGR_S3_ENDPOINT       Custom S3 endpoint (for Supabase Storage)
   SMGR_S3_REGION         AWS region (default: us-east-1)
   ANTHROPIC_API_KEY      For enrichment
-  SMGR_USER_ID           User UUID (overrides login session)
   SMGR_DEVICE_ID         Device identifier (default: default)
   SMGR_WATCH_INTERVAL    Poll interval in seconds (default: 60)
   SMGR_AUTO_ENRICH       Auto-enrich on watch (default: true)`);
@@ -686,7 +680,7 @@ const requestId = crypto.randomUUID();
 runWithRequestId(requestId, async () => {
   // Load model config once at startup if a user ID is available
   const creds = loadCredentials();
-  const userId = process.env.SMGR_USER_ID ?? creds?.user_id;
+  const userId = creds?.user_id;
   if (userId) {
     const client = await getClient();
     const { data: configRow, error: configErr } = await getModelConfig(client, userId);

@@ -12,7 +12,9 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   getAdminClient,
@@ -38,6 +40,7 @@ const FIXTURES_DIR = resolve(__dirname, "fixtures");
 let admin: SupabaseClient;
 let userId: string;
 let userClient: SupabaseClient;
+let tempHome: string;
 const eventIds = new Map<string, string>(); // filename → event ID
 const uploadedKeys: string[] = [];
 
@@ -47,12 +50,12 @@ function cliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const cfg = getSupabaseConfig();
   return {
     ...process.env,
+    HOME: tempHome,
     SMGR_API_URL: cfg.url,
     // CLI runs server-side with service role; use serviceKey for both
     // so getUserClient() also bypasses RLS (no user JWT available in CLI)
     SMGR_API_KEY: cfg.serviceKey,
     SUPABASE_SERVICE_ROLE_KEY: cfg.serviceKey,
-    SMGR_USER_ID: userId,
     SMGR_DEVICE_ID: "test-e2e",
     NODE_NO_WARNINGS: "1",
     ...extra,
@@ -125,6 +128,23 @@ describe("smgr e2e pipeline", () => {
     userId = user.userId;
     userClient = user.client;
 
+    // 2b. Write credentials file so CLI can authenticate via loadCredentials()
+    const { data: sessionData } = await userClient.auth.getSession();
+    const session = sessionData.session!;
+    tempHome = mkdtempSync(resolve(tmpdir(), "smgr-e2e-test-"));
+    const credsDir = resolve(tempHome, ".sitemgr");
+    mkdirSync(credsDir, { mode: 0o700, recursive: true });
+    writeFileSync(
+      resolve(credsDir, "credentials.json"),
+      JSON.stringify({
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        user_id: userId,
+        email: session.user.email,
+        expires_at: session.expires_at,
+      }),
+    );
+
     // 3. Get admin client
     admin = getAdminClient();
 
@@ -196,6 +216,11 @@ describe("smgr e2e pipeline", () => {
     }
     if (admin) {
       await admin.removeAllChannels();
+    }
+
+    // 4. Clean up temp credentials directory
+    if (tempHome) {
+      rmSync(tempHome, { recursive: true, force: true });
     }
   }, 30_000);
 
