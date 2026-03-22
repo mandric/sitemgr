@@ -343,25 +343,41 @@ async function cmdWatch(args: string[]) {
       interval: { type: "string" },
       "max-errors": { type: "string" },
       verbose: { type: "boolean", default: false },
+      bucket: { type: "string" },
+      prefix: { type: "string" },
+      endpoint: { type: "string" },
+      region: { type: "string" },
+      "access-key-id": { type: "string" },
+      "secret-access-key": { type: "string" },
+      "device-id": { type: "string" },
+      "auto-enrich": { type: "boolean" },
+      "no-auto-enrich": { type: "boolean" },
     },
   });
 
   if (values.verbose) verboseMode = true;
 
-  const bucket = process.env.SMGR_S3_BUCKET;
-  if (!bucket) cliError("Set SMGR_S3_BUCKET environment variable");
+  const bucket = values.bucket ?? process.env.SMGR_S3_BUCKET;
+  if (!bucket) cliError("Provide --bucket or set SMGR_S3_BUCKET");
 
   const userId = requireUserId();
-  const prefix = process.env.SMGR_S3_PREFIX ?? "";
+  const prefix = values.prefix ?? process.env.SMGR_S3_PREFIX ?? "";
   const intervalSecs = parseInt(
     values.interval ?? process.env.SMGR_WATCH_INTERVAL ?? "60",
     10,
   );
   const maxErrors = parseInt(values["max-errors"] ?? "5", 10);
-  const autoEnrich = (process.env.SMGR_AUTO_ENRICH ?? "true").toLowerCase() !== "false";
-  const deviceId = process.env.SMGR_DEVICE_ID ?? "default";
+  const autoEnrich = values["no-auto-enrich"]
+    ? false
+    : values["auto-enrich"] ?? (process.env.SMGR_AUTO_ENRICH ?? "true").toLowerCase() !== "false";
+  const deviceId = values["device-id"] ?? process.env.SMGR_DEVICE_ID ?? "default";
 
-  const s3 = createS3Client();
+  const s3 = createS3Client({
+    endpoint: values.endpoint,
+    region: values.region,
+    accessKeyId: values["access-key-id"],
+    secretAccessKey: values["secret-access-key"],
+  });
   const client = await getClient();
 
   console.error(`Watching s3://${bucket}/${prefix}`);
@@ -642,7 +658,10 @@ Usage:
   smgr show <event_id>
   smgr stats
   smgr enrich [--pending] [--status] [--concurrency N] [--dry-run] [<event_id>]
-  smgr watch [--once] [--interval N] [--max-errors N]
+  smgr watch [--bucket B] [--prefix P] [--endpoint URL] [--region R]
+             [--access-key-id K] [--secret-access-key S]
+             [--device-id D] [--auto-enrich | --no-auto-enrich]
+             [--once] [--interval N] [--max-errors N]
   smgr add <file> [--prefix path/] [--no-enrich]
 
 Authentication:
@@ -656,8 +675,17 @@ Enrich flags:
   --dry-run         List pending events without calling the Claude API
 
 Watch flags:
-  --interval N      Poll interval in seconds (default: 60)
-  --max-errors N    Stop after N consecutive scan failures (default: 5)
+  --bucket B             S3 bucket name (or SMGR_S3_BUCKET)
+  --prefix P             Key prefix filter (or SMGR_S3_PREFIX)
+  --endpoint URL         Custom S3 endpoint (or SMGR_S3_ENDPOINT)
+  --region R             AWS region (or SMGR_S3_REGION, default: us-east-1)
+  --access-key-id K      AWS access key (or AWS_ACCESS_KEY_ID)
+  --secret-access-key S  AWS secret key (or AWS_SECRET_ACCESS_KEY)
+  --device-id D          Device identifier (or SMGR_DEVICE_ID, default: default)
+  --auto-enrich          Enable auto-enrichment (default: true)
+  --no-auto-enrich       Disable auto-enrichment
+  --interval N           Poll interval in seconds (default: 60)
+  --max-errors N         Stop after N consecutive scan failures (default: 5)
 
 Exit codes:
   0  Success
