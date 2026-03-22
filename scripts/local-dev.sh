@@ -5,6 +5,30 @@
 set -euo pipefail
 IFS=$'\n\t'
 
+# Minimum Supabase CLI version required (ES256 JWT fix: supabase/cli#4818)
+SUPABASE_MIN_VERSION="2.76.4"
+
+# ---------------------------------------------------------------------------
+# require_supabase_version — exits with an error if supabase CLI is too old
+# ---------------------------------------------------------------------------
+require_supabase_version() {
+  local version
+  version=$(supabase --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
+  if [ -z "$version" ]; then
+    echo "Warning: Could not determine Supabase CLI version." >&2
+    return
+  fi
+  # Compare versions using sort -V (version sort)
+  local oldest
+  oldest=$(printf '%s\n%s\n' "$SUPABASE_MIN_VERSION" "$version" | sort -V | head -n1)
+  if [ "$oldest" != "$SUPABASE_MIN_VERSION" ]; then
+    echo "Error: Supabase CLI $version is too old. Minimum required: $SUPABASE_MIN_VERSION" >&2
+    echo "Older versions have a broken ES256 JWT signing bug (supabase/cli#4818)." >&2
+    echo "Upgrade: brew upgrade supabase" >&2
+    exit 1
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # print_setup_env_vars — prints all required local env vars to stdout in
 # dotenv format (KEY=value). Redirect to .env.local to save them:
@@ -128,6 +152,8 @@ start_supabase() {
     echo "  https://supabase.com/docs/guides/cli/getting-started" >&2
     exit 1
   fi
+
+  require_supabase_version
 
   echo "================================================"
   echo "  Starting Supabase Local Development Environment"
