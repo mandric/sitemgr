@@ -27,6 +27,10 @@
     "section-02-health-endpoint": {
       "status": "complete",
       "commit_hash": "cebcbb2"
+    },
+    "section-03-agent-core-refactor": {
+      "status": "complete",
+      "commit_hash": "aca6c81"
     }
   },
   "pre_commit": {
