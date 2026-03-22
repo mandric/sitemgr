@@ -7,7 +7,7 @@ import {
   saveConversationHistory,
   type Message,
 } from "@/lib/agent/core";
-import { getStats, getUserClient } from "@/lib/media/db";
+import { getStats } from "@/lib/media/db";
 
 export async function sendMessage(
   message: string,
@@ -22,7 +22,7 @@ export async function sendMessage(
   }
 
   // Fetch conversation history
-  const history = await getConversationHistory("web", user.id);
+  const history = await getConversationHistory(supabase, "web", user.id);
 
   // Build user context
   const { data: buckets } = await supabase
@@ -30,11 +30,7 @@ export async function sendMessage(
     .select("id, bucket_name, endpoint_url, region, created_at")
     .eq("user_id", user.id);
 
-  const statsClient = getUserClient({
-    url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    anonKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-  });
-  const { data: stats } = await getStats(statsClient, { userId: user.id });
+  const { data: stats } = await getStats(supabase, { userId: user.id });
 
   const contextPrefix = [
     `[User context]`,
@@ -59,7 +55,7 @@ export async function sendMessage(
       { role: "user", content: message },
       { role: "assistant", content: response.content },
     ];
-    await saveConversationHistory("web", updatedHistory, user.id);
+    await saveConversationHistory(supabase, "web", updatedHistory, user.id);
   }
 
   return response;

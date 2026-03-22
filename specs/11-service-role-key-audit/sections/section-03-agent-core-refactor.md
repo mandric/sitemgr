@@ -1,5 +1,3 @@
-Now I have all the context needed. Let me produce the section content.
-
 # Section 3: Refactor Agent Core -- Remove `createAdminClient()`
 
 ## Overview
@@ -244,3 +242,23 @@ After implementation, confirm:
 3. `grep -r "createAdminClient" web/lib/agent/` returns zero matches
 4. `npm test` passes (unit tests)
 5. The `getAdminClient` import in `web/app/api/whatsapp/route.ts` is present (temporary, removed in Section 04)
+
+---
+
+## Implementation Notes (post-build)
+
+### Files modified
+- `web/lib/agent/core.ts` -- deleted `createAdminClient()`, removed `getAdminClient` import, added `client: SupabaseClient` as first param to 12 functions, renamed `client` to `s3client` in `requireS3Client` to avoid shadowing
+- `web/components/agent/actions.ts` -- pass `supabase` (cookie-based client) to core functions, removed separate `getUserClient` call for stats
+- `web/app/api/whatsapp/route.ts` -- added temporary `createWebhookClient()` using `getAdminClient`, passes client to all core function calls
+- `web/__tests__/agent-core.test.ts` -- replaced `getAdminClient` mock with `createMockClient()`, updated all `executeAction` calls to pass client as first arg, removed `SUPABASE_SERVICE_ROLE_KEY` from stubEnv, added static analysis tests
+
+### Files created
+- `web/__tests__/agent-actions.test.ts` -- 4 unit tests verifying server action wiring
+
+### Deviations from plan
+- **`s3client` rename in `requireS3Client`**: The `client` parameter name clashed with `const client = createS3Client(...)`. Renamed the S3 client variable to `s3client` to avoid shadowing.
+- **Added `sendMessageToAgent` first-arg assertion**: Code review identified missing test for verifying sendMessageToAgent receives message (not client) as first arg.
+
+### Tests
+- 26 unit tests passing (22 existing updated + 2 new static analysis + 4 new actions tests)
