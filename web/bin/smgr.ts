@@ -83,6 +83,29 @@ type ExitCode = typeof EXIT[keyof typeof EXIT];
 let verboseMode = false;
 let modelConfig: ModelConfig | undefined;
 
+// ── Shared S3 CLI options ───────────────────────────────────────
+const s3Options = {
+  bucket: { type: "string" as const },
+  endpoint: { type: "string" as const },
+  region: { type: "string" as const },
+  "access-key-id": { type: "string" as const },
+  "secret-access-key": { type: "string" as const },
+  "device-id": { type: "string" as const },
+};
+
+function resolveS3Args(values: Record<string, string | boolean | undefined>) {
+  const bucket = (values.bucket as string) ?? process.env.SMGR_S3_BUCKET;
+  if (!bucket) cliError("Provide --bucket or set SMGR_S3_BUCKET");
+  const deviceId = (values["device-id"] as string) ?? process.env.SMGR_DEVICE_ID ?? "default";
+  const s3 = createS3Client({
+    endpoint: values.endpoint as string | undefined,
+    region: values.region as string | undefined,
+    accessKeyId: values["access-key-id"] as string | undefined,
+    secretAccessKey: values["secret-access-key"] as string | undefined,
+  });
+  return { bucket, deviceId, s3 };
+}
+
 function cliError(message: string, code: ExitCode = EXIT.USER, detail?: string): never {
   console.error(`Error: ${message}`);
   if (verboseMode && detail) {
@@ -339,17 +362,12 @@ async function cmdWatch(args: string[]) {
   const { values } = parseArgs({
     args,
     options: {
+      ...s3Options,
       once: { type: "boolean", default: false },
       interval: { type: "string" },
       "max-errors": { type: "string" },
       verbose: { type: "boolean", default: false },
-      bucket: { type: "string" },
       prefix: { type: "string" },
-      endpoint: { type: "string" },
-      region: { type: "string" },
-      "access-key-id": { type: "string" },
-      "secret-access-key": { type: "string" },
-      "device-id": { type: "string" },
       "auto-enrich": { type: "boolean" },
       "no-auto-enrich": { type: "boolean" },
     },
@@ -357,27 +375,18 @@ async function cmdWatch(args: string[]) {
 
   if (values.verbose) verboseMode = true;
 
-  const bucket = values.bucket ?? process.env.SMGR_S3_BUCKET;
-  if (!bucket) cliError("Provide --bucket or set SMGR_S3_BUCKET");
+  const { bucket, deviceId, s3 } = resolveS3Args(values);
 
   const userId = requireUserId();
-  const prefix = values.prefix ?? process.env.SMGR_S3_PREFIX ?? "";
+  const prefix = (values.prefix as string) ?? process.env.SMGR_S3_PREFIX ?? "";
   const intervalSecs = parseInt(
-    values.interval ?? process.env.SMGR_WATCH_INTERVAL ?? "60",
+    (values.interval as string) ?? process.env.SMGR_WATCH_INTERVAL ?? "60",
     10,
   );
-  const maxErrors = parseInt(values["max-errors"] ?? "5", 10);
+  const maxErrors = parseInt((values["max-errors"] as string) ?? "5", 10);
   const autoEnrich = values["no-auto-enrich"]
     ? false
     : values["auto-enrich"] ?? (process.env.SMGR_AUTO_ENRICH ?? "true").toLowerCase() !== "false";
-  const deviceId = values["device-id"] ?? process.env.SMGR_DEVICE_ID ?? "default";
-
-  const s3 = createS3Client({
-    endpoint: values.endpoint,
-    region: values.region,
-    accessKeyId: values["access-key-id"],
-    secretAccessKey: values["secret-access-key"],
-  });
   const client = await getClient();
 
   console.error(`Watching s3://${bucket}/${prefix}`);
@@ -506,6 +515,7 @@ async function cmdAdd(args: string[]) {
   const { values, positionals } = parseArgs({
     args,
     options: {
+      ...s3Options,
       prefix: { type: "string", default: "" },
       enrich: { type: "boolean", default: true },
       verbose: { type: "boolean", default: false },
@@ -517,11 +527,9 @@ async function cmdAdd(args: string[]) {
   const filePath = positionals[0];
   if (!filePath) cliError("Usage: smgr add <file> [--prefix path/] [--no-enrich]");
 
-  const bucket = process.env.SMGR_S3_BUCKET;
-  if (!bucket) cliError("Set SMGR_S3_BUCKET environment variable");
+  const { bucket, deviceId, s3 } = resolveS3Args(values);
 
   const userId = requireUserId();
-  const deviceId = process.env.SMGR_DEVICE_ID ?? "default";
 
   const absPath = resolve(filePath);
   const stat = statSync(absPath);
@@ -545,7 +553,6 @@ async function cmdAdd(args: string[]) {
 
   // Upload to S3
   const s3Key = values.prefix ? `${values.prefix}${fileName}` : fileName;
-  const s3 = createS3Client();
 
   console.error(`Uploading ${fileName} to s3://${bucket}/${s3Key}...`);
   await uploadS3Object(s3, bucket, s3Key, Buffer.from(fileBytes), mimeType);
@@ -658,11 +665,9 @@ Usage:
   smgr show <event_id>
   smgr stats
   smgr enrich [--pending] [--status] [--concurrency N] [--dry-run] [<event_id>]
-  smgr watch [--bucket B] [--prefix P] [--endpoint URL] [--region R]
-             [--access-key-id K] [--secret-access-key S]
-             [--device-id D] [--auto-enrich | --no-auto-enrich]
-             [--once] [--interval N] [--max-errors N]
-  smgr add <file> [--prefix path/] [--no-enrich]
+  smgr watch [S3 flags] [--prefix P] [--once] [--interval N] [--max-errors N]
+             [--auto-enrich | --no-auto-enrich]
+  smgr add <file> [S3 flags] [--prefix path/] [--no-enrich]
 
 Authentication:
   Run 'smgr login' to authenticate. Credentials are stored in ~/.sitemgr/credentials.json.
@@ -674,14 +679,16 @@ Enrich flags:
   --concurrency N   Max parallel enrichment calls (default: 3)
   --dry-run         List pending events without calling the Claude API
 
-Watch flags:
+S3 flags (watch, add):
   --bucket B             S3 bucket name (or SMGR_S3_BUCKET)
-  --prefix P             Key prefix filter (or SMGR_S3_PREFIX)
   --endpoint URL         Custom S3 endpoint (or SMGR_S3_ENDPOINT)
   --region R             AWS region (or SMGR_S3_REGION, default: us-east-1)
   --access-key-id K      AWS access key (or AWS_ACCESS_KEY_ID)
   --secret-access-key S  AWS secret key (or AWS_SECRET_ACCESS_KEY)
   --device-id D          Device identifier (or SMGR_DEVICE_ID, default: default)
+
+Watch flags:
+  --prefix P             Key prefix filter (or SMGR_S3_PREFIX)
   --auto-enrich          Enable auto-enrichment (default: true)
   --no-auto-enrich       Disable auto-enrichment
   --interval N           Poll interval in seconds (default: 60)
