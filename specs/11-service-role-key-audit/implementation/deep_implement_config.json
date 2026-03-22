@@ -47,6 +47,22 @@
     "section-07-env-var-rename": {
       "status": "complete",
       "commit_hash": "f6611cd"
+    },
+    "section-08-test-app-layer": {
+      "status": "complete",
+      "commit_hash": "f06d422"
+    },
+    "section-09-dev-server-setup": {
+      "status": "complete",
+      "commit_hash": "f06d422"
+    },
+    "section-10-ci-workflow": {
+      "status": "complete",
+      "commit_hash": "f06d422"
+    },
+    "section-11-config-docs": {
+      "status": "complete",
+      "commit_hash": "f06d422"
     }
   },
   "pre_commit": {
