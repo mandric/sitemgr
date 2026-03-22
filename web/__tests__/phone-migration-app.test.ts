@@ -17,6 +17,7 @@ const { mockCreateClient, fromChain } = vi.hoisted(() => {
     chain.update = vi.fn().mockReturnValue(chain);
     chain.delete = vi.fn().mockReturnValue(chain);
     chain.eq = vi.fn().mockReturnValue(chain);
+    chain.like = vi.fn().mockReturnValue(chain);
     chain.gte = vi.fn().mockReturnValue(chain);
     chain.lte = vi.fn().mockReturnValue(chain);
     chain.order = vi.fn().mockReturnValue(chain);
