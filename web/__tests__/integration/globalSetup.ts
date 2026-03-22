@@ -6,9 +6,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
 
 declare global {
-  // eslint-disable-next-line no-var
   var __WEB_SERVER__: ChildProcess | undefined;
-  // eslint-disable-next-line no-var
   var __WEB_SERVER_SPAWNED__: boolean;
 }
 

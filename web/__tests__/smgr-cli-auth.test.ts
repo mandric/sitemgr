@@ -27,7 +27,7 @@ vi.mock("@/lib/media/db", async (importOriginal) => {
 });
 
 // Mock process.exit to prevent test runner from dying
-const mockExit = vi.spyOn(process, "exit").mockImplementation(() => {
+vi.spyOn(process, "exit").mockImplementation(() => {
   throw new Error("process.exit called");
 });
 

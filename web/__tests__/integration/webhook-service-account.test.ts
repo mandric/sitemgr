@@ -128,7 +128,7 @@ describe("webhook service account cross-user access", () => {
 describe("regular user RLS still enforced", () => {
   it("regular user CANNOT read events belonging to another user", async () => {
     // Create a second user to verify isolation
-    const { userId: otherUserId, client: otherClient } = await createTestUser();
+    const { userId: otherUserId } = await createTestUser();
     await seedUserData(admin, otherUserId);
 
     try {
