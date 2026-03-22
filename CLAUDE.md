@@ -25,10 +25,17 @@ This applies to error objects too — preserve the full object (`code`, `details
 - `ENCRYPTION_KEY_PREVIOUS` - Old key for decryption during rotation (optional in production)
 - `ENCRYPTION_KEY_NEXT` - Future key for gradual rollout (optional in production)
 - **DO NOT USE**: `ENCRYPTION_KEY`, `ENCRYPTION_KEY_V1`, `ENCRYPTION_KEY_V2`, `ENCRYPTION_KEY_V3` (legacy, removed)
+- **DO NOT USE**: `SUPABASE_SECRET_KEY` (renamed to `SUPABASE_SERVICE_ROLE_KEY`, removed from runtime)
+
+**Supabase Service Role Key (Test/Admin Only):**
+- Application code (CLI, agent core, health endpoint, webhook handler) **never** uses the service role key
+- The service role key only appears in: integration test setup (`setup.ts`), CI deployment scripts, `scripts/setup/verify.sh`
+- The WhatsApp webhook uses a dedicated service account (`webhook@sitemgr.internal`) with narrowly-scoped RLS policies instead of the service role key
+- `WEBHOOK_SERVICE_ACCOUNT_EMAIL` and `WEBHOOK_SERVICE_ACCOUNT_PASSWORD` are Vercel Production runtime secrets for the webhook handler
 
 **Where Secrets Live:**
-- **Vercel Production**: All runtime secrets for deployed app
-- **GitHub Production Environment**: Only deployment secrets (VERCEL_TOKEN, SUPABASE_ACCESS_TOKEN)
+- **Vercel Production**: All runtime secrets for deployed app (does NOT include `SUPABASE_SERVICE_ROLE_KEY` — app code never uses it)
+- **GitHub Production Environment**: Only deployment secrets (VERCEL_TOKEN, SUPABASE_ACCESS_TOKEN, SUPABASE_SERVICE_ROLE_KEY for storage bucket creation)
 - **NO GitHub secrets for tests**: Tests use `vi.stubEnv()` with fixture values, not real secrets
 - **NO repository secrets**: GitHub repository-level secrets NOT used (only environment-level)
 

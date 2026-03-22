@@ -17,6 +17,9 @@ import {
   insertEvent,
   insertEnrichment,
   upsertWatchedKey,
+  queryEvents,
+  getStats,
+  getEnrichStatus,
 } from "../../lib/media/db";
 import {
   createS3Client,
@@ -142,11 +145,8 @@ describe("when uploading and searching for media", () => {
     );
     expect(enrErr).toBeNull();
 
-    // Search for it using correct parameter name (query_text, not p_query)
-    const { data, error } = await admin.rpc("search_events", {
-      p_user_id: userId,
-      query_text: "sunset",
-    });
+    // Search via app-layer queryEvents (uses search_events RPC internally)
+    const { data, error } = await queryEvents(admin, { userId, search: "sunset" });
     expect(error).toBeNull();
     expect(data).toBeDefined();
     expect(data!.length).toBeGreaterThanOrEqual(1);
@@ -157,10 +157,7 @@ describe("when uploading and searching for media", () => {
   });
 
   it("should not return results for non-matching search query", async () => {
-    const { data } = await admin.rpc("search_events", {
-      p_user_id: userId,
-      query_text: "xyznonexistent",
-    });
+    const { data } = await queryEvents(admin, { userId, search: "xyznonexistent" });
     expect(data ?? []).toHaveLength(0);
   });
 });
@@ -214,53 +211,32 @@ describe("when requesting statistics", () => {
   });
 
   it("should return correct counts by content type", async () => {
-    const { data } = await admin.rpc("stats_by_content_type", {
-      p_user_id: userId,
-    });
+    const { data, error } = await getStats(admin, { userId });
+    expect(error).toBeNull();
     expect(data).toBeDefined();
-    const jpegRow = data!.find(
-      (r: { content_type: string }) => r.content_type === "image/jpeg",
-    );
-    expect(jpegRow).toBeDefined();
-    expect(Number(jpegRow!.count)).toBeGreaterThanOrEqual(2);
+    expect(data!.by_content_type).toBeDefined();
+    expect(Number(data!.by_content_type["image/jpeg"])).toBeGreaterThanOrEqual(2);
   });
 
   it("should return correct counts by event type", async () => {
-    const { data } = await admin.rpc("stats_by_event_type", {
-      p_user_id: userId,
-    });
+    const { data, error } = await getStats(admin, { userId });
+    expect(error).toBeNull();
     expect(data).toBeDefined();
-    const createRow = data!.find(
-      (r: { type: string }) => r.type === "create",
-    );
-    expect(createRow).toBeDefined();
-    expect(Number(createRow!.count)).toBeGreaterThanOrEqual(3);
+    expect(data!.by_event_type).toBeDefined();
+    expect(Number(data!.by_event_type["create"])).toBeGreaterThanOrEqual(3);
   });
 });
 
 describe("when checking enrichment progress", () => {
   it("should show correct pending and enriched counts", async () => {
-    // Query directly via admin to bypass getUserClient() RLS issue
-    const [totalRes, enrichedRes] = await Promise.all([
-      admin
-        .from("events")
-        .select("*", { count: "exact", head: true })
-        .eq("type", "create")
-        .eq("user_id", userId),
-      admin
-        .from("enrichments")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", userId),
-    ]);
-
-    const total = totalRes.count ?? 0;
-    const enriched = enrichedRes.count ?? 0;
-    const pending = total - enriched;
+    const { data, error } = await getEnrichStatus(admin, userId);
+    expect(error).toBeNull();
+    expect(data).toBeDefined();
 
     // We have 3 "create" events, 2 enriched (search + photo2)
-    expect(enriched).toBeGreaterThanOrEqual(2);
-    expect(pending).toBeGreaterThanOrEqual(1);
-    expect(total).toBe(enriched + pending);
+    expect(data!.enriched).toBeGreaterThanOrEqual(2);
+    expect(data!.pending).toBeGreaterThanOrEqual(1);
+    expect(data!.total_media).toBe(data!.enriched + data!.pending);
   });
 });
 
@@ -289,7 +265,8 @@ describe("when re-scanning a watched key", () => {
 
 describe("when another user has media", () => {
   it("should not include other user's events in query results", async () => {
-    const { data } = await userClient.from("events").select("*");
+    const { data, error } = await queryEvents(userClient, { userId });
+    expect(error).toBeNull();
     expect(data).toBeDefined();
     for (const event of data!) {
       expect(event.user_id).toBe(userId);
