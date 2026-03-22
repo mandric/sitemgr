@@ -39,6 +39,10 @@
     "section-05-cli-user-client": {
       "status": "complete",
       "commit_hash": "fe43d67"
+    },
+    "section-06-instrumentation": {
+      "status": "complete",
+      "commit_hash": "ee7d033"
     }
   },
   "pre_commit": {
