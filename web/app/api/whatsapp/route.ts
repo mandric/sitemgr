@@ -14,14 +14,29 @@ import {
   saveConversationHistory,
   resolveUserId,
 } from "@/lib/agent/core";
-import { getAdminClient } from "@/lib/media/db";
+import { getUserClient } from "@/lib/media/db";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
-// TEMPORARY: Section 04 replaces this with webhook service account
-function createWebhookClient() {
-  return getAdminClient({
+/** Create a Supabase client authenticated as the webhook service account. */
+async function createWebhookClient(): Promise<SupabaseClient> {
+  const client = getUserClient({
     url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    anonKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
   });
+
+  const email = process.env.WEBHOOK_SERVICE_ACCOUNT_EMAIL;
+  const password = process.env.WEBHOOK_SERVICE_ACCOUNT_PASSWORD;
+
+  if (!email || !password) {
+    throw new Error("Webhook service account credentials not configured");
+  }
+
+  const { error } = await client.auth.signInWithPassword({ email, password });
+  if (error) {
+    throw new Error(`Webhook service account auth failed: ${error.message}`);
+  }
+
+  return client;
 }
 
 // ── Twilio helpers ─────────────────────────────────────────────
@@ -108,7 +123,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const client = createWebhookClient();
+    const client = await createWebhookClient();
 
     // Resolve phone number to user_id
     const userId = await resolveUserId(client, fromNumber);

@@ -103,6 +103,10 @@ SMGR_AUTO_ENRICH=false
 # --- Encryption (generated fresh -- local dev data is ephemeral) ---
 ENCRYPTION_KEY_CURRENT=${encryption_key}
 
+# --- Webhook service account (for WhatsApp webhook) ---
+WEBHOOK_SERVICE_ACCOUNT_EMAIL=webhook@sitemgr.internal
+WEBHOOK_SERVICE_ACCOUNT_PASSWORD=unused-password-webhook-uses-service-token
+
 # --- Service role key (tests and admin scripts only -- NOT for app code) ---
 # SUPABASE_SERVICE_ROLE_KEY=${service_role_key}
 

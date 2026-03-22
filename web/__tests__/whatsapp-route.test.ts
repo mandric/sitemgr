@@ -10,6 +10,16 @@ vi.mock("@/lib/agent/core", () => ({
   resolveUserId: vi.fn(),
 }));
 
+// Mock db module — capture getUserClient calls
+const mockSignIn = vi.fn().mockResolvedValue({ error: null });
+const mockAuthClient = {
+  auth: { signInWithPassword: mockSignIn },
+  from: vi.fn(),
+};
+vi.mock("@/lib/media/db", () => ({
+  getUserClient: vi.fn(() => mockAuthClient),
+}));
+
 // Mock global fetch for Twilio calls
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
@@ -23,6 +33,7 @@ import {
   saveConversationHistory,
   resolveUserId,
 } from "@/lib/agent/core";
+import { getUserClient } from "@/lib/media/db";
 import { NextRequest } from "next/server";
 
 const mockPlan = vi.mocked(planAction);
@@ -45,6 +56,10 @@ describe("WhatsApp route", () => {
   beforeEach(() => {
     vi.stubEnv("SMGR_API_URL", "http://localhost:54321");
     vi.stubEnv("SMGR_API_KEY", "test-key");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "test-anon-key");
+    vi.stubEnv("WEBHOOK_SERVICE_ACCOUNT_EMAIL", "webhook@sitemgr.internal");
+    vi.stubEnv("WEBHOOK_SERVICE_ACCOUNT_PASSWORD", "test-webhook-password");
     vi.stubEnv("TWILIO_ACCOUNT_SID", "AC_test_sid");
     vi.stubEnv("TWILIO_AUTH_TOKEN", "test_auth_token");
     vi.stubEnv("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886");
@@ -55,6 +70,9 @@ describe("WhatsApp route", () => {
     mockGetHistory.mockReset();
     mockSaveHistory.mockReset();
     mockResolveUserId.mockReset();
+    mockSignIn.mockReset();
+    mockSignIn.mockResolvedValue({ error: null });
+    vi.mocked(getUserClient).mockReturnValue(mockAuthClient as never);
     mockFetch.mockReset();
     // Default Twilio response
     mockFetch.mockResolvedValue({ ok: true });
@@ -106,7 +124,13 @@ describe("WhatsApp route", () => {
       expect(res.status).toBe(200);
 
       expect(mockPlan).toHaveBeenCalledOnce();
-      expect(mockExecute).toHaveBeenCalledWith({ action: "stats" }, "whatsapp:+1234567890", "test-user-uuid");
+      // First arg is the webhook client, rest are plan, phone, userId
+      expect(mockExecute).toHaveBeenCalledOnce();
+      const [clientArg, planArg, phoneArg, userIdArg] = mockExecute.mock.calls[0];
+      expect(clientArg).toBe(mockAuthClient);
+      expect(planArg).toEqual({ action: "stats" });
+      expect(phoneArg).toBe("whatsapp:+1234567890");
+      expect(userIdArg).toBe("test-user-uuid");
       expect(mockSummarize).toHaveBeenCalledWith("show me my photos", '{"total_events": 42}');
       expect(mockSaveHistory).toHaveBeenCalledOnce();
     });
@@ -141,5 +165,65 @@ describe("WhatsApp route", () => {
       expect(body.get("Body")).toContain("something went wrong");
     });
 
+  });
+
+  describe("webhook service account", () => {
+    it("creates a webhook service account client (not admin client)", async () => {
+      mockPlan.mockResolvedValue({ action: "direct", response: "Hi" });
+
+      const req = makeRequest({
+        From: "whatsapp:+1234567890",
+        Body: "test",
+      });
+
+      await POST(req);
+
+      expect(getUserClient).toHaveBeenCalledWith({
+        url: "http://localhost:54321",
+        anonKey: "test-anon-key",
+      });
+      expect(mockSignIn).toHaveBeenCalledWith({
+        email: "webhook@sitemgr.internal",
+        password: "test-webhook-password",
+      });
+    });
+
+    it("passes client to resolveUserId", async () => {
+      mockPlan.mockResolvedValue({ action: "direct", response: "Hi" });
+
+      const req = makeRequest({
+        From: "whatsapp:+1234567890",
+        Body: "test",
+      });
+
+      await POST(req);
+
+      expect(mockResolveUserId).toHaveBeenCalledOnce();
+      expect(mockResolveUserId.mock.calls[0][0]).toBe(mockAuthClient);
+    });
+
+    it("passes client to getConversationHistory and saveConversationHistory", async () => {
+      mockPlan.mockResolvedValue({ action: "direct", response: "Hi" });
+
+      const req = makeRequest({
+        From: "whatsapp:+1234567890",
+        Body: "test",
+      });
+
+      await POST(req);
+
+      expect(mockGetHistory).toHaveBeenCalledOnce();
+      expect(mockGetHistory.mock.calls[0][0]).toBe(mockAuthClient);
+
+      expect(mockSaveHistory).toHaveBeenCalledOnce();
+      expect(mockSaveHistory.mock.calls[0][0]).toBe(mockAuthClient);
+    });
+
+    it("does not reference SUPABASE_SERVICE_ROLE_KEY", async () => {
+      const fs = await import("fs");
+      const source = fs.readFileSync("app/api/whatsapp/route.ts", "utf-8");
+      expect(source).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
+      expect(source).not.toContain("getAdminClient");
+    });
   });
 });

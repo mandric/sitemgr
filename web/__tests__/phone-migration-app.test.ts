@@ -117,8 +117,6 @@ import {
 // ── Test Setup ─────────────────────────────────────────────
 
 beforeEach(() => {
-  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
-  vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-secret-key");
   vi.stubEnv("ANTHROPIC_API_KEY", "sk-ant-test");
   mockCreateClient.mockClear();
 });
@@ -245,16 +243,15 @@ describe("db.ts userId parameters", () => {
 
 describe("core.ts resolveUserId", () => {
   it("resolveUserId queries user_profiles by phone_number", async () => {
-    // Set up fromChain.maybeSingle to return a user before resolveUserId is called
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (fromChain as any).maybeSingle.mockResolvedValueOnce({
       data: { id: "resolved-user-id" },
       error: null,
     });
 
-    const result = await resolveUserId("+1234567890");
-
     const client = mockCreateClient();
+    const result = await resolveUserId(client as never, "+1234567890");
+
     const fromMock = client.from;
     expect(fromMock).toHaveBeenCalledWith("user_profiles");
     expect(fromChain.eq).toHaveBeenCalledWith("phone_number", "+1234567890");
@@ -265,7 +262,8 @@ describe("core.ts resolveUserId", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (fromChain as any).maybeSingle.mockResolvedValueOnce({ data: null, error: null });
 
-    const result = await resolveUserId("+9999999999");
+    const client = mockCreateClient();
+    const result = await resolveUserId(client as never, "+9999999999");
     expect(result).toBeNull();
   });
 });
@@ -279,12 +277,13 @@ describe("core.ts executeAction userId propagation", () => {
       error: null,
     });
 
+    const client = mockCreateClient();
     const result = await executeAction(
+      client as never,
       { action: "stats" },
       "whatsapp:+1234567890",
     );
 
-    const client = mockCreateClient();
     const fromMock = client.from;
     // Should have called user_profiles to resolve
     expect(fromMock).toHaveBeenCalledWith("user_profiles");

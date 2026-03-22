@@ -1,5 +1,3 @@
-I now have all the context I need. Let me compose the section content.
-
 # Section 04: Webhook Service Account + RLS Policy
 
 ## Overview
@@ -256,3 +254,27 @@ WEBHOOK_SERVICE_ACCOUNT_PASSWORD=unused-password-webhook-uses-service-token
 ### 6. Alternative Considered
 
 Creating `SECURITY DEFINER` RPCs for every operation the webhook needs was considered. This avoids a service account but requires maintaining many RPCs that duplicate `db.ts` logic. The service account approach is simpler -- existing `db.ts` functions work as-is with the webhook client, and RLS policies are easier to audit than scattered SECURITY DEFINER functions.
+
+---
+
+## Implementation Notes (post-build)
+
+### Files created
+- `supabase/migrations/20260321000000_webhook_service_account.sql` -- service account user, identity, 6 RLS policies, grant on get_user_id_from_phone
+- `web/__tests__/integration/webhook-service-account.test.ts` -- 7 integration tests for RLS boundaries
+
+### Files modified
+- `web/app/api/whatsapp/route.ts` -- replaced temporary `getAdminClient` with `getUserClient` + `signInWithPassword` for webhook service account
+- `web/__tests__/whatsapp-route.test.ts` -- added 4 service account tests, updated mocks for `getUserClient` + `signInWithPassword`
+- `web/__tests__/s3-actions.test.ts` -- updated all `executeAction` calls to pass `createMockClient()` as first arg
+- `web/__tests__/encryption-lifecycle.test.ts` -- updated all `executeAction` calls to pass `createMockClient()` as first arg
+- `web/__tests__/phone-migration-app.test.ts` -- updated `resolveUserId` and `executeAction` calls for new signatures
+- `web/__tests__/helpers/agent-test-setup.ts` -- added `createMockClient()` export
+- `scripts/local-dev.sh` -- added WEBHOOK_SERVICE_ACCOUNT_EMAIL/PASSWORD env vars
+
+### Additional test fixes (beyond plan scope)
+- The section-03 refactor changed `executeAction` and `resolveUserId` signatures, breaking 3 additional test files not mentioned in the plan. Fixed all call sites.
+
+### Tests
+- 328 unit tests passing (all 19 test files)
+- Integration tests require local Supabase (`supabase start`)
