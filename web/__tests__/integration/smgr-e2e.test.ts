@@ -51,7 +51,7 @@ function cliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
     // CLI runs server-side with service role; use serviceKey for both
     // so getUserClient() also bypasses RLS (no user JWT available in CLI)
     SMGR_API_KEY: cfg.serviceKey,
-    SUPABASE_SECRET_KEY: cfg.serviceKey,
+    SUPABASE_SERVICE_ROLE_KEY: cfg.serviceKey,
     SMGR_USER_ID: userId,
     SMGR_DEVICE_ID: "test-e2e",
     NODE_NO_WARNINGS: "1",

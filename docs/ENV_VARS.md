@@ -52,7 +52,7 @@ These secrets are ONLY needed for production runtime (NOT in CI):
 | Variable | Vercel Prod | Purpose |
 |----------|-------------|---------|
 | `TWILIO_WHATSAPP_FROM` | ✅ | WhatsApp sender number |
-| `SUPABASE_SECRET_KEY` | ✅ | Supabase service role key |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ | Supabase service role key (test/admin only) |
 | `SUPABASE_PROJECT_REF` | ✅ | Supabase project identifier |
 | `NEXT_PUBLIC_SUPABASE_URL` | ✅ | Supabase API endpoint (public) |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | ✅ | Supabase anon/public key |

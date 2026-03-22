@@ -40,7 +40,7 @@ check_api_reachable() {
 
 check_var "SMGR_API_URL"
 check_var "SMGR_API_KEY"
-check_var "SUPABASE_SECRET_KEY"
+check_var "SUPABASE_SERVICE_ROLE_KEY"
 check_var "ENCRYPTION_KEY_CURRENT"
 check_var "AWS_ACCESS_KEY_ID"
 check_var "AWS_SECRET_ACCESS_KEY"
