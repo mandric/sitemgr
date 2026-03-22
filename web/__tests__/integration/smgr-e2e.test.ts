@@ -319,11 +319,19 @@ describe("smgr e2e pipeline", () => {
 
       const event = JSON.parse(showResult.stdout);
       const desc: string = event.enrichment?.description ?? "";
-      // Pick a meaningful word (>4 chars to avoid stopwords)
-      const words = desc.split(/\s+/).filter((w: string) => w.replace(/[^a-z]/gi, "").length > 4);
+      // Pick a meaningful word (>4 chars, not a common English stopword)
+      const STOPWORDS = new Set([
+        "there", "their", "these", "those", "where", "which", "would", "could",
+        "should", "about", "after", "again", "being", "between", "below",
+        "above", "under", "other", "every", "while", "during", "before",
+        "through", "against", "having", "because", "itself", "might",
+      ]);
+      const words = desc.split(/\s+/)
+        .map((w: string) => w.replace(/[^a-z]/gi, "").toLowerCase())
+        .filter((w: string) => w.length > 4 && !STOPWORDS.has(w));
       if (words.length === 0) continue; // skip if description is too short
 
-      const searchTerm = words[0].replace(/[^a-z]/gi, "");
+      const searchTerm = words[0];
       const result = await runCli(
         ["query", "--search", searchTerm, "--format", "json"],
         E2E_ENV,
