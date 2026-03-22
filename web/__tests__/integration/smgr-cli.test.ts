@@ -43,7 +43,6 @@ function cliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
     HOME: tempHome,
     SMGR_API_URL: cfg.url,
     SMGR_API_KEY: cfg.anonKey,
-    SMGR_USER_ID: userId,
     SMGR_DEVICE_ID: "test-cli",
     // Prevent Node/tsx from dropping into interactive mode
     NODE_NO_WARNINGS: "1",
@@ -161,10 +160,11 @@ describe("smgr stats", () => {
     expect(stats.watched_s3_keys).toBeGreaterThanOrEqual(3);
   });
 
-  it("should fail with exit 1 when SMGR_USER_ID is missing", async () => {
-    const result = await runCli(["stats"], { SMGR_USER_ID: "" });
+  it("should fail with exit 1 when not logged in", async () => {
+    const emptyHome = mkdtempSync(resolve(tmpdir(), "smgr-no-creds-"));
+    const result = await runCli(["stats"], { HOME: emptyHome });
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("SMGR_USER_ID");
+    expect(result.stderr).toContain("Not logged in");
   });
 });
 

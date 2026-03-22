@@ -83,6 +83,29 @@ type ExitCode = typeof EXIT[keyof typeof EXIT];
 let verboseMode = false;
 let modelConfig: ModelConfig | undefined;
 
+// ── Shared S3 CLI options ───────────────────────────────────────
+const s3Options = {
+  bucket: { type: "string" as const },
+  endpoint: { type: "string" as const },
+  region: { type: "string" as const },
+  "access-key-id": { type: "string" as const },
+  "secret-access-key": { type: "string" as const },
+  "device-id": { type: "string" as const },
+};
+
+function resolveS3Args(values: Record<string, string | boolean | undefined>) {
+  const bucket = (values.bucket as string) ?? process.env.SMGR_S3_BUCKET;
+  if (!bucket) cliError("Provide --bucket or set SMGR_S3_BUCKET");
+  const deviceId = (values["device-id"] as string) ?? process.env.SMGR_DEVICE_ID ?? "default";
+  const s3 = createS3Client({
+    endpoint: values.endpoint as string | undefined,
+    region: values.region as string | undefined,
+    accessKeyId: values["access-key-id"] as string | undefined,
+    secretAccessKey: values["secret-access-key"] as string | undefined,
+  });
+  return { bucket, deviceId, s3 };
+}
+
 function cliError(message: string, code: ExitCode = EXIT.USER, detail?: string): never {
   console.error(`Error: ${message}`);
   if (verboseMode && detail) {
@@ -104,15 +127,11 @@ function exitCodeForS3Error(err: unknown): ExitCode {
 // ── Helpers ──────────────────────────────────────────────────
 
 function requireUserId(): string {
-  const userId = process.env.SMGR_USER_ID;
-  if (userId) return userId;
-
-  // Fall back to stored CLI session
   const creds = loadCredentials();
   if (creds?.user_id) return creds.user_id;
 
   cliError(
-    "Not logged in. Run 'smgr login' or set SMGR_USER_ID environment variable.",
+    "Not logged in. Run 'smgr login' to authenticate.",
     EXIT.USER,
   );
 }
@@ -343,29 +362,31 @@ async function cmdWatch(args: string[]) {
   const { values } = parseArgs({
     args,
     options: {
+      ...s3Options,
       once: { type: "boolean", default: false },
       interval: { type: "string" },
       "max-errors": { type: "string" },
       verbose: { type: "boolean", default: false },
+      prefix: { type: "string" },
+      "auto-enrich": { type: "boolean" },
+      "no-auto-enrich": { type: "boolean" },
     },
   });
 
   if (values.verbose) verboseMode = true;
 
-  const bucket = process.env.SMGR_S3_BUCKET;
-  if (!bucket) cliError("Set SMGR_S3_BUCKET environment variable");
+  const { bucket, deviceId, s3 } = resolveS3Args(values);
 
   const userId = requireUserId();
-  const prefix = process.env.SMGR_S3_PREFIX ?? "";
+  const prefix = (values.prefix as string) ?? process.env.SMGR_S3_PREFIX ?? "";
   const intervalSecs = parseInt(
-    values.interval ?? process.env.SMGR_WATCH_INTERVAL ?? "60",
+    (values.interval as string) ?? process.env.SMGR_WATCH_INTERVAL ?? "60",
     10,
   );
-  const maxErrors = parseInt(values["max-errors"] ?? "5", 10);
-  const autoEnrich = (process.env.SMGR_AUTO_ENRICH ?? "true").toLowerCase() !== "false";
-  const deviceId = process.env.SMGR_DEVICE_ID ?? "default";
-
-  const s3 = createS3Client();
+  const maxErrors = parseInt((values["max-errors"] as string) ?? "5", 10);
+  const autoEnrich = values["no-auto-enrich"]
+    ? false
+    : values["auto-enrich"] ?? (process.env.SMGR_AUTO_ENRICH ?? "true").toLowerCase() !== "false";
   const client = await getClient();
 
   console.error(`Watching s3://${bucket}/${prefix}`);
@@ -494,6 +515,7 @@ async function cmdAdd(args: string[]) {
   const { values, positionals } = parseArgs({
     args,
     options: {
+      ...s3Options,
       prefix: { type: "string", default: "" },
       enrich: { type: "boolean", default: true },
       verbose: { type: "boolean", default: false },
@@ -505,11 +527,9 @@ async function cmdAdd(args: string[]) {
   const filePath = positionals[0];
   if (!filePath) cliError("Usage: smgr add <file> [--prefix path/] [--no-enrich]");
 
-  const bucket = process.env.SMGR_S3_BUCKET;
-  if (!bucket) cliError("Set SMGR_S3_BUCKET environment variable");
+  const { bucket, deviceId, s3 } = resolveS3Args(values);
 
   const userId = requireUserId();
-  const deviceId = process.env.SMGR_DEVICE_ID ?? "default";
 
   const absPath = resolve(filePath);
   const stat = statSync(absPath);
@@ -533,7 +553,6 @@ async function cmdAdd(args: string[]) {
 
   // Upload to S3
   const s3Key = values.prefix ? `${values.prefix}${fileName}` : fileName;
-  const s3 = createS3Client();
 
   console.error(`Uploading ${fileName} to s3://${bucket}/${s3Key}...`);
   await uploadS3Object(s3, bucket, s3Key, Buffer.from(fileBytes), mimeType);
@@ -585,9 +604,11 @@ async function cmdAdd(args: string[]) {
 
 // ── Auth Commands ────────────────────────────────────────────
 
-async function cmdLogin() {
+async function cmdLogin(args: string[]) {
   try {
-    const creds = await login();
+    const email = args[0];
+    const password = args[1];
+    const creds = await login(email, password);
     console.log(`Logged in as ${creds.email} (${creds.user_id})`);
   } catch (err) {
     cliError(`Login failed: ${(err as Error).message ?? err}`, EXIT.SERVICE);
@@ -621,7 +642,7 @@ if (process.argv.includes("--verbose")) verboseMode = true;
 const [command, ...rest] = process.argv.slice(2);
 
 const commands: Record<string, (args: string[]) => Promise<void>> = {
-  login: () => cmdLogin(),
+  login: cmdLogin,
   logout: () => cmdLogout(),
   whoami: () => cmdWhoami(),
   query: cmdQuery,
@@ -636,7 +657,7 @@ if (!command || !(command in commands)) {
   console.log(`smgr — S3-event-driven media indexer
 
 Usage:
-  smgr login                    Authenticate with email/password
+  smgr login [email] [password]  Authenticate with email/password
   smgr logout                   Clear stored credentials
   smgr whoami                   Show current session info
 
@@ -644,12 +665,12 @@ Usage:
   smgr show <event_id>
   smgr stats
   smgr enrich [--pending] [--status] [--concurrency N] [--dry-run] [<event_id>]
-  smgr watch [--once] [--interval N] [--max-errors N]
-  smgr add <file> [--prefix path/] [--no-enrich]
+  smgr watch [S3 flags] [--prefix P] [--once] [--interval N] [--max-errors N]
+             [--auto-enrich | --no-auto-enrich]
+  smgr add <file> [S3 flags] [--prefix path/] [--no-enrich]
 
 Authentication:
   Run 'smgr login' to authenticate. Credentials are stored in ~/.sitemgr/credentials.json.
-  Alternatively, set SMGR_USER_ID for non-interactive use (e.g., CI).
 
 Flags (all commands):
   --verbose         Show technical error details on failure
@@ -658,9 +679,20 @@ Enrich flags:
   --concurrency N   Max parallel enrichment calls (default: 3)
   --dry-run         List pending events without calling the Claude API
 
+S3 flags (watch, add):
+  --bucket B             S3 bucket name (or SMGR_S3_BUCKET)
+  --endpoint URL         Custom S3 endpoint (or SMGR_S3_ENDPOINT)
+  --region R             AWS region (or SMGR_S3_REGION, default: us-east-1)
+  --access-key-id K      AWS access key (or AWS_ACCESS_KEY_ID)
+  --secret-access-key S  AWS secret key (or AWS_SECRET_ACCESS_KEY)
+  --device-id D          Device identifier (or SMGR_DEVICE_ID, default: default)
+
 Watch flags:
-  --interval N      Poll interval in seconds (default: 60)
-  --max-errors N    Stop after N consecutive scan failures (default: 5)
+  --prefix P             Key prefix filter (or SMGR_S3_PREFIX)
+  --auto-enrich          Enable auto-enrichment (default: true)
+  --no-auto-enrich       Disable auto-enrichment
+  --interval N           Poll interval in seconds (default: 60)
+  --max-errors N         Stop after N consecutive scan failures (default: 5)
 
 Exit codes:
   0  Success
@@ -675,7 +707,6 @@ Environment:
   SMGR_S3_ENDPOINT       Custom S3 endpoint (for Supabase Storage)
   SMGR_S3_REGION         AWS region (default: us-east-1)
   ANTHROPIC_API_KEY      For enrichment
-  SMGR_USER_ID           User UUID (overrides login session)
   SMGR_DEVICE_ID         Device identifier (default: default)
   SMGR_WATCH_INTERVAL    Poll interval in seconds (default: 60)
   SMGR_AUTO_ENRICH       Auto-enrich on watch (default: true)`);
@@ -686,7 +717,7 @@ const requestId = crypto.randomUUID();
 runWithRequestId(requestId, async () => {
   // Load model config once at startup if a user ID is available
   const creds = loadCredentials();
-  const userId = process.env.SMGR_USER_ID ?? creds?.user_id;
+  const userId = creds?.user_id;
   if (userId) {
     const client = await getClient();
     const { data: configRow, error: configErr } = await getModelConfig(client, userId);

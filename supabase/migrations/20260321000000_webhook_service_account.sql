@@ -2,48 +2,17 @@
 -- Instead of the service role key (which bypasses ALL security), this account
 -- gets specific RLS policies granting cross-user access only to tables the
 -- webhook needs.
+--
+-- NOTE: The webhook auth user is NOT created here. Raw INSERTs into auth.users
+-- break across GoTrue versions (missing columns, changed triggers, etc.).
+-- Instead, the user is created via GoTrue's admin API:
+--   - Local dev / CI: scripts/create-webhook-user.sh (runs after supabase start)
+--   - Production: deployment step in CI workflow
+--
+-- The RLS policies below reference a well-known UUID and work regardless of
+-- whether the user exists yet.
 
--- 1. Create the webhook service account user
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM auth.users WHERE email = 'webhook@sitemgr.internal'
-  ) THEN
-    INSERT INTO auth.users (
-      id, email, encrypted_password, email_confirmed_at,
-      role, aud, instance_id
-    ) VALUES (
-      '00000000-0000-0000-0000-000000000001',
-      'webhook@sitemgr.internal',
-      crypt('unused-password-webhook-uses-service-token', gen_salt('bf')),
-      now(),
-      'authenticated',
-      'authenticated',
-      '00000000-0000-0000-0000-000000000000'
-    );
-  END IF;
-END $$;
-
--- Identity record so signInWithPassword works
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM auth.identities WHERE user_id = '00000000-0000-0000-0000-000000000001'
-  ) THEN
-    INSERT INTO auth.identities (
-      id, user_id, identity_data, provider, provider_id, last_sign_in_at, created_at, updated_at
-    ) VALUES (
-      '00000000-0000-0000-0000-000000000001',
-      '00000000-0000-0000-0000-000000000001',
-      jsonb_build_object('sub', '00000000-0000-0000-0000-000000000001', 'email', 'webhook@sitemgr.internal'),
-      'email',
-      '00000000-0000-0000-0000-000000000001',
-      now(), now(), now()
-    );
-  END IF;
-END $$;
-
--- 2. RLS policies granting the webhook service account cross-user access
+-- 1. RLS policies granting the webhook service account cross-user access
 -- Postgres RLS uses OR logic across policies, so these are additive to existing user-scoped policies.
 
 CREATE POLICY "Webhook service account can access all events"

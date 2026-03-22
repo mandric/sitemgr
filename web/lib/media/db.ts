@@ -240,6 +240,8 @@ export async function getStats(client: SupabaseClient, opts?: { userId?: string;
   const total = totalRes.count ?? 0;
   const enriched = enrichedRes.count ?? 0;
   const watched = watchedRes.count ?? 0;
+
+  // Count "photo" content type as media for pending enrichment calculation
   const photoCount = contentTypeCounts["photo"] ?? 0;
 
   return {
@@ -262,8 +264,7 @@ export async function getEnrichStatus(client: SupabaseClient, userId?: string) {
   let eventsQuery = client
     .from("events")
     .select("*", { count: "exact", head: true })
-    .eq("type", "create")
-    .eq("content_type", "photo");
+    .eq("type", "create");
   let enrichmentsQuery = client
     .from("enrichments")
     .select("*", { count: "exact", head: true });
