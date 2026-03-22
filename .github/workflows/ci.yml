@@ -96,6 +96,9 @@ jobs:
           echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY" >> $GITHUB_ENV
           echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_KEY" >> $GITHUB_ENV
 
+      - name: Create webhook service account
+        run: bash scripts/create-webhook-user.sh "${{ env.SMGR_API_URL }}" "${{ env.SUPABASE_SERVICE_ROLE_KEY }}"
+
       - name: Verify integration test env vars
         run: |
           missing=0
