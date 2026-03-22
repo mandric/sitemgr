@@ -110,12 +110,12 @@ export function resolveApiConfig(): { url: string; anonKey: string } {
 
 // ── Login ───────────────────────────────────────────────────────
 
-export async function login(): Promise<StoredCredentials> {
+export async function login(emailArg?: string, passwordArg?: string): Promise<StoredCredentials> {
   const { url, anonKey } = resolveApiConfig();
   const supabase = createSupabaseClient(url, anonKey);
 
-  const email = await prompt("Email: ");
-  const password = await promptPassword("Password: ");
+  const email = emailArg || await prompt("Email: ");
+  const password = passwordArg || await promptPassword("Password: ");
 
   if (!email || !password) {
     throw new Error("Email and password are required");
