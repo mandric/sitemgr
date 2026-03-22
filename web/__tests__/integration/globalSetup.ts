@@ -88,11 +88,25 @@ export async function setup(): Promise<void> {
     return;
   }
 
+  // Defensive fallback: map SMGR_* → NEXT_PUBLIC_* if NEXT_PUBLIC_* are not set.
+  // This equivalence is only valid for local Supabase instances where both sets
+  // of vars point to the same http://127.0.0.1:54321 endpoint. Integration tests
+  // always run against local Supabase, so this is safe.
+  const spawnEnv = {
+    ...process.env,
+    PORT: String(port),
+    NEXT_PUBLIC_SUPABASE_URL:
+      process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SMGR_API_URL,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
+      process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+      process.env.SMGR_API_KEY,
+  };
+
   // Spawn Next.js dev server
   const child = spawn("npm", ["run", "dev"], {
     cwd: process.cwd(),
     stdio: "pipe",
-    env: { ...process.env, PORT: String(port) },
+    env: spawnEnv,
     detached: false,
   });
 

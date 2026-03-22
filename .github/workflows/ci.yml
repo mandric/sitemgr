@@ -87,6 +87,8 @@ jobs:
           STATUS_JSON=$(supabase status -o json)
           echo "SMGR_API_URL=$(echo "$STATUS_JSON" | jq -r .API_URL)" >> $GITHUB_ENV
           echo "SMGR_API_KEY=$(echo "$STATUS_JSON" | jq -r .ANON_KEY)" >> $GITHUB_ENV
+          echo "NEXT_PUBLIC_SUPABASE_URL=$(echo "$STATUS_JSON" | jq -r .API_URL)" >> $GITHUB_ENV
+          echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$(echo "$STATUS_JSON" | jq -r .ANON_KEY)" >> $GITHUB_ENV
           echo "SUPABASE_SERVICE_ROLE_KEY=$(echo "$STATUS_JSON" | jq -r .SERVICE_ROLE_KEY)" >> $GITHUB_ENV
           echo "STORAGE_S3_URL=$(echo "$STATUS_JSON" | jq -r .STORAGE_S3_URL)" >> $GITHUB_ENV
 
@@ -98,7 +100,7 @@ jobs:
       - name: Verify integration test env vars
         run: |
           missing=0
-          for var in SMGR_API_URL SMGR_API_KEY SUPABASE_SERVICE_ROLE_KEY; do
+          for var in SMGR_API_URL SMGR_API_KEY SUPABASE_SERVICE_ROLE_KEY NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; do
             if [ -z "${!var}" ] || [ "${!var}" = "null" ]; then
               echo "ERROR: $var is not set (value: '${!var}')"
               missing=1

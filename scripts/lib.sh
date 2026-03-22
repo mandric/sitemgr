@@ -29,27 +29,72 @@ smoke_test() {
 
   echo "=== Health check: GET $health_url ==="
 
-  local http_code
-  http_code=$(curl -sS -o /tmp/health.json -w '%{http_code}' "$health_url")
-  echo "HTTP status: $http_code"
-  echo "Response:"
-  jq . /tmp/health.json
+  local max_attempts=3
+  local health_passed=0
 
-  local status
-  status=$(jq -r '.status // empty' /tmp/health.json)
-  if [ "$status" != "ok" ]; then
+  for attempt in $(seq 1 "$max_attempts"); do
+    echo "Health check attempt $attempt/$max_attempts..."
+
+    local curl_exit=0
+    local http_code
+    http_code=$(curl -sS -o /tmp/health.json -w '%{http_code}' "$health_url") || curl_exit=$?
+
+    if [ "$curl_exit" -ne 0 ]; then
+      echo "  Connection error (curl exit code: $curl_exit)"
+      if [ "$attempt" -lt "$max_attempts" ]; then
+        echo "  Retrying in 5s..."
+        sleep 5
+      fi
+      continue
+    fi
+
+    echo "  HTTP status: $http_code"
+
+    local status
+    status=$(jq -r '.status // empty' /tmp/health.json 2>/dev/null || echo "")
+
+    if [ "$status" = "ok" ]; then
+      echo "Health check passed"
+      echo ""
+      health_passed=1
+      break
+    fi
+
+    if [ "$status" = "degraded" ]; then
+      echo ""
+      echo "========================================="
+      echo "  HEALTH CHECK FAILED — CONFIGURATION ERROR"
+      echo "========================================="
+      echo "  Status \"degraded\" indicates missing env vars or"
+      echo "  misconfiguration. This will not resolve on retry."
+      echo ""
+      echo "  Response:"
+      jq . /tmp/health.json 2>/dev/null || cat /tmp/health.json
+      echo ""
+      echo "  Check details:"
+      jq -r '.checks | to_entries[] | "  \(.key): \(.value)"' /tmp/health.json 2>/dev/null
+      return 1
+    fi
+
+    # Non-ok, non-degraded response — transient error
+    echo "  Response:"
+    jq . /tmp/health.json 2>/dev/null || cat /tmp/health.json
+    if [ "$attempt" -lt "$max_attempts" ]; then
+      echo "  Retrying in 5s..."
+      sleep 5
+    fi
+  done
+
+  if [ "$health_passed" -ne 1 ]; then
     echo ""
     echo "========================================="
-    echo "  HEALTH CHECK FAILED (status: $status)"
+    echo "  HEALTH CHECK FAILED after $max_attempts attempts"
     echo "========================================="
     echo ""
-    echo "Check details:"
-    jq -r '.checks | to_entries[] | "  \(.key): \(.value)"' /tmp/health.json
+    echo "Last response:"
+    jq . /tmp/health.json 2>/dev/null || cat /tmp/health.json
     return 1
   fi
-
-  echo "Health check passed"
-  echo ""
 
   echo "=== POST smoke test: $webhook_url ==="
 
