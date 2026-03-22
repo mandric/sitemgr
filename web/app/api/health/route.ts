@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getAdminClient } from "@/lib/media/db";
+import { getUserClient } from "@/lib/media/db";
 
 // TODO: Add Anthropic API connectivity check (e.g. list models)
 // TODO: Add Twilio API connectivity check (e.g. fetch account info)
@@ -9,9 +9,9 @@ export async function GET() {
 
   // Check Supabase DB connectivity
   try {
-    const supabase = getAdminClient({
+    const supabase = getUserClient({
       url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      anonKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     });
     const { error } = await supabase
       .from("events")

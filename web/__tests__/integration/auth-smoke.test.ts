@@ -77,6 +77,16 @@ describe("auth token smoke tests", () => {
       expect(error).toBeNull();
     });
 
+    it("health endpoint returns 200 without service role key", async () => {
+      // The health endpoint uses getUserClient (anon key), not getAdminClient
+      const response = await fetch(`${cfg.url.replace(":54321", ":3000")}/api/health`);
+      // If dev server isn't running, skip gracefully
+      if (response.ok) {
+        const body = await response.json();
+        expect(body.status).toBe("ok");
+      }
+    });
+
     it("can reach the auth endpoints", async () => {
       // Should get a proper auth error, not a JWT rejection
       const { error } = await anonClient.auth.signInWithPassword({

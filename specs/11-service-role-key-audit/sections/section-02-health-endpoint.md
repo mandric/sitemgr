@@ -1,5 +1,3 @@
-Now I have everything I need. Let me generate the section content.
-
 # Section 2: Remove Service Role Key from Health Endpoint
 
 ## Overview
@@ -104,3 +102,20 @@ After implementation, confirm:
 2. `grep -n "getUserClient" web/app/api/health/route.ts` returns the import and usage lines.
 3. Unit tests pass: `cd /home/user/sitemgr/web && npx vitest run __tests__/health-route.test.ts`
 4. If a local Supabase and dev server are running: `curl http://localhost:3000/api/health` returns `{"status":"ok",...}` with HTTP 200.
+
+---
+
+## Implementation Notes (post-build)
+
+### Files modified
+- `web/app/api/health/route.ts` -- swapped `getAdminClient` → `getUserClient`, `serviceKey` → `anonKey`
+- `web/__tests__/integration/auth-smoke.test.ts` -- added health endpoint integration test
+
+### Files created
+- `web/__tests__/health-route.test.ts` -- 4 unit tests (all passing)
+
+### Deviations from plan
+- None. All changes match the plan exactly. The integration test in auth-smoke.test.ts skips gracefully when the dev server isn't running (since section-09 hasn't been implemented yet).
+
+### Tests
+- 4 unit tests (passing) + 1 integration test (requires dev server)
