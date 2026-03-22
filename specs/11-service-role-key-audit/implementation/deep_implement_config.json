@@ -31,6 +31,10 @@
     "section-03-agent-core-refactor": {
       "status": "complete",
       "commit_hash": "aca6c81"
+    },
+    "section-04-webhook-service-account": {
+      "status": "complete",
+      "commit_hash": "83728b0"
     }
   },
   "pre_commit": {
