@@ -162,7 +162,8 @@ describe("smgr stats", () => {
   });
 
   it("should fail with exit 1 when SMGR_USER_ID is missing", async () => {
-    const result = await runCli(["stats"], { SMGR_USER_ID: "" });
+    const emptyHome = mkdtempSync(resolve(tmpdir(), "smgr-no-creds-"));
+    const result = await runCli(["stats"], { SMGR_USER_ID: "", HOME: emptyHome });
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("SMGR_USER_ID");
   });

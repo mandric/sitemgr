@@ -240,7 +240,11 @@ export async function getStats(client: SupabaseClient, opts?: { userId?: string;
   const total = totalRes.count ?? 0;
   const enriched = enrichedRes.count ?? 0;
   const watched = watchedRes.count ?? 0;
-  const photoCount = contentTypeCounts["photo"] ?? 0;
+
+  // Count all image/* types as media for pending enrichment calculation
+  const imageCount = Object.entries(contentTypeCounts)
+    .filter(([key]) => key.startsWith("image/"))
+    .reduce((sum, [, count]) => sum + count, 0);
 
   return {
     data: {
@@ -249,7 +253,7 @@ export async function getStats(client: SupabaseClient, opts?: { userId?: string;
       by_event_type: eventTypeCounts,
       watched_s3_keys: watched,
       enriched,
-      pending_enrichment: Math.max(0, photoCount - enriched),
+      pending_enrichment: Math.max(0, imageCount - enriched),
       device_id: opts?.deviceId ?? "default",
     },
     error: null,
@@ -262,8 +266,7 @@ export async function getEnrichStatus(client: SupabaseClient, userId?: string) {
   let eventsQuery = client
     .from("events")
     .select("*", { count: "exact", head: true })
-    .eq("type", "create")
-    .eq("content_type", "photo");
+    .eq("type", "create");
   let enrichmentsQuery = client
     .from("enrichments")
     .select("*", { count: "exact", head: true });
@@ -401,7 +404,7 @@ export async function getPendingEnrichments(client: SupabaseClient, userId?: str
     .from("events")
     .select("id, content_hash, content_type, local_path, remote_path, metadata")
     .eq("type", "create")
-    .eq("content_type", "photo")
+    .like("content_type", "image/%")
     .order("timestamp", { ascending: false });
   if (userId) photosQuery = photosQuery.eq("user_id", userId);
   const { data: photos, error: photosErr } = await photosQuery;

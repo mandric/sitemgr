@@ -94,10 +94,15 @@ const S3_PREFIX = `test-e2e-${Date.now()}`;
 
 // ── Extra env vars for all e2e CLI calls ─────────────────────
 
+const s3Config = getS3Config();
 const E2E_ENV: Record<string, string> = {
   SMGR_S3_BUCKET: "media",
   SMGR_S3_PREFIX: S3_PREFIX + "/",
   SMGR_AUTO_ENRICH: "false",
+  SMGR_S3_ENDPOINT: s3Config.endpoint,
+  SMGR_S3_REGION: s3Config.region,
+  AWS_ACCESS_KEY_ID: s3Config.accessKeyId,
+  AWS_SECRET_ACCESS_KEY: s3Config.secretAccessKey,
 };
 
 // ── Tests ────────────────────────────────────────────────────
