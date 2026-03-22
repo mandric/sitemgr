@@ -43,6 +43,10 @@
     "section-06-instrumentation": {
       "status": "complete",
       "commit_hash": "ee7d033"
+    },
+    "section-07-env-var-rename": {
+      "status": "complete",
+      "commit_hash": "f6611cd"
     }
   },
   "pre_commit": {
