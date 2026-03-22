@@ -6,10 +6,10 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import pLimit from "p-limit";
 import { AGENT_SYSTEM_PROMPT, WHATSAPP_PLANNER_PROMPT } from "./system-prompt";
 import {
-  getAdminClient,
   queryEvents,
   showEvent,
   getStats,
@@ -42,14 +42,6 @@ import { runWithRequestId } from "@/lib/request-context";
 import { createLogger, LogComponent } from "@/lib/logger";
 
 const logger = createLogger(LogComponent.Agent);
-
-/** Create an admin Supabase client from server env vars. */
-function createAdminClient() {
-  return getAdminClient({
-    url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  });
-}
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -176,9 +168,8 @@ export async function planAction(
 }
 
 /** Resolve a phone number to a user_id via user_profiles lookup. */
-export async function resolveUserId(phoneNumber: string): Promise<string | null> {
-  const supabase = createAdminClient();
-  const { data } = await supabase
+export async function resolveUserId(client: SupabaseClient, phoneNumber: string): Promise<string | null> {
+  const { data } = await client
     .from("user_profiles")
     .select("id")
     .eq("phone_number", phoneNumber)
@@ -187,6 +178,7 @@ export async function resolveUserId(phoneNumber: string): Promise<string | null>
 }
 
 export async function executeAction(
+  client: SupabaseClient,
   plan: AgentPlan,
   phoneNumber: string,
   preResolvedUserId?: string | null,
@@ -201,7 +193,7 @@ export async function executeAction(
     });
 
     // Use pre-resolved userId if available, otherwise resolve from phone
-    const userId = preResolvedUserId !== undefined ? preResolvedUserId : await resolveUserId(phoneNumber);
+    const userId = preResolvedUserId !== undefined ? preResolvedUserId : await resolveUserId(client, phoneNumber);
 
     // All DB actions require a resolved user — reject unknown phone numbers
     if (!userId && plan.action !== "direct") {
@@ -217,15 +209,16 @@ export async function executeAction(
           break;
 
         case "add_bucket":
-          result = await addBucket(phoneNumber, plan.params ?? {}, userId);
+          result = await addBucket(client, phoneNumber, plan.params ?? {}, userId);
           break;
 
         case "list_buckets":
-          result = await listBuckets(phoneNumber, userId);
+          result = await listBuckets(client, phoneNumber, userId);
           break;
 
         case "remove_bucket":
           result = await removeBucket(
+            client,
             phoneNumber,
             plan.params?.bucket_name as string,
             userId,
@@ -233,8 +226,7 @@ export async function executeAction(
           break;
 
         case "stats": {
-          const statsClient = createAdminClient();
-          const statsResult = await getStats(statsClient, { userId: userId ?? undefined });
+          const statsResult = await getStats(client, { userId: userId ?? undefined });
           if (statsResult.error) {
             result = errorResponse(`Stats query failed: ${(statsResult.error as Error).message ?? statsResult.error}`, "internal");
           } else {
@@ -244,8 +236,7 @@ export async function executeAction(
         }
 
         case "show": {
-          const showClient = createAdminClient();
-          const showResult = await showEvent(showClient, plan.params?.id as string, userId ?? undefined);
+          const showResult = await showEvent(client, plan.params?.id as string, userId ?? undefined);
           if (showResult.error) {
             result = errorResponse(`Show query failed: ${(showResult.error as Error).message ?? showResult.error}`, "internal");
           } else {
@@ -255,8 +246,7 @@ export async function executeAction(
         }
 
         case "enrich_status": {
-          const enrichClient = createAdminClient();
-          const enrichResult = await getEnrichStatus(enrichClient, userId ?? undefined);
+          const enrichResult = await getEnrichStatus(client, userId ?? undefined);
           if (enrichResult.error) {
             result = errorResponse(`Enrich status query failed: ${(enrichResult.error as Error).message ?? enrichResult.error}`, "internal");
           } else {
@@ -267,8 +257,7 @@ export async function executeAction(
 
         case "query": {
           const p = plan.params ?? {};
-          const queryClient = createAdminClient();
-          const queryResult = await queryEvents(queryClient, {
+          const queryResult = await queryEvents(client, {
             userId: userId ?? undefined,
             search: p.search as string | undefined,
             type: p.type as string | undefined,
@@ -286,6 +275,7 @@ export async function executeAction(
 
         case "test_bucket":
           result = await verifyBucketConfig(
+            client,
             phoneNumber,
             plan.params?.bucket_name as string,
             userId,
@@ -294,6 +284,7 @@ export async function executeAction(
 
         case "list_objects":
           result = await listObjects(
+            client,
             phoneNumber,
             plan.params?.bucket_name as string,
             plan.params?.prefix as string | undefined,
@@ -304,6 +295,7 @@ export async function executeAction(
 
         case "count_objects":
           result = await countObjects(
+            client,
             phoneNumber,
             plan.params?.bucket_name as string,
             plan.params?.prefix as string | undefined,
@@ -313,6 +305,7 @@ export async function executeAction(
 
         case "index_bucket":
           result = await indexBucket(
+            client,
             phoneNumber,
             plan.params?.bucket_name as string,
             plan.params?.prefix as string | undefined,
@@ -385,6 +378,7 @@ Summarize conversationally. Keep it short — this is a chat message.
 // ── Bucket management (phone-number scoped, for WhatsApp) ──────
 
 async function addBucket(
+  client: SupabaseClient,
   phoneNumber: string,
   params: Record<string, unknown>,
   userId: string | null,
@@ -409,9 +403,8 @@ async function addBucket(
   // Use versioned encryption for new buckets
   const encryptedSecret = await encryptSecretVersioned(secretAccessKey);
   const keyVersion = getEncryptionVersion(encryptedSecret);
-  const supabase = createAdminClient();
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from("bucket_configs")
     .insert({
       user_id: userId,
@@ -447,14 +440,12 @@ async function addBucket(
   });
 }
 
-async function listBuckets(phoneNumber: string, userId: string | null): Promise<string> {
+async function listBuckets(client: SupabaseClient, phoneNumber: string, userId: string | null): Promise<string> {
   if (!userId) {
     return errorResponse("Could not resolve user for this phone number", "not_found");
   }
 
-  const supabase = createAdminClient();
-
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from("bucket_configs")
     .select(
       "id, bucket_name, region, endpoint_url, created_at, last_synced_key",
@@ -471,6 +462,7 @@ async function listBuckets(phoneNumber: string, userId: string | null): Promise<
 }
 
 async function removeBucket(
+  client: SupabaseClient,
   phoneNumber: string,
   bucketName: string,
   userId: string | null,
@@ -483,9 +475,7 @@ async function removeBucket(
     return errorResponse("Could not resolve user for this phone number", "not_found");
   }
 
-  const supabase = createAdminClient();
-
-  const { error } = await supabase
+  const { error } = await client
     .from("bucket_configs")
     .delete()
     .eq("user_id", userId)
@@ -527,6 +517,7 @@ type S3ClientResult =
   | { ok: false; errorJson: string };
 
 async function requireS3Client(
+  client: SupabaseClient,
   phoneNumber: string,
   bucketName: string,
   userId?: string | null,
@@ -537,7 +528,7 @@ async function requireS3Client(
       errorJson: errorResponse("bucket_name is required", "validation_error"),
     };
 
-  const result = await getBucketConfig(phoneNumber, bucketName, userId);
+  const result = await getBucketConfig(client, phoneNumber, bucketName, userId);
   if (!result.exists)
     return {
       ok: false,
@@ -555,27 +546,27 @@ async function requireS3Client(
   }
 
   const config = result.config!;
-  const client = createS3Client({
+  const s3client = createS3Client({
     endpoint: config.endpoint_url,
     region: config.region ?? undefined,
     accessKeyId: config.access_key_id,
     secretAccessKey: config.secret_access_key,
   });
 
-  return { ok: true, client, config };
+  return { ok: true, client: s3client, config };
 }
 
 async function getBucketConfig(
+  client: SupabaseClient,
   phoneNumber: string,
   bucketName: string,
   userId?: string | null,
 ): Promise<BucketConfigResult> {
   if (!bucketName) return { exists: false };
-  const supabase = createAdminClient();
 
   if (!userId) return { exists: false };
 
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from("bucket_configs")
     .select("*")
     .eq("bucket_name", bucketName)
@@ -598,7 +589,7 @@ async function getBucketConfig(
       // Update in background (non-blocking, fire-and-forget)
       void (async () => {
         try {
-          const { error } = await supabase
+          const { error } = await client
             .from("bucket_configs")
             .update({
               secret_access_key: newCiphertext,
@@ -645,11 +636,12 @@ async function getBucketConfig(
 }
 
 async function verifyBucketConfig(
+  client: SupabaseClient,
   phoneNumber: string,
   bucketName: string,
   userId?: string | null,
 ): Promise<string> {
-  const s3 = await requireS3Client(phoneNumber, bucketName, userId);
+  const s3 = await requireS3Client(client, phoneNumber, bucketName, userId);
   if (!s3.ok) return s3.errorJson;
 
   try {
@@ -689,13 +681,14 @@ async function verifyBucketConfig(
 }
 
 async function listObjects(
+  client: SupabaseClient,
   phoneNumber: string,
   bucketName: string,
   prefix?: string,
   limit = 100,
   userId?: string | null,
 ): Promise<string> {
-  const s3 = await requireS3Client(phoneNumber, bucketName, userId);
+  const s3 = await requireS3Client(client, phoneNumber, bucketName, userId);
   if (!s3.ok) return s3.errorJson;
 
   try {
@@ -722,12 +715,13 @@ async function listObjects(
 }
 
 async function countObjects(
+  client: SupabaseClient,
   phoneNumber: string,
   bucketName: string,
   prefix?: string,
   userId?: string | null,
 ): Promise<string> {
-  const s3 = await requireS3Client(phoneNumber, bucketName, userId);
+  const s3 = await requireS3Client(client, phoneNumber, bucketName, userId);
   if (!s3.ok) return s3.errorJson;
 
   try {
@@ -775,13 +769,14 @@ interface IndexBucketResult {
 }
 
 async function indexBucket(
+  client: SupabaseClient,
   phoneNumber: string,
   bucketName: string,
   prefix?: string,
   batchSize = 10,
   userId?: string | null,
 ): Promise<string> {
-  const s3 = await requireS3Client(phoneNumber, bucketName, userId);
+  const s3 = await requireS3Client(client, phoneNumber, bucketName, userId);
   if (!s3.ok) return s3.errorJson;
 
   try {
@@ -789,8 +784,7 @@ async function indexBucket(
     const allObjects = await listS3Objects(s3.client, bucketName, prefix ?? "");
 
     // Get already-watched keys to find new ones
-    const indexClient = createAdminClient();
-    const watchedResult = await getWatchedKeys(indexClient, userId ?? undefined);
+    const watchedResult = await getWatchedKeys(client, userId ?? undefined);
     if (watchedResult.error) {
       return errorResponse(`Failed to fetch watched keys: ${(watchedResult.error as Error).message ?? watchedResult.error}`, "internal");
     }
@@ -811,7 +805,7 @@ async function indexBucket(
             const mimeType = getMimeType(obj.key);
 
             // Create event
-            const insertResult = await insertEvent(indexClient, {
+            const insertResult = await insertEvent(client, {
               id: eventId,
               device_id: `whatsapp:${phoneNumber}`,
               type: "create",
@@ -827,7 +821,7 @@ async function indexBucket(
             if (insertResult.error) throw insertResult.error;
 
             // Track watched key
-            const upsertResult = await upsertWatchedKey(indexClient, obj.key, eventId, obj.etag, obj.size, userId ?? undefined, s3.config.id);
+            const upsertResult = await upsertWatchedKey(client, obj.key, eventId, obj.etag, obj.size, userId ?? undefined, s3.config.id);
             if (upsertResult.error) {
               logger.warn("upsertWatchedKey failed", {
                 key: obj.key,
@@ -844,7 +838,7 @@ async function indexBucket(
                   obj.key,
                 );
                 const result = await enrichImage(imageBytes, mimeType);
-                const enrichInsert = await insertEnrichment(indexClient, eventId, result, userId ?? undefined);
+                const enrichInsert = await insertEnrichment(client, eventId, result, userId ?? undefined);
                 if (enrichInsert.error) throw enrichInsert.error;
                 return { key: obj.key, status: "enriched" };
               } catch (enrichErr) {
@@ -907,13 +901,12 @@ async function indexBucket(
 // ── Conversation history ───────────────────────────────────────
 
 export async function getConversationHistory(
+  client: SupabaseClient,
   phone: string,
   userId?: string | null,
 ): Promise<Message[]> {
-  const supabase = createAdminClient();
-
   if (userId) {
-    const { data } = await supabase
+    const { data } = await client
       .from("conversations")
       .select("history")
       .eq("user_id", userId)
@@ -922,7 +915,7 @@ export async function getConversationHistory(
   }
 
   // Fallback to phone_number for legacy callers
-  const { data } = await supabase
+  const { data } = await client
     .from("conversations")
     .select("history")
     .eq("phone_number", phone)
@@ -932,15 +925,15 @@ export async function getConversationHistory(
 }
 
 export async function saveConversationHistory(
+  client: SupabaseClient,
   phone: string,
   history: Message[],
   userId?: string | null,
 ): Promise<void> {
-  const supabase = createAdminClient();
   const trimmed = history.slice(-20);
 
   if (userId) {
-    await supabase.from("conversations").upsert(
+    await client.from("conversations").upsert(
       {
         user_id: userId,
         phone_number: phone,
@@ -953,7 +946,7 @@ export async function saveConversationHistory(
   }
 
   // Fallback to phone_number for legacy callers
-  await supabase.from("conversations").upsert({
+  await client.from("conversations").upsert({
     phone_number: phone,
     history: trimmed,
     updated_at: new Date().toISOString(),

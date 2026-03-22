@@ -14,6 +14,30 @@ import {
   saveConversationHistory,
   resolveUserId,
 } from "@/lib/agent/core";
+import { getUserClient } from "@/lib/media/db";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+/** Create a Supabase client authenticated as the webhook service account. */
+async function createWebhookClient(): Promise<SupabaseClient> {
+  const client = getUserClient({
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    anonKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+  });
+
+  const email = process.env.WEBHOOK_SERVICE_ACCOUNT_EMAIL;
+  const password = process.env.WEBHOOK_SERVICE_ACCOUNT_PASSWORD;
+
+  if (!email || !password) {
+    throw new Error("Webhook service account credentials not configured");
+  }
+
+  const { error } = await client.auth.signInWithPassword({ email, password });
+  if (error) {
+    throw new Error(`Webhook service account auth failed: ${error.message}`);
+  }
+
+  return client;
+}
 
 // ── Twilio helpers ─────────────────────────────────────────────
 
@@ -99,12 +123,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    const client = await createWebhookClient();
+
     // Resolve phone number to user_id
-    const userId = await resolveUserId(fromNumber);
+    const userId = await resolveUserId(client, fromNumber);
 
     // Get conversation history
     console.log(`[${ts()}][${reqId}] fetching conversation history`);
-    const history = await getConversationHistory(fromNumber, userId);
+    const history = await getConversationHistory(client, fromNumber, userId);
 
     // Plan
     console.log(`[${ts()}][${reqId}] planning action`);
@@ -117,7 +143,7 @@ export async function POST(req: NextRequest) {
       responseText = plan.response ?? "";
     } else {
       console.log(`[${ts()}][${reqId}] executing action: ${plan.action}`);
-      const result = await executeAction(plan, fromNumber, userId);
+      const result = await executeAction(client, plan, fromNumber, userId);
       console.log(`[${ts()}][${reqId}] summarizing result (${result.length} chars)`);
       responseText = await summarizeResult(messageBody, result);
     }
@@ -125,7 +151,7 @@ export async function POST(req: NextRequest) {
     // Persist conversation
     history.push({ role: "user", content: messageBody });
     history.push({ role: "assistant", content: responseText });
-    await saveConversationHistory(fromNumber, history, userId);
+    await saveConversationHistory(client, fromNumber, history, userId);
 
     console.log(`[${ts()}][${reqId}] sending reply (${responseText.length} chars): ${responseText.slice(0, 100)}...`);
 

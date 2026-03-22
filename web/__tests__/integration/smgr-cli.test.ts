@@ -10,6 +10,9 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   getAdminClient,
@@ -30,17 +33,16 @@ let admin: SupabaseClient;
 let userId: string;
 let userClient: SupabaseClient;
 let seed: SeedResult;
+let tempHome: string;
 
 /** Base env vars for all CLI invocations. */
 function cliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const cfg = getSupabaseConfig();
   return {
     ...process.env,
+    HOME: tempHome,
     SMGR_API_URL: cfg.url,
-    // CLI runs server-side with service role; use serviceKey for both
-    // so getUserClient() also bypasses RLS (no user JWT available in CLI)
-    SMGR_API_KEY: cfg.serviceKey,
-    SUPABASE_SECRET_KEY: cfg.serviceKey,
+    SMGR_API_KEY: cfg.anonKey,
     SMGR_USER_ID: userId,
     SMGR_DEVICE_ID: "test-cli",
     // Prevent Node/tsx from dropping into interactive mode
@@ -81,6 +83,25 @@ beforeAll(async () => {
   userId = user.userId;
   userClient = user.client;
 
+  // Extract session tokens and write credentials file for CLI
+  const { data: sessionData } = await userClient.auth.getSession();
+  const session = sessionData.session!;
+
+  tempHome = mkdtempSync(resolve(tmpdir(), "smgr-cli-test-"));
+  const credsDir = resolve(tempHome, ".sitemgr");
+  mkdirSync(credsDir, { mode: 0o700, recursive: true });
+  writeFileSync(
+    resolve(credsDir, "credentials.json"),
+    JSON.stringify({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      user_id: userId,
+      email: session.user.email,
+      expires_at: session.expires_at,
+    }),
+    { mode: 0o600 },
+  );
+
   // Seed data: 3 events with enrichments, watched keys, etc.
   seed = await seedUserData(admin, userId, {
     eventCount: 3,
@@ -98,6 +119,10 @@ afterAll(async () => {
     admin.removeAllChannels(),
     userClient.removeAllChannels(),
   ]);
+  // Clean up temp home directory
+  if (tempHome) {
+    rmSync(tempHome, { recursive: true, force: true });
+  }
 });
 
 // ── Help / usage ──────────────────────────────────────────────
@@ -355,10 +380,15 @@ describe("smgr enrich error cases", () => {
 // ── exit codes ────────────────────────────────────────────────
 
 describe("exit codes", () => {
-  it("should exit 1 when SUPABASE_SECRET_KEY is missing for stats", async () => {
-    const result = await runCli(["stats"], { SUPABASE_SECRET_KEY: "" });
-    // stats uses getUserClient which needs SMGR_API_KEY
-    // but SMGR_USER_ID check comes first — either way, non-zero
-    expect(result.exitCode).not.toBe(0);
+  it("should exit non-zero when not logged in (no credentials file)", async () => {
+    // Use a fresh temp HOME with no credentials
+    const emptyHome = mkdtempSync(resolve(tmpdir(), "smgr-no-creds-"));
+    try {
+      const result = await runCli(["stats"], { HOME: emptyHome });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("Not logged in");
+    } finally {
+      rmSync(emptyHome, { recursive: true, force: true });
+    }
   });
 });

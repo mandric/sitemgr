@@ -10,6 +10,7 @@ import {
   mockS3Send,
   mockBucketLookup,
   mockBucketInsertCapture,
+  createMockClient,
   PHONE,
 } from "./helpers/agent-test-setup";
 
@@ -74,7 +75,7 @@ describe("encryption lifecycle (real crypto, mocked DB)", () => {
     });
 
     const addResult = await executeAction(
-      {
+      createMockClient(), {
         action: "add_bucket",
         params: {
           bucket_name: "test-bucket",
@@ -107,7 +108,7 @@ describe("encryption lifecycle (real crypto, mocked DB)", () => {
     mockS3Send.mockResolvedValue({ KeyCount: 1 });
 
     const testResult = await executeAction(
-      { action: "test_bucket", params: { bucket_name: "test-bucket" } },
+      createMockClient(), { action: "test_bucket", params: { bucket_name: "test-bucket" } },
       PHONE,
     );
     const parsed = JSON.parse(testResult);
@@ -126,7 +127,7 @@ describe("encryption lifecycle (real crypto, mocked DB)", () => {
     });
 
     await executeAction(
-      {
+      createMockClient(), {
         action: "add_bucket",
         params: {
           bucket_name: "test-bucket",
@@ -154,7 +155,7 @@ describe("encryption lifecycle (real crypto, mocked DB)", () => {
     });
 
     const result = await executeAction(
-      { action: "test_bucket", params: { bucket_name: "test-bucket" } },
+      createMockClient(), { action: "test_bucket", params: { bucket_name: "test-bucket" } },
       PHONE,
     );
     const parsed = JSON.parse(result);

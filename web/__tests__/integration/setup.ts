@@ -8,7 +8,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 // Local Supabase defaults from `supabase start`
 const SUPABASE_URL = process.env.SMGR_API_URL ?? "http://127.0.0.1:54321";
 const SUPABASE_ANON_KEY = process.env.SMGR_API_KEY ?? "";
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SECRET_KEY ?? "";
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
 export function getSupabaseConfig() {
   return {
@@ -21,7 +21,7 @@ export function getSupabaseConfig() {
 export function getAdminClient(): SupabaseClient {
   if (!SUPABASE_SERVICE_KEY) {
     throw new Error(
-      "SUPABASE_SECRET_KEY not set. Run `supabase start` and set env vars.",
+      "SUPABASE_SERVICE_ROLE_KEY not set. Run `supabase start` and set env vars.",
     );
   }
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {

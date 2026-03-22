@@ -113,7 +113,7 @@ Go to **Repository Settings > Secrets and variables > Actions** and add:
 | `SUPABASE_ACCESS_TOKEN` | Supabase personal access token | `sbp_abc123...` |
 | `SUPABASE_PROJECT_REF_TEST` | Test project reference ID | `abcdefghij` |
 | `SUPABASE_PROJECT_REF_PROD` | Production project reference ID | `klmnopqrst` |
-| `SUPABASE_SECRET_KEY` | Service role key (for storage setup) | `eyJhbGc...` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service role key (for storage setup) | `eyJhbGc...` |
 
 #### Application Secrets
 
@@ -240,7 +240,7 @@ supabase secrets set FEATURE_NEW_SEARCH=true
 
 ### Storage bucket not created
 
-- Check that `SUPABASE_SECRET_KEY` is set
+- Check that `SUPABASE_SERVICE_ROLE_KEY` is set
 - Create bucket manually in Supabase Dashboard > Storage
 
 ## Cost Estimates

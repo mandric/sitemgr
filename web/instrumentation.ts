@@ -9,7 +9,6 @@ export async function register() {
     const required = [
       "NEXT_PUBLIC_SUPABASE_URL",
       "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
-      "SUPABASE_SECRET_KEY",
     ];
 
     // These are only required for the WhatsApp webhook but we still want

@@ -6,6 +6,7 @@ import {
   mockBucketInsert,
   mockBucketDelete,
   mockWithUserResolution,
+  createMockClient,
   PHONE,
   fakeBucketConfig,
 } from "./helpers/agent-test-setup";
@@ -102,7 +103,7 @@ describe("S3 action handlers", () => {
   describe("test_bucket", () => {
     it("returns error when bucket_name is missing", async () => {
       const result = await executeAction(
-        { action: "test_bucket", params: {} },
+        createMockClient(), { action: "test_bucket", params: {} },
         PHONE,
       );
       expect(JSON.parse(result)).toEqual({ error: "bucket_name is required", errorType: "validation_error" });
@@ -111,7 +112,7 @@ describe("S3 action handlers", () => {
     it("returns error when bucket config not found", async () => {
       mockBucketLookup(null);
       const result = await executeAction(
-        { action: "test_bucket", params: { bucket_name: "nonexistent" } },
+        createMockClient(), { action: "test_bucket", params: { bucket_name: "nonexistent" } },
         PHONE,
       );
       expect(JSON.parse(result)).toEqual({
@@ -125,7 +126,7 @@ describe("S3 action handlers", () => {
       mockS3Send.mockResolvedValue({ KeyCount: 5 });
 
       const result = await executeAction(
-        { action: "test_bucket", params: { bucket_name: "my-bucket" } },
+        createMockClient(), { action: "test_bucket", params: { bucket_name: "my-bucket" } },
         PHONE,
       );
       const parsed = JSON.parse(result);
@@ -140,7 +141,7 @@ describe("S3 action handlers", () => {
         .mockResolvedValueOnce({ Contents: [{ Key: "test.jpg" }] });
 
       const result = await executeAction(
-        { action: "test_bucket", params: { bucket_name: "my-bucket" } },
+        createMockClient(), { action: "test_bucket", params: { bucket_name: "my-bucket" } },
         PHONE,
       );
       const parsed = JSON.parse(result);
@@ -152,7 +153,7 @@ describe("S3 action handlers", () => {
       mockS3Send.mockRejectedValue(new Error("Access Denied"));
 
       const result = await executeAction(
-        { action: "test_bucket", params: { bucket_name: "my-bucket" } },
+        createMockClient(), { action: "test_bucket", params: { bucket_name: "my-bucket" } },
         PHONE,
       );
       const parsed = JSON.parse(result);
@@ -182,7 +183,7 @@ describe("S3 action handlers", () => {
       ]);
 
       const result = await executeAction(
-        {
+        createMockClient(), {
           action: "list_objects",
           params: { bucket_name: "my-bucket", limit: 10 },
         },
@@ -205,7 +206,7 @@ describe("S3 action handlers", () => {
       vi.mocked(listS3Objects).mockResolvedValue(objects);
 
       const result = await executeAction(
-        {
+        createMockClient(), {
           action: "list_objects",
           params: { bucket_name: "my-bucket", limit: 5 },
         },
@@ -230,7 +231,7 @@ describe("S3 action handlers", () => {
       ]);
 
       const result = await executeAction(
-        { action: "count_objects", params: { bucket_name: "my-bucket" } },
+        createMockClient(), { action: "count_objects", params: { bucket_name: "my-bucket" } },
         PHONE,
       );
       const parsed = JSON.parse(result);
@@ -245,7 +246,7 @@ describe("S3 action handlers", () => {
   describe("add_bucket", () => {
     it("returns error when required fields are missing", async () => {
       const result = await executeAction(
-        { action: "add_bucket", params: { bucket_name: "b" } },
+        createMockClient(), { action: "add_bucket", params: { bucket_name: "b" } },
         PHONE,
       );
       const parsed = JSON.parse(result);
@@ -259,7 +260,7 @@ describe("S3 action handlers", () => {
       });
 
       const result = await executeAction(
-        {
+        createMockClient(), {
           action: "add_bucket",
           params: {
             bucket_name: "my-bucket",
@@ -289,7 +290,7 @@ describe("S3 action handlers", () => {
       });
 
       const result = await executeAction(
-        {
+        createMockClient(), {
           action: "add_bucket",
           params: {
             bucket_name: "dup-bucket",
@@ -310,7 +311,7 @@ describe("S3 action handlers", () => {
   describe("remove_bucket", () => {
     it("returns error when bucket_name is missing", async () => {
       const result = await executeAction(
-        { action: "remove_bucket", params: {} },
+        createMockClient(), { action: "remove_bucket", params: {} },
         PHONE,
       );
       expect(JSON.parse(result)).toEqual({ error: "bucket_name is required", errorType: "validation_error" });
@@ -320,7 +321,7 @@ describe("S3 action handlers", () => {
       mockBucketDelete();
 
       const result = await executeAction(
-        { action: "remove_bucket", params: { bucket_name: "my-bucket" } },
+        createMockClient(), { action: "remove_bucket", params: { bucket_name: "my-bucket" } },
         PHONE,
       );
       const parsed = JSON.parse(result);
@@ -332,7 +333,7 @@ describe("S3 action handlers", () => {
       mockBucketDelete({ message: "connection lost" });
 
       const result = await executeAction(
-        { action: "remove_bucket", params: { bucket_name: "my-bucket" } },
+        createMockClient(), { action: "remove_bucket", params: { bucket_name: "my-bucket" } },
         PHONE,
       );
       const parsed = JSON.parse(result);
@@ -346,7 +347,7 @@ describe("S3 action handlers", () => {
     it("returns not-found error when bucket does not exist", async () => {
       mockBucketLookup(null);
       const result = await executeAction(
-        { action: "test_bucket", params: { bucket_name: "ghost" } },
+        createMockClient(), { action: "test_bucket", params: { bucket_name: "ghost" } },
         PHONE,
       );
       const parsed = JSON.parse(result);
@@ -362,7 +363,7 @@ describe("S3 action handlers", () => {
       );
 
       const result = await executeAction(
-        { action: "test_bucket", params: { bucket_name: "my-bucket" } },
+        createMockClient(), { action: "test_bucket", params: { bucket_name: "my-bucket" } },
         PHONE,
       );
       const parsed = JSON.parse(result);
@@ -383,7 +384,7 @@ describe("S3 action handlers", () => {
       vi.mocked(getWatchedKeys).mockResolvedValue({ data: [{ s3_key: "old.jpg" }], error: null } as never);
 
       const result = await executeAction(
-        {
+        createMockClient(), {
           action: "index_bucket",
           params: { bucket_name: "my-bucket", batch_size: 10 },
         },
@@ -408,7 +409,7 @@ describe("S3 action handlers", () => {
       vi.mocked(getWatchedKeys).mockResolvedValue({ data: [], error: null } as never);
 
       const result = await executeAction(
-        {
+        createMockClient(), {
           action: "index_bucket",
           params: { bucket_name: "my-bucket", batch_size: 5 },
         },
@@ -428,7 +429,7 @@ describe("S3 action handlers", () => {
       vi.mocked(downloadS3Object).mockResolvedValue(Buffer.from("fake-image"));
 
       const result = await executeAction(
-        {
+        createMockClient(), {
           action: "index_bucket",
           params: { bucket_name: "my-bucket", batch_size: 10 },
         },

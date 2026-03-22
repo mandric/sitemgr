@@ -1,0 +1,77 @@
+{
+  "plugin_root": "/root/.claude/plugins/cache/local-plugins/deep-implement/0.2.1",
+  "sections_dir": "/home/user/sitemgr/specs/11-service-role-key-audit/sections",
+  "target_dir": "/home/user/sitemgr",
+  "state_dir": "/home/user/sitemgr/specs/11-service-role-key-audit/implementation",
+  "git_root": "/home/user/sitemgr",
+  "commit_style": "simple",
+  "test_command": "uv run pytest",
+  "sections": [
+    "section-01-es256-workaround",
+    "section-02-health-endpoint",
+    "section-03-agent-core-refactor",
+    "section-04-webhook-service-account",
+    "section-05-cli-user-client",
+    "section-06-instrumentation",
+    "section-07-env-var-rename",
+    "section-08-test-app-layer",
+    "section-09-dev-server-setup",
+    "section-10-ci-workflow",
+    "section-11-config-docs"
+  ],
+  "sections_state": {
+    "section-01-es256-workaround": {
+      "status": "complete",
+      "commit_hash": "04fc8af"
+    },
+    "section-02-health-endpoint": {
+      "status": "complete",
+      "commit_hash": "cebcbb2"
+    },
+    "section-03-agent-core-refactor": {
+      "status": "complete",
+      "commit_hash": "aca6c81"
+    },
+    "section-04-webhook-service-account": {
+      "status": "complete",
+      "commit_hash": "83728b0"
+    },
+    "section-05-cli-user-client": {
+      "status": "complete",
+      "commit_hash": "fe43d67"
+    },
+    "section-06-instrumentation": {
+      "status": "complete",
+      "commit_hash": "ee7d033"
+    },
+    "section-07-env-var-rename": {
+      "status": "complete",
+      "commit_hash": "f6611cd"
+    },
+    "section-08-test-app-layer": {
+      "status": "complete",
+      "commit_hash": "f06d422"
+    },
+    "section-09-dev-server-setup": {
+      "status": "complete",
+      "commit_hash": "f06d422"
+    },
+    "section-10-ci-workflow": {
+      "status": "complete",
+      "commit_hash": "f06d422"
+    },
+    "section-11-config-docs": {
+      "status": "complete",
+      "commit_hash": "f06d422"
+    }
+  },
+  "pre_commit": {
+    "present": false,
+    "type": "none",
+    "config_file": null,
+    "native_hook": null,
+    "may_modify_files": false,
+    "detected_formatters": []
+  },
+  "created_at": "2026-03-22T02:25:59.052761+00:00"
+}

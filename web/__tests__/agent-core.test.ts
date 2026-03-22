@@ -13,10 +13,6 @@ vi.mock("@anthropic-ai/sdk", () => {
 const mockAdminFrom = vi.fn();
 
 vi.mock("@/lib/media/db", () => ({
-  getAdminClient: vi.fn(() => ({
-    from: (...args: unknown[]) => mockAdminFrom(...args),
-  })),
-  getUserClient: vi.fn(),
   queryEvents: vi.fn().mockResolvedValue({ data: [], count: 0, error: null }),
   showEvent: vi.fn().mockResolvedValue({ data: null, error: null }),
   getStats: vi.fn().mockResolvedValue({ data: { total_events: 0 }, error: null }),
@@ -26,6 +22,11 @@ vi.mock("@/lib/media/db", () => ({
   upsertWatchedKey: vi.fn().mockResolvedValue({ data: null, error: null }),
   getWatchedKeys: vi.fn().mockResolvedValue({ data: [], error: null }),
 }));
+
+/** Create a mock SupabaseClient that delegates .from() to mockAdminFrom */
+function createMockClient() {
+  return { from: (...args: unknown[]) => mockAdminFrom(...args) } as never;
+}
 
 vi.mock("@/lib/media/s3", () => ({
   createS3Client: vi.fn(() => ({ send: vi.fn() })),
@@ -206,8 +207,6 @@ describe("sendMessageToAgent", () => {
 describe("executeAction — request context", () => {
   beforeEach(() => {
     vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
-    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
-    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
     vi.clearAllMocks();
     mockRunWithRequestId.mockImplementation((id: string, fn: () => unknown) => fn());
     setupAdminMock();
@@ -219,14 +218,14 @@ describe("executeAction — request context", () => {
 
   it("wraps execution in runWithRequestId", async () => {
     const { executeAction } = await import("@/lib/agent/core");
-    await executeAction({ action: "stats" }, "+1234567890", "user-123");
+    await executeAction(createMockClient(), { action: "stats" }, "+1234567890", "user-123");
 
     expect(mockRunWithRequestId).toHaveBeenCalledOnce();
   });
 
   it("request ID is a non-empty string", async () => {
     const { executeAction } = await import("@/lib/agent/core");
-    await executeAction({ action: "stats" }, "+1234567890", "user-123");
+    await executeAction(createMockClient(), { action: "stats" }, "+1234567890", "user-123");
 
     const requestId = mockRunWithRequestId.mock.calls[0][0];
     expect(typeof requestId).toBe("string");
@@ -235,8 +234,9 @@ describe("executeAction — request context", () => {
 
   it("request ID is different for two consecutive calls", async () => {
     const { executeAction } = await import("@/lib/agent/core");
-    await executeAction({ action: "stats" }, "+1234567890", "user-123");
-    await executeAction({ action: "stats" }, "+1234567890", "user-123");
+    const client = createMockClient();
+    await executeAction(client, { action: "stats" }, "+1234567890", "user-123");
+    await executeAction(client, { action: "stats" }, "+1234567890", "user-123");
 
     const id1 = mockRunWithRequestId.mock.calls[0][0];
     const id2 = mockRunWithRequestId.mock.calls[1][0];
@@ -256,7 +256,7 @@ describe("executeAction — request context", () => {
     });
 
     const { executeAction } = await import("@/lib/agent/core");
-    await executeAction({ action: "stats" }, "+1234567890", "user-123");
+    await executeAction(createMockClient(), { action: "stats" }, "+1234567890", "user-123");
 
     expect(callOrder).toEqual(["runWithRequestId", "getStats"]);
   });
@@ -267,8 +267,6 @@ describe("executeAction — request context", () => {
 describe("executeAction — error response shape", () => {
   beforeEach(() => {
     vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
-    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
-    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
     vi.clearAllMocks();
     mockRunWithRequestId.mockImplementation((id: string, fn: () => unknown) => fn());
     setupAdminMock();
@@ -281,7 +279,7 @@ describe("executeAction — error response shape", () => {
   it("unknown action returns JSON with errorType field", async () => {
     const { executeAction } = await import("@/lib/agent/core");
     const result = await executeAction(
-      { action: "unknown_action" }, "+1234567890", "user-123",
+      createMockClient(), { action: "unknown_action" }, "+1234567890", "user-123",
     );
     const parsed = JSON.parse(result);
     expect(parsed.error).toBeDefined();
@@ -292,7 +290,7 @@ describe("executeAction — error response shape", () => {
   it("missing bucket_name in remove_bucket returns errorType validation_error", async () => {
     const { executeAction } = await import("@/lib/agent/core");
     const result = await executeAction(
-      { action: "remove_bucket", params: {} }, "+1234567890", "user-123",
+      createMockClient(), { action: "remove_bucket", params: {} }, "+1234567890", "user-123",
     );
     const parsed = JSON.parse(result);
     expect(parsed.errorType).toBe("validation_error");
@@ -301,7 +299,7 @@ describe("executeAction — error response shape", () => {
   it("unresolved phone number returns errorType not_found", async () => {
     const { executeAction } = await import("@/lib/agent/core");
     const result = await executeAction(
-      { action: "stats" }, "+9999999999", null,
+      createMockClient(), { action: "stats" }, "+9999999999", null,
     );
     const parsed = JSON.parse(result);
     expect(parsed.errorType).toBe("not_found");
@@ -312,7 +310,7 @@ describe("executeAction — error response shape", () => {
 
     const { executeAction } = await import("@/lib/agent/core");
     const result = await executeAction(
-      { action: "stats" }, "+1234567890", "user-123",
+      createMockClient(), { action: "stats" }, "+1234567890", "user-123",
     );
     const parsed = JSON.parse(result);
     expect(parsed.errorType).toBe("internal");
@@ -320,16 +318,17 @@ describe("executeAction — error response shape", () => {
 
   it("error responses never include errorType undefined", async () => {
     const { executeAction } = await import("@/lib/agent/core");
+    const client = createMockClient();
 
     // Test unknown action
     const r1 = JSON.parse(await executeAction(
-      { action: "bad" }, "+1234567890", "user-123",
+      client, { action: "bad" }, "+1234567890", "user-123",
     ));
     if (r1.error) expect(r1.errorType).toBeDefined();
 
     // Test no userId
     const r2 = JSON.parse(await executeAction(
-      { action: "stats" }, "+0000000000", null,
+      client, { action: "stats" }, "+0000000000", null,
     ));
     if (r2.error) expect(r2.errorType).toBeDefined();
   });
@@ -340,8 +339,6 @@ describe("executeAction — error response shape", () => {
 describe("indexBucket — concurrency and partial failure", () => {
   beforeEach(() => {
     vi.stubEnv("ANTHROPIC_API_KEY", "test-key");
-    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
-    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "test-service-key");
     vi.clearAllMocks();
     mockRunWithRequestId.mockImplementation((id: string, fn: () => unknown) => fn());
     setupAdminMock();
@@ -369,7 +366,7 @@ describe("indexBucket — concurrency and partial failure", () => {
 
     const { executeAction } = await import("@/lib/agent/core");
     await executeAction(
-      { action: "index_bucket", params: { bucket_name: "test-bucket" } },
+      createMockClient(), { action: "index_bucket", params: { bucket_name: "test-bucket" } },
       "+1234567890", "user-123",
     );
 
@@ -384,7 +381,7 @@ describe("indexBucket — concurrency and partial failure", () => {
 
     const { executeAction } = await import("@/lib/agent/core");
     await executeAction(
-      { action: "index_bucket", params: { bucket_name: "test-bucket" } },
+      createMockClient(), { action: "index_bucket", params: { bucket_name: "test-bucket" } },
       "+1234567890", "user-123",
     );
 
@@ -405,7 +402,7 @@ describe("indexBucket — concurrency and partial failure", () => {
 
     const { executeAction } = await import("@/lib/agent/core");
     const result = JSON.parse(await executeAction(
-      { action: "index_bucket", params: { bucket_name: "test-bucket" } },
+      createMockClient(), { action: "index_bucket", params: { bucket_name: "test-bucket" } },
       "+1234567890", "user-123",
     ));
 
@@ -427,7 +424,7 @@ describe("indexBucket — concurrency and partial failure", () => {
 
     const { executeAction } = await import("@/lib/agent/core");
     const result = JSON.parse(await executeAction(
-      { action: "index_bucket", params: { bucket_name: "test-bucket" } },
+      createMockClient(), { action: "index_bucket", params: { bucket_name: "test-bucket" } },
       "+1234567890", "user-123",
     ));
 
@@ -453,7 +450,7 @@ describe("indexBucket — concurrency and partial failure", () => {
 
     const { executeAction } = await import("@/lib/agent/core");
     const result = JSON.parse(await executeAction(
-      { action: "index_bucket", params: { bucket_name: "test-bucket" } },
+      createMockClient(), { action: "index_bucket", params: { bucket_name: "test-bucket" } },
       "+1234567890", "user-123",
     ));
 
@@ -469,7 +466,7 @@ describe("indexBucket — concurrency and partial failure", () => {
 
     const { executeAction } = await import("@/lib/agent/core");
     const result = JSON.parse(await executeAction(
-      { action: "index_bucket", params: { bucket_name: "test-bucket" } },
+      createMockClient(), { action: "index_bucket", params: { bucket_name: "test-bucket" } },
       "+1234567890", "user-123",
     ));
 
@@ -484,7 +481,7 @@ describe("indexBucket — concurrency and partial failure", () => {
 
     const { executeAction } = await import("@/lib/agent/core");
     const result = JSON.parse(await executeAction(
-      { action: "index_bucket", params: { bucket_name: "test-bucket" } },
+      createMockClient(), { action: "index_bucket", params: { bucket_name: "test-bucket" } },
       "+1234567890", "user-123",
     ));
 
@@ -492,5 +489,21 @@ describe("indexBucket — concurrency and partial failure", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const entry = result.per_object.find((p: any) => p.key === "archive.zip");
     expect(entry.status).toBe("indexed");
+  });
+});
+
+// ── Static analysis tests ──────────────────────────────────────
+
+describe("agent core — dependency injection", () => {
+  it("does NOT import getAdminClient from db.ts", async () => {
+    const fs = await import("fs");
+    const source = fs.readFileSync("lib/agent/core.ts", "utf-8");
+    expect(source).not.toContain("getAdminClient");
+  });
+
+  it("does NOT reference SUPABASE_SERVICE_ROLE_KEY", async () => {
+    const fs = await import("fs");
+    const source = fs.readFileSync("lib/agent/core.ts", "utf-8");
+    expect(source).not.toContain("SUPABASE_SERVICE_ROLE_KEY");
   });
 });

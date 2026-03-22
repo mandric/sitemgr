@@ -101,6 +101,11 @@ export function mockWithUserResolution(bucketChain: Record<string, unknown>) {
   });
 }
 
+/** Create a mock SupabaseClient that delegates .from() to mockFrom. */
+export function createMockClient() {
+  return { from: (...args: unknown[]) => mockFrom(...(args as [string])) } as never;
+}
+
 // ── Shared test constants ───────────────────────────────────────
 
 export const PHONE = "+1234567890";

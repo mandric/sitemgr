@@ -3,7 +3,7 @@
  *
  * Stores credentials in ~/.sitemgr/credentials.json.
  * The CLI uses the anon key (safe to embed) + user JWT for all operations,
- * so the service role key (SUPABASE_SECRET_KEY) is never needed on user machines.
+ * so the service role key (SUPABASE_SERVICE_ROLE_KEY) is never needed on user machines.
  */
 
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";

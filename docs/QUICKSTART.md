@@ -103,7 +103,7 @@ To enable automatic deployment from GitHub:
 6. Add repository secrets:
    - `SUPABASE_ACCESS_TOKEN` - Get from https://supabase.com/dashboard/account/tokens
    - `SUPABASE_PROJECT_REF` - Your project reference ID
-   - `SUPABASE_SECRET_KEY` - From Project Settings > API > service_role
+   - `SUPABASE_SERVICE_ROLE_KEY` - From Project Settings > API > service_role (test/admin only)
    - `ANTHROPIC_API_KEY`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_WHATSAPP_FROM`
 
 Now every push to `main` will auto-deploy!

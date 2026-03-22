@@ -4,21 +4,34 @@ This document outlines the testing approach for sitemgr, with a focus on integra
 
 ## Philosophy
 
+**Test through our code, not infrastructure directly**
+
+Integration tests call our application layer — TypeScript modules (`db.ts`, `s3.ts`), HTTP API routes (`/api/*`), and CLI commands. They do NOT call Supabase SDK, raw SQL, or AWS SDK directly in test assertions.
+
+- Queries go through `queryEvents()`, `getStats()`, `getEnrichStatus()` from `db.ts`
+- Writes go through `insertEvent()`, `insertEnrichment()`, `upsertWatchedKey()` from `db.ts`
+- S3 operations go through `uploadS3Object()`, `listS3Objects()`, `downloadS3Object()` from `s3.ts`
+- HTTP endpoints are tested via `fetch("/api/...")` against the running Next.js dev server
+
+**Exception:** Test-only setup/teardown (creating auth users, seeding bulk data, cleanup) can use the Supabase admin SDK directly — this is test infrastructure, not app behavior.
+
+**Why:** If tests call Supabase directly, we're only proving Supabase works. By going through our code, we validate our retry logic, error handling, client factories, query builders, and type contracts. A passing test means our app works, not just our database.
+
 **Integration tests over unit tests** (for now)
 
 The prototype phase prioritizes end-to-end validation over comprehensive unit test coverage. We test the full pipeline (upload → detect → enrich → query → bot) in an environment that mirrors production.
 
 **Benefits:**
-- ✅ Validates real system behavior
-- ✅ Catches integration issues early
-- ✅ Same tests run locally and in CI
-- ✅ Faster to write and maintain initially
-- ✅ Tests actual user workflows
+- Validates real system behavior through our actual code paths
+- Catches integration issues early
+- Same tests run locally and in CI
+- Faster to write and maintain initially
+- Tests actual user workflows
 
 **Trade-offs:**
-- ❌ Slower than unit tests
-- ❌ Harder to isolate failures
-- ❌ Requires external dependencies (Supabase)
+- Slower than unit tests
+- Harder to isolate failures
+- Requires external dependencies (Supabase, Next.js dev server)
 
 Unit tests will be added as components stabilize and edge cases are discovered.
 
