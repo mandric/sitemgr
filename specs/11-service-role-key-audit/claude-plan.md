@@ -2,123 +2,229 @@
 
 ## Background
 
-This codebase uses Supabase for its database, auth, and storage. The local development script (`scripts/local-dev.sh`) contains a workaround that manually constructs JWTs by reaching into Docker containers — a practice that violates the principle that application code should never sign JWTs.
+The codebase uses the Supabase service role key (`SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_SECRET_KEY`) in application runtime code — the CLI, the agent core, the health endpoint, and instrumentation. This key bypasses RLS entirely, which means the application is doing privilege escalation when it doesn't need to.
 
-The workaround was added when Supabase CLI ≥ 2.78 switched GoTrue to ES256 JWT signing, which broke `auth.admin.*` calls using the HS256 `SERVICE_ROLE_KEY` from `supabase status`. Upstream fixes have since landed: CLI ≥ 2.76.4 (PR [supabase/cli#4818](https://github.com/supabase/cli/pull/4818)) fixed `auth.admin.*` calls, and the keys from `supabase status -o json` now work as-is. The source code comments in `local-dev.sh` describe the state when the workaround was written and are now outdated.
+Every consumer that uses the service role key already manually filters by `user_id` — reimplementing what RLS does automatically. The key should be removed from all application runtime code. The only legitimate uses are admin operations (test setup, migrations, CI deployment scripts).
 
-Additionally, the Supabase service role key is referenced under two different env var names (`SUPABASE_SECRET_KEY` and `SUPABASE_SERVICE_ROLE_KEY`) across the codebase, creating confusion about which is canonical. Server-side code uses `SUPABASE_SERVICE_ROLE_KEY` but instrumentation, tests, and CI use `SUPABASE_SECRET_KEY`.
-
-Integration tests also call Supabase SDK directly (`client.from("events").select()`) instead of going through the application layer (`queryEvents()` from `db.ts`), meaning they test Supabase, not the app.
+Additionally, `scripts/local-dev.sh` contains an ES256 JWT workaround that manually signs JWTs by reaching into Docker containers — unnecessary since Supabase CLI ≥ 2.76.4.
 
 ## Goals
 
-1. **Delete the ES256 JWT workaround** in `local-dev.sh` and add a capability probe to verify keys work
-2. **Rename `SUPABASE_SECRET_KEY` → `SUPABASE_SERVICE_ROLE_KEY`** everywhere in server-side code, CI, tests, config, and documentation
-3. **Switch CLI from admin client to user client** — wire up stored JWT from `smgr login` via `setSession()`, eliminating the need for `SUPABASE_SERVICE_ROLE_KEY` on user machines
-4. **Refactor integration tests** to use `db.ts`/`s3.ts` instead of raw Supabase SDK calls, except for RLS/security boundary tests
-5. **Start Next.js dev server in test globalSetup** for HTTP-layer tests (auth smoke tests)
+1. **Remove the service role key from all application runtime code** — CLI, agent core, health endpoint, instrumentation
+2. **Delete the ES256 JWT workaround** in `local-dev.sh`
+3. **Consolidate `SUPABASE_SECRET_KEY` → `SUPABASE_SERVICE_ROLE_KEY`** in remaining places (tests, CI, deployment scripts)
+4. **Refactor the agent core** to accept a client parameter instead of creating admin clients internally
+5. **Create a `SECURITY DEFINER` RPC** for the WhatsApp webhook's cross-user phone→user lookup
+6. **Switch CLI from admin client to user client** — use stored JWT from `smgr login`
+7. **Refactor integration tests** to use `db.ts`/`s3.ts` instead of raw Supabase SDK calls
 
-## Architecture: CLI vs Server
+## Architecture
 
-A critical distinction: **the CLI is a web API client, not a direct Supabase client.** Supabase is an implementation detail of the server.
+Supabase is an implementation detail of the server. Only server-side code touches it. The auth provider (Supabase Auth) is separate config — both browser and CLI talk to it directly for login, then use user-scoped credentials for everything else.
 
-| Layer | Env vars | Auth mechanism |
-|-------|----------|----------------|
-| Web app (browser) | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase Auth (browser session) |
-| Web app (server) | Same + `SUPABASE_SERVICE_ROLE_KEY` | Service role key (bypasses RLS) |
-| CLI (`smgr`) | `SMGR_API_URL`, `SMGR_API_KEY` | User JWT from `smgr login` (respects RLS) |
+| Layer | Auth (login) | Data operations | Supabase key used |
+|-------|-------------|-----------------|-------------------|
+| Browser | Supabase Auth directly (anon key) | Server components/actions (cookie session + RLS) | Anon key |
+| CLI (`smgr`) | Supabase Auth directly (anon key) | Supabase PostgREST (user JWT + RLS) | Anon key |
+| Web API — server actions | Cookie session from browser | Supabase PostgREST (user session + RLS) | Anon key |
+| Web API — WhatsApp webhook | Twilio signature validation | SECURITY DEFINER RPCs + user-scoped queries | Anon key |
+| Tests (setup/teardown only) | N/A | `auth.admin.*`, raw SDK | Service role key |
+| CI deployment scripts | N/A | Storage bucket creation, migrations | Service role key |
 
-The CLI's `SMGR_API_URL` and `SMGR_API_KEY` are **not** aliases for Supabase vars. During local dev they point at Supabase directly; in production they point to the Next.js web API. The original spec incorrectly proposed consolidating these — they stay as-is.
-
-**CLI auth model:** The CLI authenticates via `smgr login` (email/password → Supabase Auth → JWT stored in `~/.sitemgr/credentials.json`). All Supabase operations use this user JWT via `getUserClient()` + `setSession()`, respecting RLS. The service role key is **never** needed on user machines. The auth plumbing already exists in `cli-auth.ts` — this spec wires it into the Supabase client used by CLI commands.
+**The service role key does not appear in any production application code path.**
 
 ## Section 1: Remove ES256 Workaround from `local-dev.sh`
 
 ### What to remove
 
-Lines 61–91 of `scripts/local-dev.sh` contain the workaround:
-1. Find the `supabase_auth_*` Docker container
-2. Extract `GOTRUE_JWT_KEYS` env var
-3. Parse JWKS for EC private key
-4. Hand-sign a JWT with `{iss: "supabase-local", role: "service_role", exp: 9999999999}`
-5. Use this as `SUPABASE_SECRET_KEY`
+Lines 61–91 contain the workaround that reaches into Docker containers to hand-sign ES256 JWTs. Delete the entire block. The keys from `supabase status -o json` work as-is on CLI ≥ 2.76.4.
 
-Delete this entire block. The keys from `supabase status -o json` work as-is on CLI ≥ 2.76.4.
+### Capability probe
 
-### Capability probe (replaces version check)
-
-Instead of parsing `supabase --version`, add a capability probe after extracting keys from `supabase status`. The probe makes a lightweight GoTrue admin API call (e.g., `GET /auth/v1/admin/users?per_page=1` with `Authorization: Bearer ${SERVICE_ROLE_KEY}`) and checks for a 200 response. If it fails, error with a message: "Service role key rejected by GoTrue. If you're on Supabase CLI < 2.76.4, upgrade: https://github.com/supabase/cli".
+After extracting keys from `supabase status`, add a probe: `GET /auth/v1/admin/users?per_page=1` with `Authorization: Bearer ${SERVICE_ROLE_KEY}`. If it fails, error with: "Service role key rejected by GoTrue. Upgrade Supabase CLI to ≥ 2.76.4."
 
 ### Update env var output
 
-The script's output section currently writes `SUPABASE_SECRET_KEY=...`. Change to `SUPABASE_SERVICE_ROLE_KEY=...`. Keep the `SMGR_API_URL` and `SMGR_API_KEY` lines in the output — during local dev the CLI points directly at Supabase (since the Next.js dev server may not be running yet). Add clear comments separating the two groups:
+Stop outputting the service role key for application use. The output becomes:
 
+```bash
+# --- Web app (Supabase) ---
+NEXT_PUBLIC_SUPABASE_URL=${api_url}
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${anon_key}
+DATABASE_URL=${db_url}
+
+# --- CLI (auth provider — same Supabase instance in local dev) ---
+SMGR_API_URL=${api_url}
+SMGR_API_KEY=${anon_key}
+
+# --- S3 / Storage ---
+# ... (unchanged)
+
+# --- Service role key (tests and admin scripts only — NOT for app code) ---
+# SUPABASE_SERVICE_ROLE_KEY=${service_role_key}
 ```
-# --- Supabase (server-side) ---
-NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
-SUPABASE_SERVICE_ROLE_KEY=...
 
-# --- CLI (local dev points directly at Supabase) ---
-SMGR_API_URL=...
-SMGR_API_KEY=...
-```
+The service role key is commented out in the generated `.env.local`. Tests and CI extract it separately from `supabase status -o json`. Application code never reads it.
 
-## Section 2: Rename `SUPABASE_SECRET_KEY` → `SUPABASE_SERVICE_ROLE_KEY`
+## Section 2: Remove Service Role Key from Health Endpoint
 
-Hard cut — no fallbacks. Every occurrence of `SUPABASE_SECRET_KEY` in server-side code, tests, CI, config, and documentation becomes `SUPABASE_SERVICE_ROLE_KEY`.
-
-### Application and test files
-
-**`web/instrumentation.ts`** — The `required` array includes `"SUPABASE_SECRET_KEY"`. Change to `"SUPABASE_SERVICE_ROLE_KEY"`.
-
-**`web/__tests__/integration/setup.ts`** — The `SUPABASE_SERVICE_KEY` local var reads from `process.env.SUPABASE_SECRET_KEY`. Change to read from `process.env.SUPABASE_SERVICE_ROLE_KEY`.
-
-**`web/__tests__/integration/globalSetup.ts`** — If it references `SUPABASE_SECRET_KEY`, rename.
-
-**`web/__tests__/integration/smgr-cli.test.ts`** — The `cliEnv()` function passes `SUPABASE_SECRET_KEY` to subprocess. Change to `SUPABASE_SERVICE_ROLE_KEY`.
-
-**`web/__tests__/integration/smgr-e2e.test.ts`** — Same pattern as smgr-cli.test.ts.
-
-**`.github/workflows/ci.yml`** — All `SUPABASE_SECRET_KEY` references in the integration test job and deployment job.
-
-**`web/.env.example`** and **`.env.example`** — Rename the key.
-
-**`scripts/setup/verify.sh`** — Change the checked var name.
-
-### Documentation files
-
-**`docs/ENV_VARS.md`** — Rename the existing `SUPABASE_SECRET_KEY` table entry to `SUPABASE_SERVICE_ROLE_KEY`.
-
-**`docs/QUICKSTART.md`** — Rename all references.
-
-**`docs/DEPLOYMENT.md`** — Rename in env var table and troubleshooting sections.
-
-**`INTEGRATION_TESTS_SETUP.md`** — Rename all references.
-
-### Files already correct (no change needed)
-
-- `web/app/api/health/route.ts` — Already uses `SUPABASE_SERVICE_ROLE_KEY`
-- `web/lib/agent/core.ts` — Already uses `SUPABASE_SERVICE_ROLE_KEY`
-- `web/__tests__/agent-core.test.ts` — Already stubs `SUPABASE_SERVICE_ROLE_KEY`
-- `web/__tests__/phone-migration-app.test.ts` — Already stubs `SUPABASE_SERVICE_ROLE_KEY`
-
-## Section 3: Switch CLI from Admin Client to User Client
-
-The CLI is an end-user tool for indexing and enriching media in S3. It should **not** require `SUPABASE_SERVICE_ROLE_KEY`. The auth infrastructure already exists in `cli-auth.ts` — `smgr login` stores a user JWT in `~/.sitemgr/credentials.json` — it just isn't wired into the Supabase client.
-
-### Current state (broken design)
+**`web/app/api/health/route.ts`** currently uses `getAdminClient()` with `SUPABASE_SERVICE_ROLE_KEY` to run:
 
 ```typescript
-function getClient() {
-  return getAdminClient({
-    url: process.env.SMGR_API_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    serviceKey: process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY!,
+.from("events").select("id", { count: "exact", head: true }).limit(0)
+```
+
+This is a connectivity check — it doesn't need elevated privileges. Switch to the anon key:
+
+```typescript
+import { getUserClient } from "@/lib/media/db";
+
+const supabase = getUserClient({
+  url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  anonKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+});
+```
+
+The query still proves DB connectivity. With the anon key + RLS, it returns count=0 for anonymous (no `auth.uid()`), which is fine — a non-error response means the DB is reachable.
+
+## Section 3: Refactor Agent Core — Remove `createAdminClient()`
+
+This is the largest change. `web/lib/agent/core.ts` calls `createAdminClient()` ~15 times. Every call manually filters by `userId` — exactly what RLS does.
+
+### Design: dependency-inject the Supabase client
+
+Remove the internal `createAdminClient()` function. Instead, every function that needs a DB client receives one as a parameter.
+
+**Functions that change signature:**
+
+| Function | Current | New |
+|----------|---------|-----|
+| `resolveUserId(phone)` | Creates admin client internally | `resolveUserId(client, phone)` |
+| `executeAction(plan, phone, userId?)` | Creates admin client per action | `executeAction(client, plan, phone, userId?)` |
+| `getConversationHistory(phone, userId?)` | Creates admin client internally | `getConversationHistory(client, phone, userId?)` |
+| `saveConversationHistory(phone, history, userId?)` | Creates admin client internally | `saveConversationHistory(client, phone, history, userId?)` |
+| `addBucket(phone, params, userId)` | Creates admin client internally | `addBucket(client, phone, params, userId)` |
+| `listBuckets(phone, userId)` | Creates admin client internally | `listBuckets(client, phone, userId)` |
+| `removeBucket(phone, bucketName, userId)` | Creates admin client internally | `removeBucket(client, phone, bucketName, userId)` |
+| `getBucketConfig(phone, bucketName, userId?)` | Creates admin client internally | `getBucketConfig(client, phone, bucketName, userId?)` |
+| `indexBucket(phone, bucketName, prefix?, batchSize?, userId?)` | Creates admin client internally | `indexBucket(client, phone, bucketName, prefix?, batchSize?, userId?)` |
+
+### Callers provide the client
+
+**Web chat path** (`components/agent/actions.ts`):
+
+The server action already has a user session via `createClient()` from `server.ts`. Pass it through:
+
+```typescript
+const supabase = await createClient(); // cookie-based, user-scoped
+const { data: { user } } = await supabase.auth.getUser();
+// ...
+const history = await getConversationHistory(supabase, "web", user.id);
+```
+
+**WhatsApp webhook path** (`app/api/whatsapp/route.ts`):
+
+The webhook has no user session. It authenticates via Twilio signature. Two sub-problems:
+
+1. **Phone→user lookup (`resolveUserId`)**: This is a cross-user query — it needs to find a user by phone number regardless of who's calling. Solution: call the existing `get_user_id_from_phone` RPC which is already `SECURITY DEFINER`. Currently it's restricted to `service_role` — grant it to `authenticated` and use a webhook service account (see Section 4).
+
+2. **User-scoped data operations**: Once we have the `userId`, all data queries filter by it. With a user-scoped client + RLS, this works if the client's `auth.uid()` matches the target user. Solution: the webhook service account gets a special RLS policy allowing cross-user access (see Section 4).
+
+### Remove `getAdminClient` import
+
+After this refactor, `agent/core.ts` no longer imports `getAdminClient` from `db.ts`. It receives a `SupabaseClient` and uses it.
+
+### Remove `SUPABASE_SERVICE_ROLE_KEY` from agent core
+
+Delete the `createAdminClient()` function and the `process.env.SUPABASE_SERVICE_ROLE_KEY` reference from `agent/core.ts`.
+
+## Section 4: Webhook Service Account + RLS Policy
+
+The WhatsApp webhook needs to operate on behalf of users without their session. Instead of using the service role key (which bypasses ALL security), create a narrowly-scoped webhook service account.
+
+### Create the webhook service account
+
+Add a migration that creates a Supabase auth user for the webhook:
+
+```sql
+-- Create webhook service account (idempotent)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM auth.users WHERE email = 'webhook@sitemgr.internal'
+  ) THEN
+    -- Insert via auth.users directly (SECURITY DEFINER context)
+    INSERT INTO auth.users (
+      id, email, encrypted_password, email_confirmed_at,
+      role, aud, instance_id
+    ) VALUES (
+      '00000000-0000-0000-0000-000000000001',
+      'webhook@sitemgr.internal',
+      crypt('unused-password-webhook-uses-service-token', gen_salt('bf')),
+      now(),
+      'authenticated',
+      'authenticated',
+      '00000000-0000-0000-0000-000000000000'
+    );
+  END IF;
+END $$;
+```
+
+### Add RLS policies for webhook access
+
+Add policies that allow the webhook service account to read/write data for any user:
+
+```sql
+-- Webhook service account can read all users' events
+CREATE POLICY "Webhook can access all events"
+ON events FOR ALL
+USING (auth.uid() = '00000000-0000-0000-0000-000000000001'::uuid);
+
+-- Same for enrichments, watched_keys, conversations, bucket_configs
+```
+
+This is narrowly scoped: only one specific user ID gets cross-user access, and that user is a service account with no interactive login.
+
+### Grant `get_user_id_from_phone` to authenticated
+
+```sql
+GRANT EXECUTE ON FUNCTION get_user_id_from_phone(TEXT) TO authenticated;
+```
+
+Currently restricted to `service_role` only. The webhook service account needs it.
+
+### Webhook handler creates a service account client
+
+The webhook handler authenticates as the webhook service account:
+
+```typescript
+// In whatsapp/route.ts
+import { getUserClient } from "@/lib/media/db";
+
+function createWebhookClient() {
+  const client = getUserClient({
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    anonKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
   });
+  // Authenticate as webhook service account
+  // Credentials stored in env vars (NOT the service role key)
+  return client;
 }
 ```
 
-This bypasses RLS entirely and requires a secret that end users should never have.
+**Environment variables for the webhook service account:**
+- `WEBHOOK_SERVICE_ACCOUNT_EMAIL=webhook@sitemgr.internal`
+- `WEBHOOK_SERVICE_ACCOUNT_PASSWORD=<generated>`
+
+These are real Supabase auth credentials for a specific user — not the god-mode service role key.
+
+### Alternative considered: SECURITY DEFINER RPCs for everything
+
+We could create SECURITY DEFINER RPCs for every operation the webhook needs and call them with the anon key. This avoids a service account but requires maintaining many RPCs that duplicate `db.ts` logic. The service account approach is simpler — existing `db.ts` functions work as-is, they just get a different client.
+
+## Section 5: Switch CLI from Admin Client to User Client
+
+The CLI currently uses `getAdminClient()` with `SUPABASE_SECRET_KEY`. Switch to `getUserClient()` with the stored JWT from `smgr login`.
 
 ### Target state
 
@@ -127,8 +233,7 @@ async function getClient() {
   const { url, anonKey } = resolveApiConfig();  // SMGR_API_URL + SMGR_API_KEY
   const client = getUserClient({ url, anonKey });
 
-  // Load stored JWT from ~/.sitemgr/credentials.json
-  const creds = await refreshSession();  // refreshes if expiring within 60s
+  const creds = await refreshSession();
   if (!creds) {
     cliError("Not logged in. Run 'smgr login' first.", EXIT.USER);
   }
@@ -138,7 +243,7 @@ async function getClient() {
     refresh_token: creds.refresh_token,
   });
   if (error) {
-    cliError(`Session invalid: ${error.message}. Run 'smgr login' to re-authenticate.`, EXIT.USER);
+    cliError(`Session invalid: ${error.message}. Run 'smgr login'.`, EXIT.USER);
   }
 
   return client;
@@ -147,150 +252,148 @@ async function getClient() {
 
 ### What changes
 
-1. **`getClient()` becomes `async`** — `setSession()` is async. All callers already `await` the db calls, so adding `await getClient()` is mechanical.
-
-2. **Import `getUserClient` instead of `getAdminClient`** from `db.ts`, and `resolveApiConfig`, `refreshSession` from `cli-auth.ts`.
-
-3. **Remove all `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_SECRET_KEY` references** from the CLI and its tests. The CLI only needs `SMGR_API_URL` and `SMGR_API_KEY` (the anon key).
-
-4. **Update `requireUserId()`** — it currently extracts `user_id` from stored creds. With `setSession()`, the Supabase client knows the user via `auth.uid()`, but we still need `userId` for app-layer `db.ts` calls. Keep `requireUserId()` as-is.
-
-5. **Update CLI tests** (`smgr-cli.test.ts`, `smgr-e2e.test.ts`) — stop passing `SUPABASE_SECRET_KEY` / `SUPABASE_SERVICE_ROLE_KEY` to the subprocess. Pass `SMGR_API_URL` and `SMGR_API_KEY` instead.
-
-6. **Update help text** — remove `SUPABASE_SERVICE_ROLE_KEY` from the Environment section of `smgr --help`.
+1. **`getClient()` becomes `async`** — all callers add `await getClient()`.
+2. **Import `getUserClient` instead of `getAdminClient`** from `db.ts`, and `refreshSession` from `cli-auth.ts`.
+3. **Remove all `SUPABASE_SECRET_KEY` / `SUPABASE_SERVICE_ROLE_KEY` references** from the CLI. It only needs `SMGR_API_URL` and `SMGR_API_KEY`.
+4. **Update help text** — remove service role key from Environment section.
+5. **Update CLI tests** — stop passing `SUPABASE_SECRET_KEY` to the subprocess.
 
 ### Why this works
 
-- Every `db.ts` function already takes `userId` and adds `.eq("user_id", userId)` filters (belt-and-suspenders with RLS)
-- `cli-auth.ts` already implements `login()` → `signInWithPassword()`, `refreshSession()`, `loadCredentials()`, and `resolveApiConfig()`
-- The stored `access_token` is a Supabase JWT with the user's `sub` claim — exactly what RLS policies check via `auth.uid()`
-- S3 operations use `createS3Client()` which reads `SMGR_S3_*` env vars — completely independent of Supabase auth
+- Every `db.ts` function already filters by `userId` (belt-and-suspenders with RLS)
+- `cli-auth.ts` already implements `login()`, `refreshSession()`, `loadCredentials()`, `resolveApiConfig()`
+- The stored JWT has the user's `sub` claim — RLS checks `auth.uid()` against it
+- S3 operations use `createS3Client()` which reads `SMGR_S3_*` env vars — independent of Supabase auth
 
-### Architecture update
+## Section 6: Remove Service Role Key from Instrumentation
 
-| Layer | Env vars | Auth mechanism |
-|-------|----------|----------------|
-| Web app (browser) | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase Auth (browser session) |
-| Web app (server) | Same + `SUPABASE_SERVICE_ROLE_KEY` | Service role key (bypasses RLS) |
-| CLI (`smgr`) | `SMGR_API_URL`, `SMGR_API_KEY` | User JWT from `smgr login` (respects RLS) |
+**`web/instrumentation.ts`** currently validates `SUPABASE_SECRET_KEY` as a required env var. Since no application code reads the service role key anymore, remove it from the required list:
 
-## Section 4: Refactor Integration Tests to Use App Layer
+```typescript
+const required = [
+  "NEXT_PUBLIC_SUPABASE_URL",
+  "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY",
+  // SUPABASE_SERVICE_ROLE_KEY removed — not used by application code
+];
+```
+
+Also update the comment in `cli-auth.ts` line 6 which references `SUPABASE_SECRET_KEY`.
+
+## Section 7: Consolidate Remaining `SUPABASE_SECRET_KEY` References
+
+After removing the service role key from application code, `SUPABASE_SECRET_KEY` still appears in test setup, CI, and docs. Rename all remaining occurrences to `SUPABASE_SERVICE_ROLE_KEY` for consistency with Supabase's naming.
+
+### Files to rename
+
+**Test files:**
+- `web/__tests__/integration/setup.ts` — `SUPABASE_SERVICE_KEY` reads from `process.env.SUPABASE_SECRET_KEY` → `process.env.SUPABASE_SERVICE_ROLE_KEY`
+- `web/__tests__/integration/smgr-cli.test.ts` — passes `SUPABASE_SECRET_KEY` to subprocess → `SUPABASE_SERVICE_ROLE_KEY` (only needed for test setup, not CLI itself)
+- `web/__tests__/integration/smgr-e2e.test.ts` — same
+- `web/__tests__/phone-migration-app.test.ts` — already uses `SUPABASE_SERVICE_ROLE_KEY` ✅
+- `web/__tests__/agent-core.test.ts` — already uses `SUPABASE_SERVICE_ROLE_KEY` ✅
+
+**CI:**
+- `.github/workflows/ci.yml` — `SUPABASE_SECRET_KEY` → `SUPABASE_SERVICE_ROLE_KEY` in integration test job. Keep it for test setup (creating users) but not for app runtime.
+
+**Config:**
+- `web/.env.example` — rename and add comment: "Only for tests and admin scripts"
+- `.env.example` — same
+- `scripts/setup/verify.sh` — rename the checked var
+
+**Docs:**
+- `docs/ENV_VARS.md` — rename and document that it's test/admin only
+- `docs/QUICKSTART.md` — rename
+- `docs/DEPLOYMENT.md` — rename
+
+## Section 8: Refactor Integration Tests to Use App Layer
+
+While touching every test file for the above changes, also refactor tests to call our code instead of raw Supabase SDK.
 
 ### Principle
 
-Test assertions call our code (`db.ts`, `s3.ts`). Test setup/teardown can use raw Supabase admin SDK (no app-layer equivalent for `auth.admin.createUser()`).
+Test assertions call our code (`db.ts`, `s3.ts`). Test setup/teardown can use admin SDK (no app-layer equivalent for `auth.admin.createUser()`).
 
-**Exception: RLS/security boundary tests.** Tests that verify Postgres row-level security policies (e.g., `tenant-isolation.test.ts`) must use raw SDK calls. These tests intentionally query without app-layer filters to prove RLS restricts results at the database level. Replacing `client.from("events").select("*")` with `queryEvents(client, { userId })` would test the app filter, not the RLS policy.
+**Exception:** `tenant-isolation.test.ts` intentionally uses raw SDK to prove RLS works at the database level. Leave as-is.
 
-### Import approach
+### What changes
 
-Test files import app functions directly from `@/lib/media/db` and `@/lib/media/s3` — no re-exports through `setup.ts`. The `setup.ts` file keeps only test-specific utilities (user creation, seeding, cleanup). This avoids a naming collision with the existing `getAdminClient` in `setup.ts` (which has a different signature — no arguments, reads from env vars) and eliminates the maintenance burden of keeping re-exports in sync.
-
-### Refactor `media-lifecycle.test.ts`
-
-Current raw SDK calls for writes:
+**`media-lifecycle.test.ts`:**
 - `admin.from("events").insert({...})` → `insertEvent(admin, eventData)`
-- `admin.from("bucket_configs").insert({...})` — this is test-only setup (configuring a bucket), raw SDK is acceptable per the principle.
 
-### Do NOT refactor `tenant-isolation.test.ts`
-
-This test verifies RLS policies by making unfiltered queries through authenticated user clients. The raw SDK calls are intentional — they prove Postgres enforces row-level security even when the application layer doesn't add `WHERE` clauses. Leave these as-is.
+**Test files import app functions directly** from `@/lib/media/db` — no re-exports through `setup.ts`.
 
 ### Files already correct
 
-- `media-storage.test.ts` — already uses `uploadS3Object()` from `s3.ts`
-- `auth-smoke.test.ts` — already uses `getAdminClient()` and `getUserClient()` from `db.ts`
+- `media-storage.test.ts` — already uses `uploadS3Object()` from `s3.ts` ✅
+- `auth-smoke.test.ts` — already uses `getAdminClient()` and `getUserClient()` from `db.ts` ✅
 
-## Section 5: Add Next.js Dev Server to `globalSetup.ts`
+## Section 9: Add Next.js Dev Server to `globalSetup.ts`
 
-Auth smoke tests need to hit `/api/*` endpoints on the running web app.
+Auth smoke tests need to hit `/api/*` endpoints.
 
-### Implementation
+1. After validating Supabase connectivity, check if port 3000 is in use
+2. If not, spawn `npm run dev` with `PORT` set
+3. Poll `http://localhost:{port}/api/health` until 200 (timeout 60s)
+4. Store child process on `globalThis.__WEB_SERVER__`
+5. In teardown, kill if we spawned it
 
-In `globalSetup.ts`:
-1. After validating Supabase connectivity, check if port 3000 (or a configurable `TEST_PORT`) is already in use
-2. If a server is already running on that port, skip spawning (developer may have `next dev` running)
-3. If not, spawn `npm run dev` in the `web/` directory with `PORT` set explicitly
-4. Poll `http://localhost:{port}/api/health` until it returns 200 (timeout 60s — Next.js first-start compiles on demand)
-5. Store the child process reference and "did we spawn it" flag on `globalThis.__WEB_SERVER__`
-6. In teardown, only kill the process if we spawned it
-
-### Considerations
-
-- The dev server picks up env vars from `web/.env.local` automatically
-- Use 60s timeout (not 30s) — CI runners are slower and Next.js compiles pages on first request
-- Port collision detection: `fetch("http://localhost:{port}/api/health")` — if it succeeds, server is already running
-
-### CI workflow impact
-
-If auth smoke tests run in CI and need the dev server, the CI workflow must also start it. Add a step in the integration tests job to start the Next.js dev server before running tests, or have globalSetup handle it (preferred — keeps the logic in one place).
-
-## Section 6: Update CI Workflow
-
-**`.github/workflows/ci.yml`** changes:
+## Section 10: Update CI Workflow
 
 ### Integration tests job
-- `SUPABASE_SECRET_KEY=$(...)` → `SUPABASE_SERVICE_ROLE_KEY=$(...)`
-- `echo "SUPABASE_SECRET_KEY=..." >> $GITHUB_ENV` → `echo "SUPABASE_SERVICE_ROLE_KEY=..." >> $GITHUB_ENV`
+
+- `SUPABASE_SECRET_KEY` → `SUPABASE_SERVICE_ROLE_KEY` (for test setup only)
+- Add `WEBHOOK_SERVICE_ACCOUNT_PASSWORD` if webhook tests exist
 
 ### Deployment job
-- Storage bucket creation curl command uses `${{ secrets.SUPABASE_SECRET_KEY }}` in the Authorization header → change to `${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}`
-- Any Vercel environment variable references that use `SUPABASE_SECRET_KEY` → `SUPABASE_SERVICE_ROLE_KEY`
 
-### Manual steps (outside code)
-- **Vercel Production:** Rename the `SUPABASE_SECRET_KEY` environment variable to `SUPABASE_SERVICE_ROLE_KEY` in Vercel dashboard. Coordinate timing with deploy.
-- **GitHub Production Environment:** Rename the `SUPABASE_SECRET_KEY` secret to `SUPABASE_SERVICE_ROLE_KEY` in GitHub repository settings → Environments → Production. This is the secret referenced by `${{ secrets.SUPABASE_SECRET_KEY }}` in the deploy job.
+- Storage bucket creation curl uses service role key in `Authorization` header — this is an admin operation, keep but rename to `SUPABASE_SERVICE_ROLE_KEY`
 
-Document both manual steps in the PR description.
+### Manual steps
 
-## Section 7: Update Config and Documentation
+- **Vercel Production:** Remove `SUPABASE_SECRET_KEY`, add `WEBHOOK_SERVICE_ACCOUNT_EMAIL` and `WEBHOOK_SERVICE_ACCOUNT_PASSWORD`
+- **GitHub Production Environment:** Rename `SUPABASE_SECRET_KEY` → `SUPABASE_SERVICE_ROLE_KEY` (only needed for deployment scripts, not app runtime)
+- Document in PR description
 
-### `.env.example` (root)
-- `SUPABASE_SECRET_KEY=` → `SUPABASE_SERVICE_ROLE_KEY=`
+## Section 11: Update Config and Documentation
 
-### `web/.env.example`
-- `SUPABASE_SECRET_KEY=` → `SUPABASE_SERVICE_ROLE_KEY=`
-- Keep `SMGR_API_URL` and `SMGR_API_KEY` (they're correct)
+### `.env.example` files
 
-### `scripts/setup/verify.sh`
-- Check for `SUPABASE_SERVICE_ROLE_KEY` instead of `SUPABASE_SECRET_KEY`
+Remove service role key from app section, keep in test/admin section with clear comment.
 
 ### `docs/ENV_VARS.md`
-- Rename existing `SUPABASE_SECRET_KEY` entry to `SUPABASE_SERVICE_ROLE_KEY`
-- Add a section documenting the rename and why
-- Document the CLI vs server architecture: CLI uses `SMGR_API_URL`/`SMGR_API_KEY` (web API), server uses `NEXT_PUBLIC_SUPABASE_*` and `SUPABASE_SERVICE_ROLE_KEY` (Supabase direct)
-- Explain which keys are JWTs and why (the table from the original spec is excellent)
 
-### `docs/QUICKSTART.md`
-- Rename all `SUPABASE_SECRET_KEY` references
+Document the new architecture:
+- Application code never uses the service role key
+- Browser and CLI both use anon key + user JWT
+- WhatsApp webhook uses a service account (not god-mode key)
+- Service role key only for test setup and deployment scripts
 
-### `docs/DEPLOYMENT.md`
-- Rename in env var table and troubleshooting sections
+### `CLAUDE.md`
 
-### `INTEGRATION_TESTS_SETUP.md`
-- Rename all `SUPABASE_SECRET_KEY` references
+Update the Environment Variables & Secrets Strategy section to reflect that `SUPABASE_SERVICE_ROLE_KEY` is test/admin only.
 
 ## Implementation Order
 
-1. **Section 1** (ES256 workaround) — Foundation, must go first since `local-dev.sh` generates the env file other things depend on
-2. **Section 2** (env var rename) — Straightforward find-and-replace across app/test/config files
-3. **Section 3** (CLI user client) — Switch from admin client to user JWT auth; depends on section 2 (no more `SUPABASE_SECRET_KEY` refs)
-4. **Section 4** (test refactor) — Depends on sections 2–3 (new env var names, CLI no longer needs service role key in tests)
-5. **Section 5** (Next.js dev server) — Independent, but test refactor may surface the need
-6. **Section 6** (CI workflow) — Depends on section 2
-7. **Section 7** (config/docs) — Last, documents final state
+1. **Section 1** (ES256 workaround) — Foundation, `local-dev.sh` generates the env file
+2. **Section 2** (Health endpoint) — Simple, isolated change
+3. **Section 3** (Agent core refactor) — Largest change, dependency-inject clients
+4. **Section 4** (Webhook service account) — New migration + RLS policies
+5. **Section 5** (CLI user client) — Switch from admin to user JWT
+6. **Section 6** (Instrumentation) — Remove from required vars
+7. **Section 7** (Rename remaining) — Mechanical find-and-replace in tests/CI
+8. **Section 8** (Test refactor) — Use app layer functions
+9. **Section 9** (Dev server in globalSetup) — Test infrastructure
+10. **Section 10** (CI workflow) — Depends on sections 7-8
+11. **Section 11** (Config/docs) — Last, documents final state
 
 ## Risks and Mitigations
 
 | Risk | Mitigation |
 |------|-----------|
-| Vercel production still expects `SUPABASE_SECRET_KEY` | Document the manual Vercel secret rename in PR description; coordinate deploy |
-| GitHub Production environment secret still has old name | Document the manual GitHub secret rename alongside Vercel rename |
-| Integration tests fail after refactor | Run tests after each file change, not batch |
-| `db.ts` missing functions that tests need | Check each raw SDK call against `db.ts` API surface; add functions only if truly needed |
-| `local-dev.sh` capability probe flaky | Make probe lightweight (single admin API call); timeout after 5s with clear error |
-| Port 3000 already in use when starting dev server | Detect existing server, skip spawning if already running |
-| Next.js dev server slow to start in CI | Use 60s timeout; consider `next build && next start` if dev mode too slow |
-| CLI `setSession()` fails with expired token | `refreshSession()` is called before `setSession()`; if refresh fails, clear creds and prompt re-login |
-| RLS policies missing for some tables CLI accesses | Verify RLS policies exist for `events`, `enrichments`, `watched_keys`, `model_configs` before switching; add if missing |
-| CLI tests that relied on admin bypass now fail under RLS | Test with a real authenticated user (use `auth.admin.createUser()` in test setup, login to get JWT) |
+| RLS policies missing for tables the agent accesses | Verify RLS on `events`, `enrichments`, `watched_keys`, `conversations`, `bucket_configs`, `user_profiles` before switching; the RLS audit from spec 01 should have covered these |
+| Webhook service account bypasses intended RLS | Policies are narrowly scoped to one UUID; review in PR |
+| `get_user_id_from_phone` exposed to `authenticated` role | Acceptable — requires a valid user session, not anonymous. Phone→user mapping is not sensitive when you're already authenticated |
+| CLI `setSession()` fails with expired token | `refreshSession()` called first; if refresh fails, prompt re-login |
+| Agent core refactor breaks WhatsApp webhook | Test webhook path with service account before removing admin client |
+| Integration tests need service role key for setup | Keep it in test-only code (`setup.ts`), just not in app code |
+| Vercel production expects old env var names | Document manual rename steps in PR description; coordinate deploy |
