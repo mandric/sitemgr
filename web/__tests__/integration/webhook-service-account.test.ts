@@ -118,7 +118,7 @@ describe("webhook service account cross-user access", () => {
     // The test user has a phone number from seedUserData
     const prefix = testUserId.slice(0, 8);
     const { data, error } = await webhookClient.rpc("get_user_id_from_phone", {
-      p_phone: `+1555${prefix}`,
+      p_phone_number: `+1555${prefix}`,
     });
     expect(error).toBeNull();
     expect(data).toBe(testUserId);
