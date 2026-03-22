@@ -21,7 +21,7 @@ describe("instrumentation register()", () => {
     const { register } = await import("@/instrumentation");
     await register();
 
-    const output = errorSpy.mock.calls.map((c) => c[0]).join(" ");
+    const output = errorSpy.mock.calls.map((c: unknown[]) => c[0]).join(" ");
     expect(output).toContain("NEXT_PUBLIC_SUPABASE_URL");
   });
 
@@ -33,7 +33,7 @@ describe("instrumentation register()", () => {
     const { register } = await import("@/instrumentation");
     await register();
 
-    const output = errorSpy.mock.calls.map((c) => c[0]).join(" ");
+    const output = errorSpy.mock.calls.map((c: unknown[]) => c[0]).join(" ");
     expect(output).toContain("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY");
   });
 
@@ -79,7 +79,7 @@ describe("instrumentation register()", () => {
     await register();
 
     expect(errorSpy).toHaveBeenCalled();
-    const output = errorSpy.mock.calls.map((c) => c[0]).join(" ");
+    const output = errorSpy.mock.calls.map((c: unknown[]) => c[0]).join(" ");
     expect(output).toContain("Missing environment variables");
   });
 });

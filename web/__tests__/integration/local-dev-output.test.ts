@@ -48,10 +48,10 @@ describe("print_setup_env_vars", () => {
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("#")) continue;
-      expect(trimmed).toMatch(
-        /^[A-Z_][A-Z0-9_]*=.*/,
+      expect(
+        trimmed,
         `Invalid dotenv line: "${trimmed}"`,
-      );
+      ).toMatch(/^[A-Z_][A-Z0-9_]*=.*/);
     }
   });
 
