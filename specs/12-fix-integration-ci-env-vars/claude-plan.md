@@ -6,9 +6,7 @@ The service-role-key-audit refactor (spec 11) changed the health endpoint (`web/
 
 The CI integration test job was not updated to provide these `NEXT_PUBLIC_*` environment variables. This causes:
 1. **Integration tests**: The dev server starts but the health endpoint returns 503 because the env vars are undefined. `waitForReady()` times out after 60s.
-2. **Production deploy**: The smoke test hits the deployed health endpoint which returns "degraded" (503).
-
-The Vercel production environment already has the correct `NEXT_PUBLIC_*` vars configured — the production failure was a transient issue at deploy time. The fix focuses on CI.
+2. **Production deploy**: The smoke test hits the deployed health endpoint which returns "degraded" (503). The Vercel production environment has the correct `NEXT_PUBLIC_*` vars configured — the 503 was likely a transient cold-start or deployment race condition, not a config error. This is documented as a known gap; the smoke test retry logic (Section 3) addresses transient failures while failing fast on config errors.
 
 ## Architecture Context
 
@@ -21,28 +19,36 @@ In local development, `scripts/local-dev.sh` generates a `.env.local` file with 
 
 The `globalSetup.ts` spawns the dev server with `{ ...process.env, PORT: "3000" }`, so the dev server inherits whatever is in the CI environment. Since `NEXT_PUBLIC_*` vars aren't there, the health endpoint fails.
 
+**Note on `$GITHUB_ENV`:** Vars set via `echo "VAR=value" >> $GITHUB_ENV` are only available in *subsequent* steps, not in the same step where they're defined. This is a common footgun but not an issue here since the dev server is spawned in a later step via `globalSetup.ts`.
+
 ---
 
 ## Section 1: CI Workflow — Add NEXT_PUBLIC Env Vars
 
 ### What to change
 
-In `.github/workflows/ci.yml`, add two lines to the "Configure environment for smgr" step in the integration test job. These map from the already-available Supabase connection values to the `NEXT_PUBLIC_*` names the health endpoint expects.
+In `.github/workflows/ci.yml`, make two changes to the integration test job:
 
-### Where in the file
+1. **Add env vars** to the "Configure environment for smgr" step
+2. **Add verification** of the new vars to the "Verify integration test env vars" step
 
-The integration test job's environment configuration step is around lines 113-124. The new lines should be added at the top of this step's `run` block, before the existing `SMGR_S3_*` lines.
+### 1a. Add env vars
 
-### Values to set
+The integration test job's environment configuration step is around lines 113-124. Add two new lines at the top of this step's `run` block, before the existing `SMGR_S3_*` lines.
 
-- `NEXT_PUBLIC_SUPABASE_URL` ← value of `$SUPABASE_URL` (extracted from `supabase status -o json` earlier in the job, stored as `SUPABASE_URL` env var at line ~94)
-- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` ← value of `$SUPABASE_PUBLISHABLE_KEY` (extracted similarly, stored at line ~95)
+**Values to set:**
+- `NEXT_PUBLIC_SUPABASE_URL` ← `${{ env.SMGR_API_URL }}` (already set earlier in the job from `supabase status -o json`)
+- `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` ← `${{ env.SMGR_API_KEY }}` (same source)
 
-These use the same `${{ env.SUPABASE_URL }}` / `${{ env.SUPABASE_PUBLISHABLE_KEY }}` references that the E2E job already uses.
-
-### Format
+**Important:** Use `${{ env.SMGR_API_URL }}` and `${{ env.SMGR_API_KEY }}` — these are the variable names available in the integration test job. The E2E job uses different names (`SUPABASE_URL` / `SUPABASE_PUBLISHABLE_KEY`) — do NOT copy from the E2E job's references.
 
 Use the existing `echo "VAR=value" >> $GITHUB_ENV` pattern, consistent with how `SMGR_*` vars are set in the same step.
+
+### 1b. Add verification
+
+The "Verify integration test env vars" step (around lines 98-111 of `ci.yml`) checks that required env vars are set and fails fast if any are missing. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` to this verification list.
+
+This prevents a future regression from producing the same confusing 60-second timeout — instead, the job fails immediately with a clear "missing env var" message.
 
 ---
 
@@ -61,6 +67,12 @@ In the spawn call, instead of `{ ...process.env, PORT: "3000" }`, construct an e
 4. Sets `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` to `process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.SMGR_API_KEY` (fallback)
 
 This preserves existing `NEXT_PUBLIC_*` values if already set (from `.env.local` or CI), and falls back to `SMGR_*` values if not.
+
+**Important constraint:** The `SMGR_*` → `NEXT_PUBLIC_*` equivalence is only valid for local Supabase instances, where both point to the same `http://127.0.0.1:54321` endpoint. For remote Supabase, these could theoretically differ. Include a code comment documenting this assumption. In practice, integration tests always run against local Supabase, so this is safe.
+
+### Interaction with .env.local
+
+When `npm run dev` starts, Next.js automatically loads `.env.local` if it exists. In local development, `scripts/local-dev.sh` creates this file with `NEXT_PUBLIC_*` vars already set, making the globalSetup fallback redundant. In CI, there is no `.env.local` for the integration job (only the E2E job creates one), so the `$GITHUB_ENV` vars (from Section 1) and this fallback are both needed.
 
 ### Error handling
 
@@ -84,22 +96,25 @@ The function makes a single `curl` request to `/api/health`, checks for `status:
 
 ### Improvements
 
-**Retry logic for the health check:**
+**Retry logic for the health check (connection errors only):**
 - Retry the GET `/api/health` request up to 3 times with a short delay (5s between retries)
-- This handles transient cold-start failures on Vercel (first request after deploy may timeout or fail)
+- **Only retry on connection errors** (curl exit code != 0) or HTTP 5xx responses where the body does NOT contain `"degraded"` — these indicate transient cold-start failures
+- **Fail immediately** (no retry) if the response contains `status: "degraded"` — this indicates a configuration error, not a transient failure. Retrying a misconfigured deployment wastes time and obscures the real problem
 - Only the health check GET needs retries — the webhook POST is a secondary check
 
 **Better diagnostic output on failure:**
-- Print the full response body when the health check fails (the function already captures it to `/tmp/health.json` but could print it more prominently)
-- Print the HTTP status code alongside the JSON status
-- Distinguish between connection errors (curl fails), HTTP errors (non-200), and degraded status (200 but status != "ok")
+- Print the HTTP status code and response body on each failed attempt
+- Distinguish between connection errors (curl fails), HTTP errors (non-200), and degraded status
+- On final failure, print a summary of what happened
 
 **Retry implementation approach:**
 - Wrap the health check curl in a loop (max 3 attempts)
-- On each failure, print which attempt it was and what happened
-- Sleep 5 seconds between retries
+- On each attempt, print the attempt number and result
+- If curl itself fails (connection error): sleep 5s, retry
+- If HTTP response contains `status: "degraded"`: fail immediately with diagnostic output
+- If HTTP response is other 5xx: sleep 5s, retry
 - Only proceed to the webhook test if health check eventually succeeds
-- If all retries exhausted, print all diagnostic info and exit with failure
+- If all retries exhausted, print diagnostic info and exit with failure
 
 ### Where in the file
 
@@ -119,7 +134,7 @@ All three sections are independent and can be implemented in any order, but logi
 
 | File | Section | Type of change |
 |------|---------|---------------|
-| `.github/workflows/ci.yml` | 1 | Add 2 env var lines |
+| `.github/workflows/ci.yml` | 1 | Add 2 env var lines + 2 verification lines |
 | `web/__tests__/integration/globalSetup.ts` | 2 | Modify spawn env object |
 | `scripts/lib.sh` | 3 | Add retry loop and diagnostics to `smoke_test` |
 
