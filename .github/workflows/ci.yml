@@ -72,19 +72,18 @@ jobs:
         with:
           node-version: "20"
 
-      - uses: supabase/setup-cli@v1
-        with:
-          version: 2.76.4
+      - name: Install web dependencies
+        run: cd web && npm ci
 
       - name: Start Supabase local environment
         run: |
-          supabase start
+          cd web && npx supabase start
           echo "Supabase started successfully"
 
       - name: Extract Supabase connection details
         run: |
           set -euo pipefail
-          STATUS_JSON=$(supabase status -o json)
+          STATUS_JSON=$(cd web && npx supabase status -o json)
           echo "SMGR_API_URL=$(echo "$STATUS_JSON" | jq -r .API_URL)" >> $GITHUB_ENV
           echo "SMGR_API_KEY=$(echo "$STATUS_JSON" | jq -r .ANON_KEY)" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_SUPABASE_URL=$(echo "$STATUS_JSON" | jq -r .API_URL)" >> $GITHUB_ENV
@@ -92,8 +91,8 @@ jobs:
           echo "SUPABASE_SERVICE_ROLE_KEY=$(echo "$STATUS_JSON" | jq -r .SERVICE_ROLE_KEY)" >> $GITHUB_ENV
           echo "STORAGE_S3_URL=$(echo "$STATUS_JSON" | jq -r .STORAGE_S3_URL)" >> $GITHUB_ENV
 
-          AWS_ACCESS_KEY=$(supabase status | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
-          AWS_SECRET_KEY=$(supabase status | grep "Secret Key" | awk -F '│' '{print $3}' | tr -d ' ')
+          AWS_ACCESS_KEY=$(cd web && npx supabase status | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
+          AWS_SECRET_KEY=$(cd web && npx supabase status | grep "Secret Key" | awk -F '│' '{print $3}' | tr -d ' ')
           echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY" >> $GITHUB_ENV
           echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_KEY" >> $GITHUB_ENV
 
@@ -154,15 +153,12 @@ jobs:
             -d '{"id":"media","name":"media","public":false}' \
             || echo "Bucket may already exist"
 
-      - name: Install web dependencies
-        run: cd web && npm ci
-
       - name: Run integration tests
         run: cd web && npm run test:integration
 
       - name: Stop Supabase
         if: always()
-        run: supabase stop
+        run: cd web && npx supabase stop
 
   e2e-tests:
     name: Web E2E Tests
@@ -175,23 +171,19 @@ jobs:
         with:
           node-version: "20"
 
-      - uses: supabase/setup-cli@v1
-        with:
-          version: 2.76.4
-
-      - name: Start Supabase
-        run: supabase start
-
       - name: Install dependencies
         run: cd web && npm ci
+
+      - name: Start Supabase
+        run: cd web && npx supabase start
 
       - name: Install Playwright browsers
         run: cd web && npx playwright install --with-deps chromium
 
       - name: Extract Supabase connection details
         run: |
-          echo "SUPABASE_URL=$(supabase status -o json | jq -r .API_URL)" >> $GITHUB_ENV
-          echo "SUPABASE_PUBLISHABLE_KEY=$(supabase status -o json | jq -r .ANON_KEY)" >> $GITHUB_ENV
+          echo "SUPABASE_URL=$(cd web && npx supabase status -o json | jq -r .API_URL)" >> $GITHUB_ENV
+          echo "SUPABASE_PUBLISHABLE_KEY=$(cd web && npx supabase status -o json | jq -r .ANON_KEY)" >> $GITHUB_ENV
 
       - name: Set up environment for E2E tests
         run: |
@@ -215,7 +207,7 @@ jobs:
 
       - name: Stop Supabase
         if: always()
-        run: supabase stop
+        run: cd web && npx supabase stop
 
   # TODO: Add preview-smoke-test job once a Preview environment is configured
   # in GitHub with VERCEL_TOKEN, VERCEL_PROJECT_ID, and VERCEL_TEAM_ID.
