@@ -1,5 +1,3 @@
-Now I have all the context needed. Let me produce the section content.
-
 # Section 1: Remove ES256 Workaround from `local-dev.sh`
 
 ## Background
@@ -131,3 +129,20 @@ Note the service role key line starts with `#` -- it is a comment in the generat
 - The validation logic for `supabase status -o json` output remains unchanged.
 - The `s3_endpoint` and `encryption_key` derivations remain unchanged.
 - The `service_role_key` is still extracted from `supabase status -o json` (line 35) -- it is needed for the probe and for the commented-out output line. Do not remove its extraction.
+
+---
+
+## Implementation Notes (post-build)
+
+### Files modified
+- `scripts/local-dev.sh` -- removed ES256 block (lines 61-91), added capability probe, updated heredoc output
+
+### Files created
+- `web/__tests__/integration/local-dev-output.test.ts` -- 7 integration tests for `print_setup_env_vars` output
+
+### Deviations from plan
+- **Added `000` status check in capability probe**: Code review identified that when GoTrue is unreachable, curl returns status `000`. Added explicit check with a distinct error message ("Could not reach GoTrue") before the existing HTTP status check, to avoid confusing connection failures with key rejections.
+- **Moved `beforeAll` inside `describe` block**: Code review fix for proper variable scoping in test file.
+
+### Tests
+- 7 tests total (all require `supabase start` -- integration suite)
