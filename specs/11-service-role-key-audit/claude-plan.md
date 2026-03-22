@@ -14,7 +14,7 @@ Integration tests also call Supabase SDK directly (`client.from("events").select
 
 1. **Delete the ES256 JWT workaround** in `local-dev.sh` and add a capability probe to verify keys work
 2. **Rename `SUPABASE_SECRET_KEY` → `SUPABASE_SERVICE_ROLE_KEY`** everywhere in server-side code, CI, tests, config, and documentation
-3. **Rename the env var in the CLI** but keep `getAdminClient()` — defer the "CLI talks to web API" architecture change
+3. **Switch CLI from admin client to user client** — wire up stored JWT from `smgr login` via `setSession()`, eliminating the need for `SUPABASE_SERVICE_ROLE_KEY` on user machines
 4. **Refactor integration tests** to use `db.ts`/`s3.ts` instead of raw Supabase SDK calls, except for RLS/security boundary tests
 5. **Start Next.js dev server in test globalSetup** for HTTP-layer tests (auth smoke tests)
 
@@ -22,15 +22,15 @@ Integration tests also call Supabase SDK directly (`client.from("events").select
 
 A critical distinction: **the CLI is a web API client, not a direct Supabase client.** Supabase is an implementation detail of the server.
 
-| Layer | Env vars | Talks to |
-|-------|----------|----------|
-| Web app (browser) | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase directly |
-| Web app (server) | Same + `SUPABASE_SERVICE_ROLE_KEY` | Supabase directly |
-| CLI (`smgr`) | `SMGR_API_URL`, `SMGR_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Supabase directly (v1); Web API (future) |
+| Layer | Env vars | Auth mechanism |
+|-------|----------|----------------|
+| Web app (browser) | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase Auth (browser session) |
+| Web app (server) | Same + `SUPABASE_SERVICE_ROLE_KEY` | Service role key (bypasses RLS) |
+| CLI (`smgr`) | `SMGR_API_URL`, `SMGR_API_KEY` | User JWT from `smgr login` (respects RLS) |
 
-The CLI's `SMGR_API_URL` and `SMGR_API_KEY` are **not** aliases for Supabase vars. They point to the Next.js web API. The original spec incorrectly proposed consolidating these — they stay as-is.
+The CLI's `SMGR_API_URL` and `SMGR_API_KEY` are **not** aliases for Supabase vars. During local dev they point at Supabase directly; in production they point to the Next.js web API. The original spec incorrectly proposed consolidating these — they stay as-is.
 
-**Note on CLI architecture:** The long-term goal is for the CLI to talk exclusively to the web API (no direct Supabase access). However, the CLI currently uses `getAdminClient()` with the service role key to bypass RLS, and has no authenticated Supabase session mechanism. Switching to `getUserClient()` without designing the auth flow (loading stored tokens, calling `setSession()`, handling refresh) would break all CLI commands. This architectural change is deferred to a separate spec.
+**CLI auth model:** The CLI authenticates via `smgr login` (email/password → Supabase Auth → JWT stored in `~/.sitemgr/credentials.json`). All Supabase operations use this user JWT via `getUserClient()` + `setSession()`, respecting RLS. The service role key is **never** needed on user machines. The auth plumbing already exists in `cli-auth.ts` — this spec wires it into the Supabase client used by CLI commands.
 
 ## Section 1: Remove ES256 Workaround from `local-dev.sh`
 
@@ -103,9 +103,11 @@ Hard cut — no fallbacks. Every occurrence of `SUPABASE_SECRET_KEY` in server-s
 - `web/__tests__/agent-core.test.ts` — Already stubs `SUPABASE_SERVICE_ROLE_KEY`
 - `web/__tests__/phone-migration-app.test.ts` — Already stubs `SUPABASE_SERVICE_ROLE_KEY`
 
-## Section 3: Rename Env Var in CLI (Keep Admin Client)
+## Section 3: Switch CLI from Admin Client to User Client
 
-The CLI (`web/bin/smgr.ts`) currently has:
+The CLI is an end-user tool for indexing and enriching media in S3. It should **not** require `SUPABASE_SERVICE_ROLE_KEY`. The auth infrastructure already exists in `cli-auth.ts` — `smgr login` stores a user JWT in `~/.sitemgr/credentials.json` — it just isn't wired into the Supabase client.
+
+### Current state (broken design)
 
 ```typescript
 function getClient() {
@@ -116,32 +118,61 @@ function getClient() {
 }
 ```
 
-### What changes
+This bypasses RLS entirely and requires a secret that end users should never have.
 
-**Rename only** — keep `getAdminClient()`, update env var references:
+### Target state
 
 ```typescript
-function getClient() {
-  return getAdminClient({
-    url: process.env.SMGR_API_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    serviceKey: process.env.SUPABASE_SERVICE_ROLE_KEY!,
+async function getClient() {
+  const { url, anonKey } = resolveApiConfig();  // SMGR_API_URL + SMGR_API_KEY
+  const client = getUserClient({ url, anonKey });
+
+  // Load stored JWT from ~/.sitemgr/credentials.json
+  const creds = await refreshSession();  // refreshes if expiring within 60s
+  if (!creds) {
+    cliError("Not logged in. Run 'smgr login' first.", EXIT.USER);
+  }
+
+  const { error } = await client.auth.setSession({
+    access_token: creds.access_token,
+    refresh_token: creds.refresh_token,
   });
+  if (error) {
+    cliError(`Session invalid: ${error.message}. Run 'smgr login' to re-authenticate.`, EXIT.USER);
+  }
+
+  return client;
 }
 ```
 
-- Remove the `SUPABASE_SECRET_KEY ??` fallback (hard cut)
-- Remove the `NEXT_PUBLIC_SUPABASE_URL` fallback (CLI should use `SMGR_API_URL`)
-- Keep `getAdminClient()` — the CLI needs RLS bypass until the "CLI talks to web API" refactor
+### What changes
 
-### What does NOT change
+1. **`getClient()` becomes `async`** — `setSession()` is async. All callers already `await` the db calls, so adding `await getClient()` is mechanical.
 
-- CLI still uses `getAdminClient()` with service role key
-- CLI tests still pass `SUPABASE_SERVICE_ROLE_KEY` (renamed from `SUPABASE_SECRET_KEY`) to subprocess
-- The "CLI talks to web API only" architecture is deferred to a separate spec
+2. **Import `getUserClient` instead of `getAdminClient`** from `db.ts`, and `resolveApiConfig`, `refreshSession` from `cli-auth.ts`.
 
-### Why not switch to `getUserClient()` now
+3. **Remove all `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_SECRET_KEY` references** from the CLI and its tests. The CLI only needs `SMGR_API_URL` and `SMGR_API_KEY` (the anon key).
 
-The CLI has no authenticated Supabase session mechanism. It stores credentials in `~/.sitemgr/credentials.json` but there is no code to load those tokens into a Supabase client via `setSession()`. Without a valid user JWT, RLS denies all access — every CLI command would break. Designing this auth flow is out of scope for an env var rename PR.
+4. **Update `requireUserId()`** — it currently extracts `user_id` from stored creds. With `setSession()`, the Supabase client knows the user via `auth.uid()`, but we still need `userId` for app-layer `db.ts` calls. Keep `requireUserId()` as-is.
+
+5. **Update CLI tests** (`smgr-cli.test.ts`, `smgr-e2e.test.ts`) — stop passing `SUPABASE_SECRET_KEY` / `SUPABASE_SERVICE_ROLE_KEY` to the subprocess. Pass `SMGR_API_URL` and `SMGR_API_KEY` instead.
+
+6. **Update help text** — remove `SUPABASE_SERVICE_ROLE_KEY` from the Environment section of `smgr --help`.
+
+### Why this works
+
+- Every `db.ts` function already takes `userId` and adds `.eq("user_id", userId)` filters (belt-and-suspenders with RLS)
+- `cli-auth.ts` already implements `login()` → `signInWithPassword()`, `refreshSession()`, `loadCredentials()`, and `resolveApiConfig()`
+- The stored `access_token` is a Supabase JWT with the user's `sub` claim — exactly what RLS policies check via `auth.uid()`
+- S3 operations use `createS3Client()` which reads `SMGR_S3_*` env vars — completely independent of Supabase auth
+
+### Architecture update
+
+| Layer | Env vars | Auth mechanism |
+|-------|----------|----------------|
+| Web app (browser) | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase Auth (browser session) |
+| Web app (server) | Same + `SUPABASE_SERVICE_ROLE_KEY` | Service role key (bypasses RLS) |
+| CLI (`smgr`) | `SMGR_API_URL`, `SMGR_API_KEY` | User JWT from `smgr login` (respects RLS) |
 
 ## Section 4: Refactor Integration Tests to Use App Layer
 
@@ -243,8 +274,8 @@ Document both manual steps in the PR description.
 
 1. **Section 1** (ES256 workaround) — Foundation, must go first since `local-dev.sh` generates the env file other things depend on
 2. **Section 2** (env var rename) — Straightforward find-and-replace across app/test/config files
-3. **Section 3** (CLI env var rename) — Just rename, keep admin client
-4. **Section 4** (test refactor) — Depends on section 2 (new env var names in setup.ts)
+3. **Section 3** (CLI user client) — Switch from admin client to user JWT auth; depends on section 2 (no more `SUPABASE_SECRET_KEY` refs)
+4. **Section 4** (test refactor) — Depends on sections 2–3 (new env var names, CLI no longer needs service role key in tests)
 5. **Section 5** (Next.js dev server) — Independent, but test refactor may surface the need
 6. **Section 6** (CI workflow) — Depends on section 2
 7. **Section 7** (config/docs) — Last, documents final state
@@ -260,3 +291,6 @@ Document both manual steps in the PR description.
 | `local-dev.sh` capability probe flaky | Make probe lightweight (single admin API call); timeout after 5s with clear error |
 | Port 3000 already in use when starting dev server | Detect existing server, skip spawning if already running |
 | Next.js dev server slow to start in CI | Use 60s timeout; consider `next build && next start` if dev mode too slow |
+| CLI `setSession()` fails with expired token | `refreshSession()` is called before `setSession()`; if refresh fails, clear creds and prompt re-login |
+| RLS policies missing for some tables CLI accesses | Verify RLS policies exist for `events`, `enrichments`, `watched_keys`, `model_configs` before switching; add if missing |
+| CLI tests that relied on admin bypass now fail under RLS | Test with a real authenticated user (use `auth.admin.createUser()` in test setup, login to get JWT) |

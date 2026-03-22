@@ -2,10 +2,17 @@
 
 ## What I'm Integrating
 
-### 1. CLI refactor: Keep admin client, just rename the key (CRITICAL)
-**Reviewer said:** Switching from `getAdminClient()` to `getUserClient()` will break all CLI commands because the CLI has no authenticated Supabase session — it uses stored credentials and `SMGR_USER_ID`, not Supabase Auth JWTs.
+### 1. CLI refactor: Switch to user client (REVISED)
+**Reviewer said:** Switching from `getAdminClient()` to `getUserClient()` will break all CLI commands because the CLI has no authenticated Supabase session.
 
-**Decision: INTEGRATE.** This is correct and important. The CLI currently works by bypassing RLS with the service role key. Without designing an auth flow (loading stored tokens, calling `setSession()`, handling refresh), switching to the anon key means RLS denies everything. The right approach for this PR: **rename the env var** (`SUPABASE_SECRET_KEY` → `SUPABASE_SERVICE_ROLE_KEY`) but **keep `getAdminClient()`**. Defer the "CLI talks to web API" refactor to a separate spec.
+**Original decision was: INTEGRATE (keep admin client).** However, on further review this was wrong. The auth infrastructure already exists in `cli-auth.ts`:
+- `login()` calls `signInWithPassword()` and stores `access_token` + `refresh_token` in `~/.sitemgr/credentials.json`
+- `refreshSession()` handles token refresh (checks expiry, calls `supabase.auth.refreshSession()`)
+- `resolveApiConfig()` returns `{ url, anonKey }` from `SMGR_API_URL` / `SMGR_API_KEY`
+
+The missing piece is just wiring `setSession()` into `getClient()`. The Opus reviewer was incorrect that "there is no code to load those tokens" — it exists, it's just not connected. The CLI is an end-user tool for indexing/enriching S3 media; it should not require the service role key.
+
+**Revised decision: Switch CLI to `getUserClient()` + `setSession()` with stored JWT.** All `db.ts` functions already pass `userId` with `.eq("user_id", userId)` filters, so RLS + app-layer filtering is belt-and-suspenders.
 
 ### 2. Don't refactor tenant-isolation tests
 **Reviewer said:** These are RLS policy tests that intentionally use raw SDK calls without filters to prove Postgres enforces row-level security. Replacing `client.from("events").select("*")` with `queryEvents(client, { userId })` would test the app filter, not the RLS policy.
