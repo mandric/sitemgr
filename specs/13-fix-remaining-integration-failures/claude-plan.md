@@ -207,6 +207,19 @@ cd web && npx vitest run --project integration
 
 Expected: 0 test files failed, 125 tests passed, 16 skipped.
 
+## Backlog: Migrate Integration Tests to API-Level Testing
+
+The content_type mismatch (Root Cause D) is a symptom of tests inserting data at the wrong abstraction level. Tests call `insertEvent()` directly with hand-crafted `content_type: "photo"`, bypassing the real code path where `detectContentType()` maps file extensions to MIME types like `image/jpeg`. If data entered through the CLI or API routes, this class of bug couldn't occur.
+
+A future spec should:
+1. Add integration tests that exercise `/api/*` Next.js routes (the `globalSetup.ts` already starts a dev server)
+2. Reduce raw `insertEvent()` / admin client inserts in favor of going through the CLI or API where possible
+3. Keep direct-lib and admin-level tests for edge cases (tenant isolation, cross-user seeding) that API routes don't expose
+
+This would make tests less brittle to internal refactors and catch layer integration bugs earlier.
+
+---
+
 ## Files Changed (Summary)
 
 | File | Action |
