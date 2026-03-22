@@ -1,5 +1,3 @@
-Now I have all the context I need. Let me generate the section content.
-
 # Section 5: Switch CLI from Admin Client to User Client
 
 ## Overview
@@ -228,3 +226,17 @@ After implementation, confirm:
 - `grep -r "SUPABASE_SECRET_KEY\|SUPABASE_SERVICE_ROLE_KEY" web/bin/` returns zero matches
 - `smgr login` followed by `smgr stats` works with only `SMGR_API_URL` and `SMGR_API_KEY` set
 - `smgr stats` without login prints "Not logged in. Run 'smgr login' first." and exits with code 1
+
+---
+
+## Implementation Notes (post-build)
+
+### Files modified
+- `web/bin/smgr.ts` -- replaced `getAdminClient` with `getUserClient` + `refreshSession` + `setSession`, made `getClient()` async, added `await` to all 7 call sites
+- `web/__tests__/integration/smgr-cli.test.ts` -- updated `cliEnv()` to use anon key, write credentials file to temp HOME, updated exit code test
+
+### Files created
+- `web/__tests__/smgr-cli-auth.test.ts` -- 4 static analysis tests verifying CLI no longer uses admin client
+
+### Tests
+- 332 unit tests passing (20 test files)

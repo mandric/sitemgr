@@ -16,7 +16,7 @@ import { readFileSync, statSync } from "node:fs";
 import { resolve, basename } from "node:path";
 import pLimit from "p-limit";
 import {
-  getAdminClient,
+  getUserClient,
   queryEvents,
   showEvent,
   getStats,
@@ -42,16 +42,31 @@ import type { ModelConfig } from "../lib/media/enrichment";
 import { getModelConfig } from "../lib/media/db";
 import { createLogger, LogComponent } from "../lib/logger";
 
-/** Lazy-initialized admin Supabase client for CLI use. */
-function getClient() {
-  return getAdminClient({
-    url: process.env.SMGR_API_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    serviceKey: process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  });
-}
 import { runWithRequestId } from "../lib/request-context";
 import { S3ErrorType } from "../lib/media/s3-errors";
-import { login, clearCredentials, loadCredentials } from "../lib/auth/cli-auth";
+import { login, clearCredentials, loadCredentials, refreshSession, resolveApiConfig } from "../lib/auth/cli-auth";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+/** Create an authenticated Supabase client using stored CLI credentials. */
+async function getClient(): Promise<SupabaseClient> {
+  const { url, anonKey } = resolveApiConfig();
+  const client = getUserClient({ url, anonKey });
+
+  const creds = await refreshSession();
+  if (!creds) {
+    cliError("Not logged in. Run 'smgr login' first.", EXIT.USER);
+  }
+
+  const { error } = await client.auth.setSession({
+    access_token: creds.access_token,
+    refresh_token: creds.refresh_token,
+  });
+  if (error) {
+    cliError(`Session invalid: ${error.message}. Run 'smgr login'.`, EXIT.USER);
+  }
+
+  return client;
+}
 
 const logger = createLogger(LogComponent.CLI);
 
@@ -126,7 +141,7 @@ async function cmdQuery(args: string[]) {
 
   if (values.verbose) verboseMode = true;
   const userId = requireUserId();
-  const client = getClient();
+  const client = await getClient();
   const { data, count, error } = await queryEvents(client, {
     userId,
     search: values.search,
@@ -177,7 +192,7 @@ async function cmdShow(args: string[]) {
   if (!eventId) cliError("Usage: smgr show <event_id>");
 
   const userId = requireUserId();
-  const client = getClient();
+  const client = await getClient();
   const { data: event, error } = await showEvent(client, eventId, userId);
   if (error) cliError(`Show failed: ${(error as Error).message ?? error}`, EXIT.SERVICE);
   if (!event) cliError(`Event not found: ${eventId}`);
@@ -186,7 +201,7 @@ async function cmdShow(args: string[]) {
 }
 
 async function cmdStats() {
-  const client = getClient();
+  const client = await getClient();
   const { data: stats, error } = await getStats(client, { userId: requireUserId() });
   if (error) cliError(`Stats failed: ${(error as Error).message ?? error}`, EXIT.SERVICE);
   printJson(stats);
@@ -211,7 +226,7 @@ async function cmdEnrich(args: string[]) {
   const dryRun = values["dry-run"] ?? false;
 
   const userId = requireUserId();
-  const client = getClient();
+  const client = await getClient();
 
   if (values.status) {
     const { data: status, error } = await getEnrichStatus(client, userId);
@@ -351,7 +366,7 @@ async function cmdWatch(args: string[]) {
   const deviceId = process.env.SMGR_DEVICE_ID ?? "default";
 
   const s3 = createS3Client();
-  const client = getClient();
+  const client = await getClient();
 
   console.error(`Watching s3://${bucket}/${prefix}`);
   console.error(`Poll interval: ${intervalSecs}s | Auto-enrich: ${autoEnrich} | Max errors: ${maxErrors}`);
@@ -506,7 +521,7 @@ async function cmdAdd(args: string[]) {
   const contentType = detectContentType(fileName);
   const mimeType = getMimeType(fileName);
 
-  const client = getClient();
+  const client = await getClient();
 
   // Check for duplicates
   const { data: existingEvent, error: hashErr } = await findEventByHash(client, contentHash, userId);
@@ -673,7 +688,7 @@ runWithRequestId(requestId, async () => {
   const creds = loadCredentials();
   const userId = process.env.SMGR_USER_ID ?? creds?.user_id;
   if (userId) {
-    const client = getClient();
+    const client = await getClient();
     const { data: configRow, error: configErr } = await getModelConfig(client, userId);
     if (configErr) {
       logger.warn("failed to load model config", { error: String(configErr) });
