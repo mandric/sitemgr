@@ -36,11 +36,8 @@ describe("print_setup_env_vars", () => {
     expect(output).not.toMatch(/^SUPABASE_SECRET_KEY=/m);
   });
 
-  it("outputs SUPABASE_SERVICE_ROLE_KEY as a comment (not active env var)", () => {
-    // Should be commented out
-    expect(output).toMatch(/^# SUPABASE_SERVICE_ROLE_KEY=.+/m);
-    // Should NOT be an active (uncommented) env var
-    expect(output).not.toMatch(/^SUPABASE_SERVICE_ROLE_KEY=/m);
+  it("outputs SUPABASE_SERVICE_ROLE_KEY as an active env var (needed for integration tests)", () => {
+    expect(output).toMatch(/^SUPABASE_SERVICE_ROLE_KEY=.+/m);
   });
 
   it("outputs valid dotenv format (no syntax errors)", () => {
