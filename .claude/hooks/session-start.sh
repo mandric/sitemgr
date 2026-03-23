@@ -26,9 +26,16 @@ if [ -n "${GH_REPO_DETECTED:-}" ]; then
   export GH_REPO="$GH_REPO_DETECTED"
 fi
 
-# Install Supabase CLI if not present
+# Install Supabase CLI if not present (npm global install is blocked by the package)
 if ! command -v supabase &>/dev/null; then
-  npm install -g supabase
+  SUPABASE_VERSION="2.83.0"
+  ARCH=$(uname -m)
+  case "$ARCH" in
+    x86_64) ARCH="amd64" ;;
+    aarch64|arm64) ARCH="arm64" ;;
+  esac
+  curl -fsSL "https://github.com/supabase/cli/releases/download/v${SUPABASE_VERSION}/supabase_linux_${ARCH}.tar.gz" \
+    | tar -xz -C /usr/local/bin supabase
 fi
 
 # Install Vercel CLI if not present
