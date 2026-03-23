@@ -1,0 +1,42 @@
+{
+  "plugin_root": "/root/.claude/plugins/cache/local-plugins/deep-implement/0.2.1",
+  "sections_dir": "/home/user/sitemgr/specs/14-fix-content-type-filtering/sections",
+  "target_dir": "/home/user/sitemgr",
+  "state_dir": "/home/user/sitemgr/specs/14-fix-content-type-filtering/implementation",
+  "git_root": "/home/user/sitemgr",
+  "commit_style": "simple",
+  "test_command": "uv run pytest",
+  "sections": [
+    "section-01-constants",
+    "section-02-fix-filter",
+    "section-03-fix-fixtures",
+    "section-04-verification"
+  ],
+  "sections_state": {
+    "section-01-constants": {
+      "status": "complete",
+      "commit_hash": "17b3429"
+    },
+    "section-02-fix-filter": {
+      "status": "complete",
+      "commit_hash": "8163412"
+    },
+    "section-03-fix-fixtures": {
+      "status": "complete",
+      "commit_hash": "5acc7a2"
+    },
+    "section-04-verification": {
+      "status": "complete",
+      "commit_hash": "5acc7a2"
+    }
+  },
+  "pre_commit": {
+    "present": false,
+    "type": "none",
+    "config_file": null,
+    "native_hook": null,
+    "may_modify_files": false,
+    "detected_formatters": []
+  },
+  "created_at": "2026-03-23T01:40:33.612924+00:00"
+}
