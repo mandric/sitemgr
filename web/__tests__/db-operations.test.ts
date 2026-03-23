@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+// Match the constant values from @/lib/media/constants (static import not supported in this test file)
+const CONTENT_TYPE_PHOTO = "photo";
+const CONTENT_TYPE_VIDEO = "video";
+
 // ── Mock setup ─────────────────────────────────────────────────
 
 const mockUpsert = vi.fn();
@@ -509,6 +513,68 @@ describe("getEnrichStatus", () => {
     Object.defineProperty(headChain, "then", {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       value: (resolve: any) => resolve({ data: null, count: 5, error: null }),
+      configurable: true,
+    });
+
+    mockFrom.mockReturnValue(headChain);
+
+    const { getEnrichStatus } = await import("@/lib/media/db");
+    const result = await getEnrichStatus(mockSupabaseClient as never);
+
+    expect(result.data!.pending).toBe(0);
+  });
+
+  it("applies content_type filter with default CONTENT_TYPE_PHOTO", async () => {
+    const headChain = chainable();
+    headChain.select = vi.fn().mockReturnValue(headChain);
+    headChain.eq = vi.fn().mockReturnValue(headChain);
+
+    Object.defineProperty(headChain, "then", {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      value: (resolve: any) => resolve({ data: null, count: 5, error: null }),
+      configurable: true,
+    });
+
+    mockFrom.mockReturnValue(headChain);
+
+    const { getEnrichStatus } = await import("@/lib/media/db");
+    await getEnrichStatus(mockSupabaseClient as never);
+
+    expect(headChain.eq).toHaveBeenCalledWith("content_type", CONTENT_TYPE_PHOTO);
+  });
+
+  it("applies explicit contentType parameter", async () => {
+    const headChain = chainable();
+    headChain.select = vi.fn().mockReturnValue(headChain);
+    headChain.eq = vi.fn().mockReturnValue(headChain);
+
+    Object.defineProperty(headChain, "then", {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      value: (resolve: any) => resolve({ data: null, count: 5, error: null }),
+      configurable: true,
+    });
+
+    mockFrom.mockReturnValue(headChain);
+
+    const { getEnrichStatus } = await import("@/lib/media/db");
+    await getEnrichStatus(mockSupabaseClient as never, undefined, CONTENT_TYPE_VIDEO);
+
+    expect(headChain.eq).toHaveBeenCalledWith("content_type", CONTENT_TYPE_VIDEO);
+  });
+
+  it("pending never goes negative (Math.max guard)", async () => {
+    const headChain = chainable();
+    headChain.select = vi.fn().mockReturnValue(headChain);
+    headChain.eq = vi.fn().mockReturnValue(headChain);
+
+    let callCount = 0;
+    Object.defineProperty(headChain, "then", {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      value: (resolve: any) => {
+        callCount++;
+        // First call is events (total=3), second is enrichments (enriched=5)
+        resolve({ data: null, count: callCount === 1 ? 3 : 5, error: null });
+      },
       configurable: true,
     });
 

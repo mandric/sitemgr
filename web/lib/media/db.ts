@@ -261,11 +261,12 @@ export async function getStats(client: SupabaseClient, opts?: { userId?: string;
 
 // ── Enrich Status ──────────────────────────────────────────────
 
-export async function getEnrichStatus(client: SupabaseClient, userId?: string) {
+export async function getEnrichStatus(client: SupabaseClient, userId?: string, contentType = CONTENT_TYPE_PHOTO) {
   let eventsQuery = client
     .from("events")
     .select("*", { count: "exact", head: true })
-    .eq("type", "create");
+    .eq("type", "create")
+    .eq("content_type", contentType);
   let enrichmentsQuery = client
     .from("enrichments")
     .select("*", { count: "exact", head: true });
@@ -292,7 +293,7 @@ export async function getEnrichStatus(client: SupabaseClient, userId?: string) {
     data: {
       total_media: total,
       enriched,
-      pending: total - enriched,
+      pending: Math.max(0, total - enriched),
     },
     error: null,
   };
