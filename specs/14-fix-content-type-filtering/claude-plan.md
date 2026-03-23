@@ -47,11 +47,21 @@ Anything not in the map falls back to `"file"`.
 
 ### What to Do
 
-Add `.eq("content_type", "photo")` to the events query in `getEnrichStatus()`. This is at approximately line 263-267 in `web/lib/media/db.ts`. The query currently chains `.from("events")`, `.select(...)`, `.eq("type", "create")` — add `.eq("content_type", "photo")` after the type filter.
+Add an optional `contentType` parameter to `getEnrichStatus()` (default `"photo"`), and apply it as a `.eq("content_type", contentType)` filter on the events query. The current signature is:
+
+```typescript
+export async function getEnrichStatus(client: SupabaseClient, userId?: string)
+```
+
+Change to:
+
+```typescript
+export async function getEnrichStatus(client: SupabaseClient, userId?: string, contentType = "photo")
+```
+
+Then add `.eq("content_type", contentType)` to the events query after the `.eq("type", "create")` filter. All existing callers pass no `contentType` and get `"photo"` by default, so this is backwards-compatible. Future callers can pass `"video"` or `"audio"` when enrichment expands.
 
 Additionally, wrap the `pending` calculation with `Math.max(0, ...)` to guard against edge cases where enrichment counts could exceed total (matching the pattern already used in `getStats()` at line 254). Change `pending: total - enriched` to `pending: Math.max(0, total - enriched)`.
-
-Enrichment is scoped to photos only (per stakeholder decision). Video and audio enrichment may come later but is not v1 scope. The enrichments query is left unfiltered for now — only photo enrichments exist in v1, so scoping it would add complexity without benefit. Flag for future if video/audio enrichments are added.
 
 ### Why Not `.like("content_type", "image/%")`
 
