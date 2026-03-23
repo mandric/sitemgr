@@ -1,6 +1,8 @@
 # Verify Everything Passes
 
-Run the full verification suite. Fix any issues found. Report results.
+Run the verification suite. Fix any issues found. Report results.
+
+**Note:** Only unit tests are runnable in Claude Code web sessions. Integration and E2E tests require local Supabase (Docker) which is unavailable here. Do not attempt them.
 
 ## Steps
 

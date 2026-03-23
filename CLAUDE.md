@@ -152,6 +152,8 @@ cd web && npm run typecheck && npm run lint && npm run test && npm run build
 ```
 All four must pass. If any fail, fix them before committing.
 
+**Note:** `npm run test` runs unit tests only (`vitest run --project unit`). Integration tests (`test:integration`) and E2E tests (`test:e2e`) require a local Supabase instance via `supabase start` (Docker). These are **not available** in Claude Code web sessions — do not attempt to run them.
+
 ### Slash Commands for Autonomous Work
 
 - `/implement-next` — Pick up the next unimplemented item and build it end-to-end

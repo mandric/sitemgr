@@ -1,10 +1,12 @@
 # Fix Failing Tests
 
-Run the full test suite autonomously and fix all failures. Do not ask for help — use the codebase and test output to diagnose and fix issues.
+Run the test suite autonomously and fix all failures. Do not ask for help — use the codebase and test output to diagnose and fix issues.
+
+**Important:** Only unit tests (`npm run test`) are runnable in Claude Code web sessions. Integration tests (`npm run test:integration`) and E2E tests (`test:e2e`) require a local Supabase instance (Docker containers via `supabase start`) which is not available in the session container. Do not attempt to run or fix integration/E2E test failures.
 
 ## Steps
 
-1. **Run all tests and capture output:**
+1. **Run unit tests and capture output:**
    ```bash
    cd web && npm run test 2>&1 | head -200
    ```
