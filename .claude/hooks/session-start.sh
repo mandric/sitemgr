@@ -63,6 +63,16 @@ if ! supabase status &>/dev/null 2>&1; then
   fi
 fi
 
+# Generate .env.local from running Supabase (needed for integration tests)
+if [ ! -f "$CLAUDE_PROJECT_DIR/.env.local" ]; then
+  if command -v jq &>/dev/null; then
+    "$CLAUDE_PROJECT_DIR/scripts/local-dev.sh" print_setup_env_vars > "$CLAUDE_PROJECT_DIR/.env.local" \
+      && echo "Generated .env.local from Supabase"
+  else
+    echo "Warning: jq not installed, skipping .env.local generation"
+  fi
+fi
+
 # Plugin installation (ensures plugins are available in web sessions)
 # Wrapped in subshell to isolate from set -euo pipefail
 (

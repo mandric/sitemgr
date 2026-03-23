@@ -6,7 +6,8 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { CONTENT_TYPE_PHOTO } from "../../lib/media/constants";
 
-// Local Supabase defaults from `supabase start`
+// Local Supabase — env vars are validated by globalSetup.ts before tests run.
+// These fallbacks are kept only for direct imports outside of vitest.
 const SUPABASE_URL = process.env.SMGR_API_URL ?? "http://127.0.0.1:54321";
 const SUPABASE_ANON_KEY = process.env.SMGR_API_KEY ?? "";
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
@@ -22,7 +23,9 @@ export function getSupabaseConfig() {
 export function getAdminClient(): SupabaseClient {
   if (!SUPABASE_SERVICE_KEY) {
     throw new Error(
-      "SUPABASE_SERVICE_ROLE_KEY not set. Run `supabase start` and set env vars.",
+      "SUPABASE_SERVICE_ROLE_KEY not set.\n" +
+        "Run: npm run setup:env   # generates .env.local from running Supabase\n" +
+        "Then: npm run test:integration:full",
     );
   }
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {

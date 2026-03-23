@@ -132,7 +132,7 @@ WEBHOOK_SERVICE_ACCOUNT_EMAIL=webhook@sitemgr.internal
 WEBHOOK_SERVICE_ACCOUNT_PASSWORD=unused-password-webhook-uses-service-token
 
 # --- Service role key (tests and admin scripts only -- NOT for app code) ---
-# SUPABASE_SERVICE_ROLE_KEY=${service_role_key}
+SUPABASE_SERVICE_ROLE_KEY=${service_role_key}
 
 # --- Optional -- uncomment and fill in as needed ---
 # ANTHROPIC_API_KEY=

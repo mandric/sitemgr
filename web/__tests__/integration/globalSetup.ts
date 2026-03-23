@@ -48,9 +48,30 @@ async function waitForReady(url: string, timeoutMs: number): Promise<void> {
 }
 
 export async function setup(): Promise<void> {
-  // 1. Validate Supabase connectivity
-  const url = process.env.SMGR_API_URL ?? "http://127.0.0.1:54321";
-  const anonKey = process.env.SMGR_API_KEY ?? "";
+  // 1. Validate required environment variables
+  const required: Record<string, string | undefined> = {
+    SMGR_API_URL: process.env.SMGR_API_URL,
+    SMGR_API_KEY: process.env.SMGR_API_KEY,
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  };
+
+  const missing = Object.entries(required)
+    .filter(([, v]) => !v)
+    .map(([k]) => k);
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required environment variables for integration tests:\n` +
+        missing.map((k) => `  - ${k}`).join("\n") +
+        `\n\nTo fix, generate .env.local and source it:\n` +
+        `  npm run setup:env\n` +
+        `  source ../.env.local   # or use npm run test:integration:full\n`,
+    );
+  }
+
+  // 2. Validate Supabase connectivity
+  const url = process.env.SMGR_API_URL!;
+  const anonKey = process.env.SMGR_API_KEY!;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
@@ -68,8 +89,10 @@ export async function setup(): Promise<void> {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(
       `Integration tests require a running Supabase instance.\n\n` +
-        `Run: supabase start\n` +
-        `Then: npm run test:integration\n\n` +
+        `Quick setup:\n` +
+        `  npm run setup:supabase   # start local Supabase\n` +
+        `  npm run setup:env        # generate .env.local\n` +
+        `  npm run test:integration:full  # or use the all-in-one script\n\n` +
         `Expected Supabase at: ${url}\n` +
         `Error: ${message}`,
     );
