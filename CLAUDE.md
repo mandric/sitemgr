@@ -116,6 +116,49 @@ When to use `vi.stubEnv()` (fixtures) vs setting in CI:
 - Local-first / offline mode with per-device SQLite
 - Enrichment metadata as sidecar files in S3 (post-prototype idea)
 
+## Autonomous Operation
+
+### Decision-Making Heuristics
+
+When running autonomously (via `/implement-next`, triggers, or background sessions), follow these rules to avoid blocking on human input:
+
+**Always safe to do without asking:**
+- Run tests, typecheck, lint, build
+- Read any file in the repo
+- Create/switch branches
+- Fix failing tests by reading test expectations and matching source code
+- Add new test files following existing patterns
+- Push to `claude/*` branches
+- Create PRs via `gh pr create`
+
+**Make your best judgment (don't ask):**
+- Choose between two reasonable implementation approaches — pick the simpler one
+- Decide on function/variable naming — match neighboring code style
+- Choose where to put new code — follow the existing module structure in `lib/`
+- Handle edge cases — follow patterns from similar code in the repo
+
+**Stop and report (don't guess):**
+- Database schema changes (new migrations, RLS policy changes)
+- Changes to auth flows or security-sensitive code
+- Adding new environment variables to production
+- Deleting or significantly restructuring existing features
+- Anything that would change the public API contract
+
+### Verification Checklist
+
+Before considering any implementation task done, run:
+```bash
+cd web && npm run typecheck && npm run lint && npm run test && npm run build
+```
+All four must pass. If any fail, fix them before committing.
+
+### Slash Commands for Autonomous Work
+
+- `/implement-next` — Pick up the next unimplemented item and build it end-to-end
+- `/fix-tests` — Run the full test suite and fix all failures
+- `/verify` — Run typecheck + lint + test + build, fix any issues
+- `/pr-review` — Review the most recent (or specified) PR
+
 ## Installing Claude Code Plugins for Web Sessions
 
 When installing a Claude Code plugin so it works in the web interface (claude.ai), follow this pattern:
