@@ -53,8 +53,11 @@ cd "$CLAUDE_PROJECT_DIR/web"
 npm install
 
 # Start local Supabase (if not already running)
+# NOTE: supabase start fails in Claude Code web sessions because the Realtime
+# service requires IPv6 (eafnosupport error). Skip it there — integration/E2E
+# tests are not runnable in web sessions anyway.
 cd "$CLAUDE_PROJECT_DIR"
-if ! supabase status &>/dev/null 2>&1; then
+if [ -z "$CLAUDE_CODE_REMOTE" ] && ! supabase status &>/dev/null 2>&1; then
   supabase start
 fi
 
