@@ -4,6 +4,7 @@
  * Requires `supabase start` to be running locally.
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { CONTENT_TYPE_PHOTO } from "../../lib/media/constants";
 
 // Local Supabase defaults from `supabase start`
 const SUPABASE_URL = process.env.SMGR_API_URL ?? "http://127.0.0.1:54321";
@@ -173,7 +174,7 @@ export async function seedUserData(
         timestamp: new Date().toISOString(),
         device_id: `device-${prefix}`,
         type: "create",
-        content_type: "image/jpeg",
+        content_type: CONTENT_TYPE_PHOTO,
         content_hash: `hash-${prefix}-${i}`,
         user_id: userId,
       }),
