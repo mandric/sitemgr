@@ -2,7 +2,7 @@
 
 Run the test suite autonomously and fix all failures. Do not ask for help — use the codebase and test output to diagnose and fix issues.
 
-**Important:** Only unit tests (`npm run test`) are runnable in Claude Code web sessions. Integration tests (`npm run test:integration`) and E2E tests (`test:e2e`) require a local Supabase instance (Docker containers via `supabase start`) which is not available in the session container. Do not attempt to run or fix integration/E2E test failures.
+**Important:** Unit tests (`npm run test`) always work. Integration tests (`npm run test:integration`) require local Supabase — verify it's running with `supabase status` before attempting them. E2E tests (`test:e2e`) additionally require a running app (`next dev`). If Supabase is not running, skip integration/E2E and focus on unit tests.
 
 ## Steps
 

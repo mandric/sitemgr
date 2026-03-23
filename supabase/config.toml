@@ -36,6 +36,9 @@ content_path = "./supabase/templates/magic_link.html"
 subject = "Confirm email change"
 content_path = "./supabase/templates/email_change.html"
 
+[realtime]
+enabled = false  # Realtime requires IPv6; not needed for v1 and breaks in containers without IPv6
+
 [analytics]
 enabled = false  # Disable analytics (causes issues with Colima Docker socket mounting)
 

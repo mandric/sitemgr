@@ -152,7 +152,9 @@ cd web && npm run typecheck && npm run lint && npm run test && npm run build
 ```
 All four must pass. If any fail, fix them before committing.
 
-**Note:** `npm run test` runs unit tests only (`vitest run --project unit`). Integration tests (`test:integration`) and E2E tests (`test:e2e`) require a local Supabase instance via `supabase start` (Docker). These are **not available** in Claude Code web sessions — do not attempt to run them.
+**Note:** `npm run test` runs unit tests only (`vitest run --project unit`). Integration tests (`test:integration`) and E2E tests (`test:e2e`) require a local Supabase instance via `supabase start` (Docker). The session-start hook handles this automatically.
+
+**Supabase Realtime is disabled** in `supabase/config.toml` — it requires IPv6 which is unavailable in container environments (Claude Code web sessions, CI). We don't use Realtime in v1. If re-enabling, test in a container environment first.
 
 ### Slash Commands for Autonomous Work
 

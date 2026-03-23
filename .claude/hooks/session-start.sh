@@ -53,12 +53,14 @@ cd "$CLAUDE_PROJECT_DIR/web"
 npm install
 
 # Start local Supabase (if not already running)
-# NOTE: supabase start fails in Claude Code web sessions because the Realtime
-# service requires IPv6 (eafnosupport error). Skip it there — integration/E2E
-# tests are not runnable in web sessions anyway.
+# In web sessions: exclude edge-runtime (needs external DNS) and realtime (needs IPv6)
 cd "$CLAUDE_PROJECT_DIR"
-if [ -z "$CLAUDE_CODE_REMOTE" ] && ! supabase status &>/dev/null 2>&1; then
-  supabase start
+if ! supabase status &>/dev/null 2>&1; then
+  if [ "$CLAUDE_CODE_REMOTE" = "true" ]; then
+    supabase start --exclude edge-runtime,realtime
+  else
+    supabase start
+  fi
 fi
 
 # Plugin installation (ensures plugins are available in web sessions)

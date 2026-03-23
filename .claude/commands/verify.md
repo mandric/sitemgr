@@ -2,7 +2,7 @@
 
 Run the verification suite. Fix any issues found. Report results.
 
-**Note:** Only unit tests are runnable in Claude Code web sessions. Integration and E2E tests require local Supabase (Docker) which is unavailable here. Do not attempt them.
+**Note:** If local Supabase is running (`supabase status`), also run `npm run test:integration` after unit tests.
 
 ## Steps
 

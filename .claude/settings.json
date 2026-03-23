@@ -31,7 +31,8 @@
       "Bash(pwd)",
       "Bash(which *)",
       "Bash(node *)",
-      "Bash(tsx *)"
+      "Bash(tsx *)",
+      "Bash(dockerd *)"
     ]
   },
   "hooks": {
