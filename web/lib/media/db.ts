@@ -12,6 +12,7 @@
 import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createLogger, LogComponent } from "@/lib/logger";
 import { withRetry } from "@/lib/retry";
+import { CONTENT_TYPE_PHOTO } from "@/lib/media/constants";
 
 const logger = createLogger(LogComponent.DB);
 
@@ -242,7 +243,7 @@ export async function getStats(client: SupabaseClient, opts?: { userId?: string;
   const watched = watchedRes.count ?? 0;
 
   // Count "photo" content type as media for pending enrichment calculation
-  const photoCount = contentTypeCounts["photo"] ?? 0;
+  const photoCount = contentTypeCounts[CONTENT_TYPE_PHOTO] ?? 0;
 
   return {
     data: {
@@ -402,7 +403,7 @@ export async function getPendingEnrichments(client: SupabaseClient, userId?: str
     .from("events")
     .select("id, content_hash, content_type, local_path, remote_path, metadata")
     .eq("type", "create")
-    .eq("content_type", "photo")
+    .eq("content_type", CONTENT_TYPE_PHOTO)
     .order("timestamp", { ascending: false });
   if (userId) photosQuery = photosQuery.eq("user_id", userId);
   const { data: photos, error: photosErr } = await photosQuery;

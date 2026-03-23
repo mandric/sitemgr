@@ -12,10 +12,15 @@ export const MEDIA_EXTENSIONS = new Set([
   ".mp3", ".wav", ".ogg", ".flac", ".m4a",
 ]);
 
+export const CONTENT_TYPE_PHOTO = "photo";
+export const CONTENT_TYPE_VIDEO = "video";
+export const CONTENT_TYPE_AUDIO = "audio";
+export const CONTENT_TYPE_FILE = "file";
+
 export const CONTENT_TYPE_MAP: Record<string, string> = {
-  image: "photo",
-  video: "video",
-  audio: "audio",
+  image: CONTENT_TYPE_PHOTO,
+  video: CONTENT_TYPE_VIDEO,
+  audio: CONTENT_TYPE_AUDIO,
 };
 
 export const ENRICHMENT_PROMPT = `Analyze this image and return a JSON object with exactly these fields:
