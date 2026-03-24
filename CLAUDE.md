@@ -64,10 +64,10 @@ E2E involves three separate runtimes, each with different env var needs:
 2. **Next.js web app** (API routes + frontend) — the system under test, needs all env vars required for request handling
 3. **Playwright test runner** — drives the browser, only needs the app URL and Supabase URL/key to set up test users
 
-The web app needs `ENCRYPTION_KEY_CURRENT` in `.env.local` (fixture value, not a real secret) because API routes encrypt/decrypt bucket config secrets at request time. This is a **web app runtime requirement**, not a Playwright requirement — but the app must have it to serve requests during E2E runs.
+The web app needs `ENCRYPTION_KEY_CURRENT` in `.env.local` because API routes encrypt/decrypt bucket config secrets at request time. This must be a valid encryption key (correct length/format for AES) since data round-trips through Supabase during E2E — it's a **local dev secret**, not a throwaway fixture. It should never be reused in production.
 
 - **Supabase runtime**: No app-level env vars needed (configured via `config.toml`)
-- **Next.js runtime** (`.env.local`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `ENCRYPTION_KEY_CURRENT` (fixture value)
+- **Next.js runtime** (`.env.local`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `ENCRYPTION_KEY_CURRENT` (local dev secret)
 - **Playwright runtime**: Only needs the app URL to connect to
 - Not API keys (E2E doesn't call external APIs)
 
