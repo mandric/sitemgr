@@ -19,11 +19,11 @@ API_URL="${1:-}"
 SERVICE_KEY="${2:-}"
 
 if [ -z "$API_URL" ] || [ -z "$SERVICE_KEY" ]; then
-  if ! command -v npx &>/dev/null; then
-    echo "Error: npx not found and no API_URL/SERVICE_KEY args provided" >&2
+  if ! command -v supabase &>/dev/null; then
+    echo "Error: supabase CLI not found and no API_URL/SERVICE_KEY args provided" >&2
     exit 1
   fi
-  STATUS_JSON=$(npx supabase status -o json 2>/dev/null || true)
+  STATUS_JSON=$(supabase status -o json 2>/dev/null || true)
   if [ -z "$STATUS_JSON" ]; then
     echo "Error: supabase status returned nothing. Is Supabase running?" >&2
     exit 1
