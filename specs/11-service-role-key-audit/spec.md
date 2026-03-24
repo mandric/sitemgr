@@ -139,8 +139,8 @@ supabase status -o json
   │                                     ├── web/__tests__/agent-core.test.ts
   │                                     └── web/__tests__/phone-migration-app.test.ts
   │
-  ├── S3_PROTOCOL_ACCESS_KEY_ID (plain string) ── S3_ACCESS_KEY_ID
-  ├── S3_PROTOCOL_ACCESS_KEY_SECRET (plain string) ── S3_SECRET_ACCESS_KEY
+  ├── S3_PROTOCOL_ACCESS_KEY_ID (plain string) ── AWS_ACCESS_KEY_ID
+  ├── S3_PROTOCOL_ACCESS_KEY_SECRET (plain string) ── AWS_SECRET_ACCESS_KEY
   └── DB_URL (connection string) ── DATABASE_URL
 ```
 

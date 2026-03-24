@@ -31,11 +31,11 @@ index 277e21d..e2b6497 100755
 -
 -# S3 credentials for storage tests
 -STATUS_TABLE=$(supabase status 2>/dev/null)
--S3_ACCESS_KEY_ID=$(echo "$STATUS_TABLE" | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
--S3_SECRET_ACCESS_KEY=$(echo "$STATUS_TABLE" | grep "Secret Key" | awk -F '│' '{print $3}' | tr -d ' ')
+-AWS_ACCESS_KEY_ID=$(echo "$STATUS_TABLE" | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
+-AWS_SECRET_ACCESS_KEY=$(echo "$STATUS_TABLE" | grep "Secret Key" | awk -F '│' '{print $3}' | tr -d ' ')
 -# Fallback: use service key if S3 keys not found in status output
--export S3_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID:-$SUPABASE_SECRET_KEY}"
--export S3_SECRET_ACCESS_KEY="${S3_SECRET_ACCESS_KEY:-$SUPABASE_SECRET_KEY}"
+-export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-$SUPABASE_SECRET_KEY}"
+-export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-$SUPABASE_SECRET_KEY}"
 +# ── Load environment ────────────────────────────────────────────
 +
 +if [ ! -f ".env.local" ]; then

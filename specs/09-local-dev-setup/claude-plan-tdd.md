@@ -29,7 +29,7 @@ Write a short throw-away test sequence to validate the rewrite:
 # Test: all required vars are present in output
 ./scripts/local-dev.sh print_setup_env_vars | grep NEXT_PUBLIC_SUPABASE_URL
 ./scripts/local-dev.sh print_setup_env_vars | grep ENCRYPTION_KEY_CURRENT
-./scripts/local-dev.sh print_setup_env_vars | grep S3_ACCESS_KEY_ID
+./scripts/local-dev.sh print_setup_env_vars | grep AWS_ACCESS_KEY_ID
 
 # Test: redirect to file produces sourceable output
 ./scripts/local-dev.sh print_setup_env_vars > .env.local.test
@@ -65,7 +65,7 @@ rm -f .env.local
 
 **Failure mode to verify is gone:**
 - Confirm no `supabase status` calls remain in the script after the change
-- Confirm no `S3_ACCESS_KEY_ID=$SUPABASE_SECRET_KEY` fallback remains
+- Confirm no `AWS_ACCESS_KEY_ID=$SUPABASE_SECRET_KEY` fallback remains
 
 ---
 
@@ -147,8 +147,8 @@ This script is itself the acceptance test for the whole setup flow. Write the ex
 #   ✓ SMGR_API_KEY is set
 #   ✓ SUPABASE_SECRET_KEY is set
 #   ✓ ENCRYPTION_KEY_CURRENT is set
-#   ✓ S3_ACCESS_KEY_ID is set
-#   ✓ S3_SECRET_ACCESS_KEY is set
+#   ✓ AWS_ACCESS_KEY_ID is set
+#   ✓ AWS_SECRET_ACCESS_KEY is set
 #   ✓ Supabase API reachable
 #   All checks passed.
 

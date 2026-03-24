@@ -65,11 +65,11 @@ index 281fc45..2d3d172 100755
 +
 +# --- S3 / Storage ---
  SMGR_S3_ENDPOINT=${s3_endpoint}
- S3_ENDPOINT_URL=${s3_endpoint}
+ AWS_ENDPOINT_URL_S3=${s3_endpoint}
  SMGR_S3_BUCKET=media
 @@ -107,14 +91,17 @@ SMGR_S3_REGION=local
- S3_ACCESS_KEY_ID=${s3_key_id}
- S3_SECRET_ACCESS_KEY=${s3_key_secret}
+ AWS_ACCESS_KEY_ID=${s3_key_id}
+ AWS_SECRET_ACCESS_KEY=${s3_key_secret}
  
 -# smgr CLI
 +# --- smgr CLI ---

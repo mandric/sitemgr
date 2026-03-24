@@ -695,9 +695,9 @@ index d063e57..0000000
 -
 -const SUPABASE_URL = Deno.env.get("SUPABASE_URL") || "http://localhost:54321";
 -const SUPABASE_SECRET_KEY = Deno.env.get("SUPABASE_SECRET_KEY")!;
--const S3_ENDPOINT_URL = Deno.env.get("S3_ENDPOINT_URL") || "http://localhost:54321/storage/v1/s3";
--const S3_ACCESS_KEY_ID = Deno.env.get("S3_ACCESS_KEY_ID")!;
--const S3_SECRET_ACCESS_KEY = Deno.env.get("S3_SECRET_ACCESS_KEY")!;
+-const STORAGE_S3_URL = Deno.env.get("STORAGE_S3_URL") || "http://localhost:54321/storage/v1/s3";
+-const AWS_ACCESS_KEY_ID = Deno.env.get("AWS_ACCESS_KEY_ID")!;
+-const AWS_SECRET_ACCESS_KEY = Deno.env.get("AWS_SECRET_ACCESS_KEY")!;
 -const ENCRYPTION_KEY = Deno.env.get("ENCRYPTION_KEY") || "test-encryption-key-32-chars!!";
 -const TEST_PHONE = "whatsapp:+15555559999";
 -
@@ -764,14 +764,14 @@ index d063e57..0000000
 -  await cleanup();
 -
 -  // Add bucket config pointing to local Supabase S3
--  const encryptedSecret = await encryptSecret(S3_SECRET_ACCESS_KEY);
+-  const encryptedSecret = await encryptSecret(AWS_SECRET_ACCESS_KEY);
 -
 -  const { data, error } = await supabase.from("bucket_configs").insert({
 -    phone_number: TEST_PHONE,
 -    bucket_name: "media",
--    endpoint_url: S3_ENDPOINT_URL,
+-    endpoint_url: STORAGE_S3_URL,
 -    region: "local",
--    access_key_id: S3_ACCESS_KEY_ID,
+-    access_key_id: AWS_ACCESS_KEY_ID,
 -    secret_access_key: encryptedSecret,
 -  }).select().single();
 -
@@ -830,7 +830,7 @@ index d063e57..0000000
 -
 -  assertExists(config, "Bucket config should exist");
 -  assertEquals(config.bucket_name, "media");
--  assertEquals(config.endpoint_url, S3_ENDPOINT_URL);
+-  assertEquals(config.endpoint_url, STORAGE_S3_URL);
 -
 -  console.log("✓ Bucket config ready for scanning");
 -  console.log("  - Bucket:", config.bucket_name);

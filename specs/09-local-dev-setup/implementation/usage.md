@@ -53,8 +53,8 @@ See `docs/setup/README.md` for the full quickstart narrative.
   ✓ SMGR_API_KEY is set
   ✓ SUPABASE_SECRET_KEY is set
   ✓ ENCRYPTION_KEY_CURRENT is set
-  ✓ S3_ACCESS_KEY_ID is set
-  ✓ S3_SECRET_ACCESS_KEY is set
+  ✓ AWS_ACCESS_KEY_ID is set
+  ✓ AWS_SECRET_ACCESS_KEY is set
   ✓ Supabase API reachable
   All checks passed.
 ```

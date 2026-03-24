@@ -49,7 +49,7 @@ The `setup.ts` file constructs S3 config from the Supabase URL:
 endpoint: `${SUPABASE_URL}/storage/v1/s3`
 ```
 
-The S3 env vars (`SMGR_S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_ENDPOINT_URL`) are already set in the CI job's "Configure environment for smgr" step. However, `setup.ts` uses the Supabase service key directly as S3 credentials — it doesn't read `AWS_*` vars. So the media tests only need the Supabase env vars, not the AWS ones.
+The S3 env vars (`SMGR_S3_ENDPOINT`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`) are already set in the CI job's "Configure environment for smgr" step. However, `setup.ts` uses the Supabase service key directly as S3 credentials — it doesn't read `AWS_*` vars. So the media tests only need the Supabase env vars, not the AWS ones.
 
 ## Storage Bucket
 

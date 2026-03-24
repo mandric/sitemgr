@@ -26,7 +26,7 @@ SUPABASE_SECRET_KEY=${supabase_secret_key} # wrong canonical name
 
 ### 3. `scripts/setup/verify.sh` (56 lines)
 
-Checks: `SMGR_API_URL`, `SMGR_API_KEY`, `SUPABASE_SECRET_KEY`, `ENCRYPTION_KEY_CURRENT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`. Also does connectivity test with curl.
+Checks: `SMGR_API_URL`, `SMGR_API_KEY`, `SUPABASE_SECRET_KEY`, `ENCRYPTION_KEY_CURRENT`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`. Also does connectivity test with curl.
 
 ### 4. Application Code
 

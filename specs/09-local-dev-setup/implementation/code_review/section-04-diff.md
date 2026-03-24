@@ -39,9 +39,9 @@ index fcff515..b355eef 100644
 +SMGR_S3_ENDPOINT=
 +SMGR_S3_BUCKET=media
 +SMGR_S3_REGION=local
-+S3_ACCESS_KEY_ID=
-+S3_SECRET_ACCESS_KEY=
-+S3_ENDPOINT_URL=
++AWS_ACCESS_KEY_ID=
++AWS_SECRET_ACCESS_KEY=
++AWS_ENDPOINT_URL_S3=
 +
 +# ── CLI ───────────────────────────────────────────────────────────────
 +SMGR_API_URL=

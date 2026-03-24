@@ -133,7 +133,7 @@ In `.github/workflows/ci.yml`, add to the "Configure environment for smgr" step 
   run: |
     echo "NEXT_PUBLIC_SUPABASE_URL=${{ env.SMGR_API_URL }}" >> $GITHUB_ENV
     echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ env.SMGR_API_KEY }}" >> $GITHUB_ENV
-    echo "SMGR_S3_ENDPOINT=${{ env.S3_ENDPOINT_URL }}" >> $GITHUB_ENV
+    echo "SMGR_S3_ENDPOINT=${{ env.STORAGE_S3_URL }}" >> $GITHUB_ENV
     # ... rest of existing env vars
 ```
 

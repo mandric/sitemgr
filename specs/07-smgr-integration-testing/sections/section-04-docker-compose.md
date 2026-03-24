@@ -51,8 +51,8 @@ services:
       SMGR_S3_REGION: us-east-1
       SMGR_DEVICE_ID: ci-test
       SMGR_AUTO_ENRICH: "false"
-      S3_ACCESS_KEY_ID: minioadmin
-      S3_SECRET_ACCESS_KEY: minioadmin
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
     volumes:
       - smgr-data:/root/.sitemgr
     command: ["bin/smgr.ts", "watch", "--once"]
@@ -188,8 +188,8 @@ services:
       SMGR_S3_REGION: us-east-1
       SMGR_DEVICE_ID: ci-test
       SMGR_AUTO_ENRICH: "false"
-      S3_ACCESS_KEY_ID: minioadmin
-      S3_SECRET_ACCESS_KEY: minioadmin
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
     volumes:
       - smgr-data:/root/.sitemgr
     command: ["bin/smgr.ts", "watch", "--once"]

@@ -94,21 +94,21 @@ index ad1677e..dcfa439 100755
 -    SUPABASE_ANON_KEY=$(echo "$STATUS_JSON" | jq -r '.ANON_KEY')
 -    SUPABASE_SECRET_KEY=$(echo "$STATUS_JSON" | jq -r '.SERVICE_ROLE_KEY')
 -    DB_URL=$(echo "$STATUS_JSON" | jq -r '.DB_URL')
--    S3_ENDPOINT_URL=$(echo "$STATUS_JSON" | jq -r '.S3_ENDPOINT_URL // .API_URL + "/storage/v1/s3"')
+-    STORAGE_S3_URL=$(echo "$STATUS_JSON" | jq -r '.STORAGE_S3_URL // .API_URL + "/storage/v1/s3"')
 -
 -    # Extract S3 credentials from table output (not in JSON)
 -    STATUS_TABLE=$(supabase status 2>/dev/null)
--    S3_ACCESS_KEY_ID=$(echo "$STATUS_TABLE" | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
--    S3_SECRET_ACCESS_KEY=$(echo "$STATUS_TABLE" | grep "Secret Key" | awk -F '│' '{print $3}' | tr -d ' ')
+-    AWS_ACCESS_KEY_ID=$(echo "$STATUS_TABLE" | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
+-    AWS_SECRET_ACCESS_KEY=$(echo "$STATUS_TABLE" | grep "Secret Key" | awk -F '│' '{print $3}' | tr -d ' ')
 -else
 -    echo "Warning: Could not get supabase status, using defaults"
 -    SUPABASE_URL="http://localhost:54321"
 -    SUPABASE_ANON_KEY=""
 -    SUPABASE_SECRET_KEY=""
 -    DB_URL=""
--    S3_ENDPOINT_URL="http://localhost:54321/storage/v1/s3"
--    S3_ACCESS_KEY_ID="local-access-key"
--    S3_SECRET_ACCESS_KEY="local-secret-key"
+-    STORAGE_S3_URL="http://localhost:54321/storage/v1/s3"
+-    AWS_ACCESS_KEY_ID="local-access-key"
+-    AWS_SECRET_ACCESS_KEY="local-secret-key"
 -fi
 -
 -STORAGE_ENDPOINT="$SUPABASE_URL/storage/v1"
@@ -138,7 +138,7 @@ index ad1677e..dcfa439 100755
 -NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$SUPABASE_ANON_KEY
 -
 -# smgr CLI configuration
--SMGR_S3_ENDPOINT=$S3_ENDPOINT_URL
+-SMGR_S3_ENDPOINT=$STORAGE_S3_URL
 +  fi
 +
 +  cat <<EOF
@@ -152,20 +152,20 @@ index ad1677e..dcfa439 100755
 +
 +# S3 / Storage
 +SMGR_S3_ENDPOINT=${s3_endpoint}
-+S3_ENDPOINT_URL=${s3_endpoint}
++AWS_ENDPOINT_URL_S3=${s3_endpoint}
  SMGR_S3_BUCKET=media
  SMGR_S3_REGION=local
-+S3_ACCESS_KEY_ID=${s3_key_id}
-+S3_SECRET_ACCESS_KEY=${s3_key_secret}
++AWS_ACCESS_KEY_ID=${s3_key_id}
++AWS_SECRET_ACCESS_KEY=${s3_key_secret}
 +
 +# smgr CLI
  SMGR_DEVICE_ID=local-dev
  SMGR_AUTO_ENRICH=false
  
 -# For S3 compatibility
--S3_ACCESS_KEY_ID=$S3_ACCESS_KEY_ID
--S3_SECRET_ACCESS_KEY=$S3_SECRET_ACCESS_KEY
--S3_ENDPOINT_URL=$S3_ENDPOINT_URL
+-AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+-AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+-AWS_ENDPOINT_URL_S3=$STORAGE_S3_URL
 -
 -# Database (for direct connections if needed)
 -DATABASE_URL=$DB_URL

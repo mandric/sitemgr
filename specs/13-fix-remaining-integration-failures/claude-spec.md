@@ -10,7 +10,7 @@
 The test sets `SMGR_USER_ID: ""` but doesn't override `HOME`, so the credential file fallback in `requireUserId()` succeeds. Fix: override `HOME` to an empty temp dir.
 
 ### B — E2E pipeline missing S3 env vars
-`E2E_ENV` lacks `SMGR_S3_ENDPOINT`, `SMGR_S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`. CLI subprocess defaults to real AWS S3, finds nothing. Fix: pass S3 config from `getS3Config()`.
+`E2E_ENV` lacks `SMGR_S3_ENDPOINT`, `SMGR_S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`. CLI subprocess defaults to real AWS S3, finds nothing. Fix: pass S3 config from `getS3Config()`.
 
 ### C — `get_user_id_from_phone` granted to all authenticated users
 Migration 20260321 re-granted EXECUTE to `authenticated` role (needed for webhook service account), but this is too broad. Fix: internal caller check allowing only `service_role` and `webhook@sitemgr.internal`.

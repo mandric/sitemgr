@@ -98,11 +98,11 @@ SMGR_API_KEY=${anon_key}
 
 # --- S3 / Storage ---
 SMGR_S3_ENDPOINT=${s3_endpoint}
-S3_ENDPOINT_URL=${s3_endpoint}
+AWS_ENDPOINT_URL_S3=${s3_endpoint}
 SMGR_S3_BUCKET=media
 SMGR_S3_REGION=local
-S3_ACCESS_KEY_ID=${s3_key_id}
-S3_SECRET_ACCESS_KEY=${s3_key_secret}
+AWS_ACCESS_KEY_ID=${s3_key_id}
+AWS_SECRET_ACCESS_KEY=${s3_key_secret}
 
 # --- smgr CLI ---
 SMGR_DEVICE_ID=local-dev

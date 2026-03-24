@@ -48,7 +48,7 @@ The E2E test uploads fixtures to local Supabase Storage via `getS3Config()`, but
 
 **File: `web/__tests__/integration/smgr-e2e.test.ts`**
 
-The existing fix correctly calls `getS3Config()` and adds `SMGR_S3_ENDPOINT`, `SMGR_S3_REGION`, `S3_ACCESS_KEY_ID`, and `S3_SECRET_ACCESS_KEY` to `E2E_ENV`. No revision needed — this is correct as implemented.
+The existing fix correctly calls `getS3Config()` and adds `SMGR_S3_ENDPOINT`, `SMGR_S3_REGION`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY` to `E2E_ENV`. No revision needed — this is correct as implemented.
 
 ### Tests Fixed
 

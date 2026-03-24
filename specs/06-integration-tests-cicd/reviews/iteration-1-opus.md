@@ -42,7 +42,7 @@ Section 1 adds the `NEXT_PUBLIC_*` vars to `$GITHUB_ENV`. Sections 2 and 3 then 
 
 The plan says in Section 3: "The `setup.ts` shared helper constructs S3 credentials from the Supabase service key directly, so no additional S3 env vars are needed." Looking at `setup.ts` line 84, `getS3Config()` uses `SUPABASE_SERVICE_KEY` as both `accessKeyId` and `secretAccessKey`. But the existing CI workflow (lines 90-93) extracts **separate** S3 access/secret keys using `supabase status | grep "Access Key"`.
 
-This means the media tests use a different authentication path for S3 than the rest of the CI pipeline. If Supabase Storage ever tightens S3 auth to require proper S3 credentials (not the service role key), the media tests will break. The plan should at minimum note this divergence, and ideally the tests should use the same S3 credentials the CI already extracts (`S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`).
+This means the media tests use a different authentication path for S3 than the rest of the CI pipeline. If Supabase Storage ever tightens S3 auth to require proper S3 credentials (not the service role key), the media tests will break. The plan should at minimum note this divergence, and ideally the tests should use the same S3 credentials the CI already extracts (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`).
 
 ### 6. Low-Medium: No assertion count verification
 

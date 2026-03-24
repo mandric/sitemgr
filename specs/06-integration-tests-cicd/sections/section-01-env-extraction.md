@@ -20,12 +20,12 @@ Replace the current implementation:
     echo "SUPABASE_URL=$(supabase status -o json | jq -r .API_URL)" >> $GITHUB_ENV
     echo "SUPABASE_SECRET_KEY=$(supabase status -o json | jq -r .SERVICE_ROLE_KEY)" >> $GITHUB_ENV
     echo "SUPABASE_PUBLISHABLE_KEY=$(supabase status -o json | jq -r .ANON_KEY)" >> $GITHUB_ENV
-    echo "S3_ENDPOINT_URL=$(supabase status -o json | jq -r .S3_ENDPOINT_URL)" >> $GITHUB_ENV
+    echo "STORAGE_S3_URL=$(supabase status -o json | jq -r .STORAGE_S3_URL)" >> $GITHUB_ENV
 
     AWS_ACCESS_KEY=$(supabase status | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
     AWS_SECRET_KEY=$(supabase status | grep "Secret Key" | awk -F '│' '{print $3}' | tr -d ' ')
-    echo "S3_ACCESS_KEY_ID=$AWS_ACCESS_KEY" >> $GITHUB_ENV
-    echo "S3_SECRET_ACCESS_KEY=$AWS_SECRET_KEY" >> $GITHUB_ENV
+    echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY" >> $GITHUB_ENV
+    echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_KEY" >> $GITHUB_ENV
 ```
 
 With this consolidated version:
@@ -38,12 +38,12 @@ With this consolidated version:
     echo "SUPABASE_SECRET_KEY=$(echo "$STATUS_JSON" | jq -r .SERVICE_ROLE_KEY)" >> $GITHUB_ENV
     echo "SUPABASE_PUBLISHABLE_KEY=$(echo "$STATUS_JSON" | jq -r .ANON_KEY)" >> $GITHUB_ENV
     echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$(echo "$STATUS_JSON" | jq -r .ANON_KEY)" >> $GITHUB_ENV
-    echo "S3_ENDPOINT_URL=$(echo "$STATUS_JSON" | jq -r .S3_ENDPOINT_URL)" >> $GITHUB_ENV
+    echo "STORAGE_S3_URL=$(echo "$STATUS_JSON" | jq -r .STORAGE_S3_URL)" >> $GITHUB_ENV
 
     AWS_ACCESS_KEY=$(supabase status | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
     AWS_SECRET_KEY=$(supabase status | grep "Secret Key" | awk -F '│' '{print $3}' | tr -d ' ')
-    echo "S3_ACCESS_KEY_ID=$AWS_ACCESS_KEY" >> $GITHUB_ENV
-    echo "S3_SECRET_ACCESS_KEY=$AWS_SECRET_KEY" >> $GITHUB_ENV
+    echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY" >> $GITHUB_ENV
+    echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_KEY" >> $GITHUB_ENV
 ```
 
 ### Key changes:

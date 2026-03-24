@@ -45,12 +45,12 @@ Rewrite the step to:
     echo "SUPABASE_SECRET_KEY=$(echo "$STATUS_JSON" | jq -r .SERVICE_ROLE_KEY)" >> $GITHUB_ENV
     echo "SUPABASE_PUBLISHABLE_KEY=$(echo "$STATUS_JSON" | jq -r .ANON_KEY)" >> $GITHUB_ENV
     echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$(echo "$STATUS_JSON" | jq -r .ANON_KEY)" >> $GITHUB_ENV
-    echo "S3_ENDPOINT_URL=$(echo "$STATUS_JSON" | jq -r .S3_ENDPOINT_URL)" >> $GITHUB_ENV
+    echo "STORAGE_S3_URL=$(echo "$STATUS_JSON" | jq -r .STORAGE_S3_URL)" >> $GITHUB_ENV
 
     AWS_ACCESS_KEY=$(supabase status | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
     AWS_SECRET_KEY=$(supabase status | grep "Secret Key" | awk -F '│' '{print $3}' | tr -d ' ')
-    echo "S3_ACCESS_KEY_ID=$AWS_ACCESS_KEY" >> $GITHUB_ENV
-    echo "S3_SECRET_ACCESS_KEY=$AWS_SECRET_KEY" >> $GITHUB_ENV
+    echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY" >> $GITHUB_ENV
+    echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_KEY" >> $GITHUB_ENV
 ```
 
 This reduces 4+ separate `supabase status -o json` subprocess calls to 1, avoiding flaky Docker socket issues in CI. The S3 key extraction still requires the text-format output (S3 keys aren't in the JSON output).
@@ -118,7 +118,7 @@ This runs `vitest run --config vitest.media-integration.config.ts` which execute
 - `media-s3.test.ts` — S3 upload/list/retrieve via Supabase Storage API
 - `media-pipeline.test.ts` — full pipeline combining S3 + DB with mocked enrichment
 
-60-second timeout per test. The `setup.ts` shared helper constructs S3 credentials from the Supabase service key directly (using the service role key as both `accessKeyId` and `secretAccessKey`). This works with local Supabase Storage but differs from the CI pipeline's proper S3 credentials (`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`). This divergence is acceptable for local Supabase but should be noted for future reference if S3 auth tightens.
+60-second timeout per test. The `setup.ts` shared helper constructs S3 credentials from the Supabase service key directly (using the service role key as both `accessKeyId` and `secretAccessKey`). This works with local Supabase Storage but differs from the CI pipeline's proper S3 credentials (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`). This divergence is acceptable for local Supabase but should be noted for future reference if S3 auth tightens.
 
 ## Final CI Job Step Order
 
@@ -164,7 +164,7 @@ After changes, the `integration-tests` job steps are:
 
 - Implement actual assertions in `migration-integrity.test.ts` (currently all `.todo` stubs)
 - Consider adding `passWithNoTests: false` to vitest integration configs to catch zero-assertion files
-- Align media test S3 credentials with CI's `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` if Supabase Storage tightens S3 auth
+- Align media test S3 credentials with CI's `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` if Supabase Storage tightens S3 auth
 - Add `canRun` guard to media tests for consistency with DB test pattern (or remove from DB tests — pick one convention)
 
 ## Estimated Impact on CI Time

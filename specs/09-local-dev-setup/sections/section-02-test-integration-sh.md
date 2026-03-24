@@ -40,7 +40,7 @@ grep "supabase status" scripts/test-integration.sh
 # Expected: zero matches (or only the idempotent start guard, not for extraction)
 
 # Confirm no S3 credential fallback to SUPABASE_SECRET_KEY remains
-grep 'S3_ACCESS_KEY_ID.*SUPABASE_SECRET_KEY\|SUPABASE_SECRET_KEY.*AWS' scripts/test-integration.sh
+grep 'AWS_ACCESS_KEY_ID.*SUPABASE_SECRET_KEY\|SUPABASE_SECRET_KEY.*AWS' scripts/test-integration.sh
 # Expected: zero matches
 ```
 
@@ -54,7 +54,7 @@ grep 'S3_ACCESS_KEY_ID.*SUPABASE_SECRET_KEY\|SUPABASE_SECRET_KEY.*AWS' scripts/t
 - All `export VAR=...` lines that follow
 - The echo lines printing extracted values
 - `STATUS_TABLE=$(supabase status ...)` and the `awk -F '│'` table-parsing lines for S3 keys
-- The `S3_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID:-$SUPABASE_SECRET_KEY}"` fallback and its `export`
+- The `AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-$SUPABASE_SECRET_KEY}"` fallback and its `export`
 
 **Replace with** this block, inserted after the Supabase start guard (after the `fi` closing the start guard):
 
@@ -95,14 +95,14 @@ This bucket creation is not needed. The main integration tests (`media-storage.t
 ```bash
 # S3 credentials for storage tests
 STATUS_TABLE=$(supabase status 2>/dev/null)
-S3_ACCESS_KEY_ID=$(echo "$STATUS_TABLE" | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
-S3_SECRET_ACCESS_KEY=$(echo "$STATUS_TABLE" | grep "Secret Key" | awk -F '│' '{print $3}' | tr -d ' ')
+AWS_ACCESS_KEY_ID=$(echo "$STATUS_TABLE" | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
+AWS_SECRET_ACCESS_KEY=$(echo "$STATUS_TABLE" | grep "Secret Key" | awk -F '│' '{print $3}' | tr -d ' ')
 # Fallback: use service key if S3 keys not found in status output
-export S3_ACCESS_KEY_ID="${S3_ACCESS_KEY_ID:-$SUPABASE_SECRET_KEY}"
-export S3_SECRET_ACCESS_KEY="${S3_SECRET_ACCESS_KEY:-$SUPABASE_SECRET_KEY}"
+export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-$SUPABASE_SECRET_KEY}"
+export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-$SUPABASE_SECRET_KEY}"
 ```
 
-When `.env.local` is the source of truth (populated by `local-dev.sh print_setup_env_vars`), `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` are already present with correct values. The fallback to `SUPABASE_SECRET_KEY` was an anti-pattern that silently masked extraction failures — it must not survive.
+When `.env.local` is the source of truth (populated by `local-dev.sh print_setup_env_vars`), `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` are already present with correct values. The fallback to `SUPABASE_SECRET_KEY` was an anti-pattern that silently masked extraction failures — it must not survive.
 
 ### 4. Keep everything else unchanged
 

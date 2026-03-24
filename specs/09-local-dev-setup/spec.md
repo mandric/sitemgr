@@ -31,7 +31,7 @@ zero to passing integration tests in one command, and can debug any step indepen
 `local-dev.sh` extracts S3 credentials by grepping table-formatted output from `supabase status`:
 
 ```bash
-S3_ACCESS_KEY_ID=$(echo "$STATUS_TABLE" | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
+AWS_ACCESS_KEY_ID=$(echo "$STATUS_TABLE" | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
 ```
 
 This breaks silently when Supabase CLI changes its output format. There is no validation that the
@@ -98,8 +98,8 @@ independently before being composed.
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | `supabase status` → `ANON_KEY` | Web app (browser) |
 | `SUPABASE_SECRET_KEY` | `supabase status` → `SERVICE_ROLE_KEY` | Web app (server), CLI, tests |
 | `DATABASE_URL` | `supabase status` → `DB_URL` | Direct Postgres (optional) |
-| `S3_ACCESS_KEY_ID` | `supabase status` → `S3_ACCESS_KEY` | S3 client, CLI |
-| `S3_SECRET_ACCESS_KEY` | `supabase status` → `S3_SECRET_KEY` | S3 client, CLI |
+| `AWS_ACCESS_KEY_ID` | `supabase status` → `S3_ACCESS_KEY` | S3 client, CLI |
+| `AWS_SECRET_ACCESS_KEY` | `supabase status` → `S3_SECRET_KEY` | S3 client, CLI |
 
 **Verify:** `curl -sf http://127.0.0.1:54321/rest/v1/ -H "apikey: <anon_key>"` returns 200.
 
@@ -113,7 +113,7 @@ independently before being composed.
 | `SMGR_S3_ENDPOINT` | `http://localhost:54321/storage/v1/s3` | CLI, S3 client |
 | `SMGR_S3_BUCKET` | `media` | CLI, S3 client |
 | `SMGR_S3_REGION` | `local` | S3 client |
-| `S3_ENDPOINT_URL` | Same as `SMGR_S3_ENDPOINT` | AWS SDK |
+| `AWS_ENDPOINT_URL_S3` | Same as `SMGR_S3_ENDPOINT` | AWS SDK |
 
 **Verify:** List bucket objects returns without auth error.
 

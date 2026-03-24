@@ -24,7 +24,7 @@ This document mirrors the structure of `claude-plan.md` and defines what to test
 # Verify: jq -r .API_URL extracts a non-empty URL from the captured JSON
 # Verify: jq -r .SERVICE_ROLE_KEY extracts a non-empty key
 # Verify: jq -r .ANON_KEY extracts a non-empty key
-# Verify: jq -r .S3_ENDPOINT_URL extracts a non-empty URL
+# Verify: jq -r .STORAGE_S3_URL extracts a non-empty URL
 ```
 
 ```bash
