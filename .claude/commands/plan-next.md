@@ -21,16 +21,27 @@ Provide the task description, relevant spec files, and any constraints discovere
 
 ## Phase 3: Implement → `/deep-implement`
 
-Run `/deep-implement` against the plan produced by Phase 2. This handles TDD implementation, verification, git workflow, and PR creation.
+Run `/deep-implement` against the plan produced by Phase 2. This handles TDD implementation, verification, and commits.
 
-## Phase 4: Review → `/code-review`
+## Phase 4: Create PR
 
-Run `/code-review` on the PR created by Phase 3. If the review surfaces high-confidence issues, fix them before presenting the PR to the user.
+After `/deep-implement` finishes, push and create a PR:
 
-## Phase 5: Report
+```bash
+git push -u origin <branch-name>
+gh pr create --title "<short title>" --body "<summary of changes, test results, link to issue>"
+```
 
-Summarize:
+## Phase 5: Review → `/code-review`
+
+Run `/code-review` on the PR. The review posts comments on the PR. If it surfaces high-confidence issues, fix them, push, and re-run `/code-review` until clean.
+
+## Phase 6: Ready for human review
+
+Present to the user:
 - PR URL
-- What was implemented
+- Summary of what was implemented
 - Code review results (clean or what was fixed)
-- Any items that need human attention
+- Any items that need human attention before merge
+
+**Stop here.** The user decides when to merge.
