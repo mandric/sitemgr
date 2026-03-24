@@ -15,7 +15,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 # Source shared shell library (Supabase version constants, install/start helpers)
-# shellcheck source=lib.sh
+# shellcheck source=scripts/lib.sh
 source "$REPO_ROOT/scripts/lib.sh"
 
 SKIP_OLLAMA=false
