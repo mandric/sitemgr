@@ -1,6 +1,6 @@
 # Implement Next Task
 
-## Phase 1: Select (human intervention welcome here)
+## Phase 1: Select (human intervention welcome)
 
 Find what needs doing. Check these sources in order:
 - Open GitHub issues — pick the highest-priority unassigned issue
@@ -9,20 +9,49 @@ Find what needs doing. Check these sources in order:
 
 Pick the highest-impact item that has all dependencies met. Present the choice to the user and wait for confirmation before proceeding.
 
-## Phase 2: Plan (minimize future blockers)
+## Phase 2: Research & Plan (front-load all decisions)
 
-Before writing code, do upfront work to avoid getting stuck mid-implementation:
+The goal of this phase is to produce a plan so complete that implementation can run fully autonomously — no questions, no blockers, no surprises.
 
-1. Read the relevant spec file and grep the codebase for related code
-2. Identify anything that would require human decisions (schema changes, new env vars, ambiguous requirements) — surface these **now**, not mid-implementation
-3. Write a brief implementation plan: what files to create/modify, what tests to write, what the happy path looks like
-4. If the plan touches anything in the "stop and report" list from CLAUDE.md (migrations, RLS, auth, env vars, public API changes), get approval now
+### 2a. Deep research
 
-Once the plan is confirmed (or if nothing needs confirmation), proceed autonomously.
+Before planning, build a thorough understanding of the problem space:
+
+1. **Codebase research** — Use parallel subagents to explore:
+   - Existing patterns: how similar features are structured (routes, lib modules, tests)
+   - Related code: grep for types, functions, imports that touch this area
+   - Test patterns: how neighboring features are tested (unit vs integration, mocking approach)
+   - Dependencies: what this feature depends on and what depends on the area being changed
+
+2. **Spec research** — Read the relevant spec file (`01-data-foundation/spec.md` through `05-cli/spec.md`) and cross-reference with `project-manifest.md` to understand scope boundaries
+
+3. **Constraint discovery** — Identify anything that would require human decisions:
+   - Database schema changes (new migrations, RLS policies)
+   - New environment variables needed in production
+   - Auth flow or security-sensitive changes
+   - Ambiguous requirements with multiple valid interpretations
+   - External service dependencies not yet configured
+
+### 2b. Generate autonomous implementation plan
+
+Synthesize research into a concrete plan. The plan must be specific enough that implementation requires zero human input:
+
+1. **Files to create/modify** — exact paths, not vague descriptions
+2. **Data flow** — how data moves through the system for this feature
+3. **Test strategy** — which tests to write first (TDD), what to mock, expected assertions
+4. **Edge cases** — enumerate them now so implementation handles them without pausing to think
+5. **Integration points** — how this connects to existing code, what imports/exports change
+6. **Verification criteria** — what "done" looks like beyond passing tests
+
+### 2c. Surface blockers for approval
+
+If the plan touches anything in the "stop and report" list from CLAUDE.md (migrations, RLS, auth, env vars, public API changes), present these specific items for approval **now**.
+
+For everything else, the plan itself serves as the approval gate — once the user confirms (or if nothing needs confirmation), Phase 3 runs without interruption.
 
 ## Phase 3: Implement (autonomous, don't block)
 
-From here, work autonomously. Don't ask questions — make reasonable decisions.
+From here, work autonomously. Don't ask questions — make reasonable decisions. The plan from Phase 2 is your source of truth.
 
 1. **Create a branch** from `main`:
    ```
@@ -31,9 +60,10 @@ From here, work autonomously. Don't ask questions — make reasonable decisions.
    ```
 
 2. **Implement with TDD:**
-   - Write or update tests first
+   - Write or update tests first (following the test strategy from the plan)
    - Run tests: `cd web && npm run test` (unit) or `npm run test:integration`
    - Implement until tests pass
+   - Follow the plan's file list and data flow — don't deviate without good reason
 
 3. **Verify the full suite:**
    ```bash
@@ -41,7 +71,10 @@ From here, work autonomously. Don't ask questions — make reasonable decisions.
    ```
    All five must pass. Fix any failures.
 
-4. **Commit and push.** Use clear commit messages. Create a PR with `gh pr create` including what was done and test results.
+4. **Commit and push.** Use clear commit messages. Create a PR with `gh pr create` including:
+   - Summary of what was implemented
+   - Link to the issue (if applicable)
+   - Test results
 
 5. **Report** — summarize the PR URL and changes made.
 
