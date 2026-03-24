@@ -174,9 +174,9 @@ jobs:
           source scripts/lib.sh
           env_vars=$(print_setup_env_vars)
           echo "$env_vars" >> "$GITHUB_ENV"
-          # Next.js only needs NEXT_PUBLIC_* vars — keep service role key
-          # and encryption keys out of the app runtime (CLAUDE.md policy)
-          echo "$env_vars" | grep '^NEXT_PUBLIC_' > web/.env.local
+          # Next.js needs NEXT_PUBLIC_* vars plus ENCRYPTION_KEY_CURRENT
+          # (the app encrypts/decrypts bucket config secrets at request time)
+          echo "$env_vars" | grep -E '^(NEXT_PUBLIC_|ENCRYPTION_KEY_CURRENT)' > web/.env.local
 
       - name: Run E2E tests
         run: cd web && npm run test:e2e
