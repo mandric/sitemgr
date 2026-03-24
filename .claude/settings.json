@@ -33,7 +33,8 @@
       "Bash(node *)",
       "Bash(tsx *)",
       "Bash(dockerd *)",
-      "Bash(docker *)"
+      "Bash(docker *)",
+      "Bash(sleep *)"
     ]
   },
   "hooks": {
