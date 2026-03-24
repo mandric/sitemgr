@@ -159,9 +159,8 @@ All five must pass. If any fail, fix them before committing.
 ### Slash Commands for Autonomous Work
 
 - `/implement-next` — Pick up the next unimplemented item and build it end-to-end
-- `/fix-tests` — Run the full test suite and fix all failures
 - `/verify` — Run typecheck + lint + test + build, fix any issues
-- `/pr-review` — Review the most recent (or specified) PR
+- `/code-review` — Review PRs with multi-agent confidence-scored analysis
 
 ## Installing Claude Code Plugins for Web Sessions
 
