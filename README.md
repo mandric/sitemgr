@@ -42,8 +42,7 @@ sitemgr/
 │   └── functions/     # Edge Functions (TypeScript)
 ├── scripts/           # Development scripts
 │   ├── setup.sh       # First-time setup
-│   ├── local-dev.sh   # Start local environment
-│   └── deploy.sh      # Manual deployment
+│   └── local-dev.sh   # Start local environment
 ├── tests/             # Integration tests
 └── design/            # Architecture docs
 ```
