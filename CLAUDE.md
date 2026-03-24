@@ -152,7 +152,7 @@ cd web && npm run typecheck && npm run lint && npm run test && npm run test:inte
 ```
 All five must pass. If any fail, fix them before committing.
 
-**Note:** `npm run test` runs unit tests only (`vitest run --project unit`). Integration tests (`test:integration`) and E2E tests (`test:e2e`) both require local Supabase and the web app running. The session-start hook starts Supabase automatically. Supabase version constants and install/start helpers live in `scripts/lib.sh`.
+**Note:** `npm run test` runs unit tests only (`vitest run --project unit`). Integration tests (`test:integration`) and E2E tests (`test:e2e`) both require local Supabase and the web app running. The session-start hook starts Supabase automatically. The minimum version constant (`SUPABASE_MIN_VERSION`) and install/start helpers live in `scripts/lib.sh`.
 
 **Supabase Realtime is disabled** in `supabase/config.toml` — it requires IPv6 which is unavailable in container environments (Claude Code web sessions, CI). We don't use Realtime in v1. If re-enabling, test in a container environment first.
 
@@ -160,7 +160,7 @@ All five must pass. If any fail, fix them before committing.
 
 - `/plan-next` — Pick the next task, research it deeply, and produce an autonomous implementation plan
 - `/verify` — Run typecheck + lint + test + build, fix any issues
-- `/code-review` — Review PRs with multi-agent confidence-scored analysis
+- `/code-review` — Review PRs with multi-agent confidence-scored analysis (plugin skill, not a standalone command)
 
 ## Installing Claude Code Plugins for Web Sessions
 
