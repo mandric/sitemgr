@@ -52,7 +52,17 @@ Read the code review comments and triage:
 
 If you made fixes, run `/verify` to make sure nothing broke, then push.
 
-## Phase 8: Ready for human review
+## Phase 8: Update PR
+
+Update the PR description to reflect the final state of the work:
+
+```bash
+gh pr edit <pr-number> --body "<updated summary, test results, review findings>"
+```
+
+Include: what was implemented, what code review issues were fixed, and any items left for human judgment.
+
+## Phase 9: Ready for human review
 
 Present to the user:
 - PR URL
