@@ -181,11 +181,10 @@ print_setup_env_vars() {
     return 1
   fi
 
-  local api_url anon_key service_role db_url s3_url s3_key_id s3_key_secret
+  local api_url anon_key service_role s3_url s3_key_id s3_key_secret
   api_url=$(echo "$status_json" | jq -r '.API_URL')
   anon_key=$(echo "$status_json" | jq -r '.ANON_KEY')
   service_role=$(echo "$status_json" | jq -r '.SERVICE_ROLE_KEY')
-  db_url=$(echo "$status_json" | jq -r '.DB_URL')
   s3_url=$(echo "$status_json" | jq -r '.STORAGE_S3_URL')
   s3_key_id=$(echo "$status_json" | jq -r '.S3_PROTOCOL_ACCESS_KEY_ID')
   s3_key_secret=$(echo "$status_json" | jq -r '.S3_PROTOCOL_ACCESS_KEY_SECRET')
@@ -196,11 +195,9 @@ print_setup_env_vars() {
   cat <<EOF
 NEXT_PUBLIC_SUPABASE_URL=${api_url}
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${anon_key}
-DATABASE_URL=${db_url}
 SMGR_API_URL=${api_url}
 SMGR_API_KEY=${anon_key}
 SMGR_S3_ENDPOINT=${s3_url}
-S3_ENDPOINT_URL=${s3_url}
 SMGR_S3_BUCKET=media
 SMGR_S3_REGION=local
 S3_ACCESS_KEY_ID=${s3_key_id}
@@ -237,7 +234,6 @@ verify_supabase_env() {
       ["API_URL",                      .API_URL],
       ["ANON_KEY",                     .ANON_KEY],
       ["SERVICE_ROLE_KEY",             .SERVICE_ROLE_KEY],
-      ["DB_URL",                       .DB_URL],
       ["STORAGE_S3_URL",               .STORAGE_S3_URL],
       ["S3_PROTOCOL_ACCESS_KEY_ID",    .S3_PROTOCOL_ACCESS_KEY_ID],
       ["S3_PROTOCOL_ACCESS_KEY_SECRET",.S3_PROTOCOL_ACCESS_KEY_SECRET]
