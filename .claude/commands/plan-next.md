@@ -32,9 +32,14 @@ git push -u origin <branch-name>
 gh pr create --title "<short title>" --body "<summary of changes, test results, link to issue>"
 ```
 
-## Phase 5: Review → `/code-review`
+## Phase 5: Wait for CI, then review
 
-Run `/code-review` on the PR. The review posts comments on the PR.
+Wait for the CI pipeline to complete on the PR. Poll with `gh pr checks <pr-number>` until all checks finish.
+
+- **All checks pass** — proceed to code review.
+- **Any check fails** — read the failure logs, fix the issue, push, and wait again.
+
+Once CI is green, run `/code-review` on the PR. The review posts comments on the PR.
 
 ## Phase 6: Address review findings
 
