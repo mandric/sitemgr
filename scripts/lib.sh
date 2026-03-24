@@ -179,30 +179,35 @@ print_setup_env_vars() {
     return 1
   fi
 
-  # Extract and validate all required fields in a single jq call.
-  # jq exits non-zero if any field is null, printing which ones are missing.
-  local extracted
-  if ! extracted=$(echo "$status_json" | jq -e -r '
-    def check(name): if . == null then error("missing: " + name) else . end;
-    {
-      api_url:        .API_URL        | check("API_URL"),
-      anon_key:       .ANON_KEY       | check("ANON_KEY"),
-      service_role:   .SERVICE_ROLE_KEY | check("SERVICE_ROLE_KEY"),
-      db_url:         .DB_URL         | check("DB_URL"),
-      s3_url:         .STORAGE_S3_URL | check("STORAGE_S3_URL"),
-      s3_key_id:      .S3_PROTOCOL_ACCESS_KEY_ID | check("S3_PROTOCOL_ACCESS_KEY_ID"),
-      s3_key_secret:  .S3_PROTOCOL_ACCESS_KEY_SECRET | check("S3_PROTOCOL_ACCESS_KEY_SECRET")
-    } | to_entries[] | "\(.key)=\(.value)"
-  ' 2>&1); then
+  # Validate all required fields in one pass
+  local missing
+  missing=$(echo "$status_json" | jq -r '
+    [
+      ["API_URL",                     .API_URL],
+      ["ANON_KEY",                    .ANON_KEY],
+      ["SERVICE_ROLE_KEY",            .SERVICE_ROLE_KEY],
+      ["DB_URL",                      .DB_URL],
+      ["STORAGE_S3_URL",              .STORAGE_S3_URL],
+      ["S3_PROTOCOL_ACCESS_KEY_ID",   .S3_PROTOCOL_ACCESS_KEY_ID],
+      ["S3_PROTOCOL_ACCESS_KEY_SECRET",.S3_PROTOCOL_ACCESS_KEY_SECRET]
+    ] | map(select(.[1] == null)) | .[][][0]
+  ')
+  if [ -n "$missing" ]; then
     echo "Error: Missing fields from 'supabase status -o json':" >&2
-    echo "$extracted" | grep '^jq:' | sed 's/.*missing: /  - /' >&2
+    echo "$missing" | sed 's/^/  - /' >&2
     echo "Try: supabase stop && supabase start" >&2
     return 1
   fi
 
-  # Load extracted values as local variables
+  # Extract individual values (safe — no eval)
   local api_url anon_key service_role db_url s3_url s3_key_id s3_key_secret
-  eval "$extracted"
+  api_url=$(echo "$status_json" | jq -r '.API_URL')
+  anon_key=$(echo "$status_json" | jq -r '.ANON_KEY')
+  service_role=$(echo "$status_json" | jq -r '.SERVICE_ROLE_KEY')
+  db_url=$(echo "$status_json" | jq -r '.DB_URL')
+  s3_url=$(echo "$status_json" | jq -r '.STORAGE_S3_URL')
+  s3_key_id=$(echo "$status_json" | jq -r '.S3_PROTOCOL_ACCESS_KEY_ID')
+  s3_key_secret=$(echo "$status_json" | jq -r '.S3_PROTOCOL_ACCESS_KEY_SECRET')
 
   # Verify the service role key is accepted by GoTrue
   local probe_status
