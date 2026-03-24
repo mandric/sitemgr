@@ -109,6 +109,7 @@ When to use `vi.stubEnv()` (fixtures) vs setting in CI:
 
 - `project-manifest.md` — Split structure, dependencies, and execution order
 - `01-data-foundation/spec.md` through `05-cli/spec.md` — Per-split specs for `/deep-plan`
+- Files under `specs/` are **immutable after implementation** — do not update them during refactors or renames. They are historical records of the plan at the time it was executed.
 
 ### Backlog items (not v1 scope)
 
