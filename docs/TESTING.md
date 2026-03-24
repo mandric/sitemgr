@@ -74,8 +74,8 @@ Inbucket (email)       54324   Email testing (future)
 
 **Setup:**
 ```bash
-./scripts/local-dev.sh    # Starts Supabase + configures environment
-source .env.local         # Load environment variables
+cd web && npm run setup:supabase && npm run setup:env  # Start Supabase + generate .env.local
+cd .. && source .env.local                             # Load environment variables
 ```
 
 **Workflow:**

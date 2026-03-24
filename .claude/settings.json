@@ -1,4 +1,42 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(npm run test:*)",
+      "Bash(npm run build)",
+      "Bash(npm run lint)",
+      "Bash(npm run typecheck)",
+      "Bash(npm run dev)",
+      "Bash(npm run smgr*)",
+      "Bash(npm install*)",
+      "Bash(npm ci*)",
+      "Bash(npx vitest*)",
+      "Bash(npx playwright*)",
+      "Bash(npx tsc*)",
+      "Bash(npx eslint*)",
+      "Bash(npx next*)",
+      "Bash(npx supabase*)",
+      "Bash(supabase *)",
+      "Bash(git *)",
+      "Bash(gh *)",
+      "Bash(vercel *)",
+      "Bash(cd web *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(pwd)",
+      "Bash(which *)",
+      "Bash(node *)",
+      "Bash(tsx *)",
+      "Bash(dockerd *)",
+      "Bash(docker *)",
+      "Bash(sleep *)"
+    ]
+  },
   "hooks": {
     "SessionStart": [
       {

@@ -14,7 +14,7 @@ check_prerequisites() {
   local missing=()
 
   if ! command -v supabase &>/dev/null; then
-    missing+=("  supabase — install: brew install supabase/tap/supabase")
+    missing+=("  supabase — install: source scripts/lib.sh && install_supabase_cli")
   fi
 
   if ! command -v docker &>/dev/null; then
@@ -38,7 +38,7 @@ check_prerequisites() {
   fi
 
   if ! command -v jq &>/dev/null; then
-    missing+=("  jq       — install: brew install jq")
+    missing+=("  jq       — install: source scripts/lib.sh && install_jq")
   fi
 
   if [ ${#missing[@]} -gt 0 ]; then
@@ -70,8 +70,8 @@ echo ""
 echo "Next steps:"
 echo ""
 echo "1. Start Supabase and generate environment variables:"
-echo "   ./scripts/local-dev.sh"
-echo "   ./scripts/local-dev.sh print_setup_env_vars > .env.local"
+echo "   cd web && npm run setup:supabase"
+echo "   cd web && npm run setup:env"
 echo ""
 echo "2. Verify the environment:"
 echo "   ./scripts/setup/verify.sh"

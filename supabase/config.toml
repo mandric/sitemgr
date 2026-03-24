@@ -36,8 +36,14 @@ content_path = "./supabase/templates/magic_link.html"
 subject = "Confirm email change"
 content_path = "./supabase/templates/email_change.html"
 
+[realtime]
+enabled = false  # Not needed for v1; requires IPv6 which breaks in containers
+
+[edge_runtime]
+enabled = false  # Not needed for v1; avoids extra container in CI and web sessions
+
 [analytics]
-enabled = false  # Disable analytics (causes issues with Colima Docker socket mounting)
+enabled = false  # Causes issues with Colima Docker socket mounting
 
 [functions.whatsapp]
 verify_jwt = false  # Twilio webhooks don't send JWTs

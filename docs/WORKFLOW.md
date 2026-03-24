@@ -16,7 +16,7 @@ git checkout -b feature/my-feature
 # ... edit files ...
 
 # 4. Test locally
-./scripts/local-dev.sh          # Start Supabase local
+cd web && npm run setup:supabase  # Start Supabase local
 ./scripts/test-integration.sh --skip-ollama  # Run tests
 
 # 5. Commit and push
@@ -108,7 +108,7 @@ Manual trigger → Approval required
 ./scripts/setup.sh
 
 # Start local environment
-./scripts/local-dev.sh
+cd web && npm run setup:supabase && npm run setup:env
 
 # Run tests
 ./scripts/test-integration.sh --skip-ollama

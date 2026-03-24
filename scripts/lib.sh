@@ -4,6 +4,14 @@
 #
 # Usage:
 #   source scripts/lib.sh
+#   install_shellcheck                      # install shellcheck (Linux)
+#   install_jq                              # install jq (Linux)
+#   require_supabase_version                # error if CLI too old
+#   install_supabase_cli                    # install CLI binary (Linux)
+#   start_supabase                          # idempotent start
+#   print_setup_env_vars                    # emit .env.local from running Supabase
+#   verify_supabase_env                     # check required fields in supabase status
+#   verify_gotrue <url> <key>               # probe GoTrue with service role key
 #   smoke_test                              # uses $VERCEL_APP_URL
 #   smoke_test "https://my-app.vercel.app"  # or pass explicitly
 #   vercel_log_check "dpl_abc123"
@@ -12,6 +20,261 @@
 # NOTE: Do NOT set -euo pipefail here. This file is sourced by other scripts
 # and setting shell options would affect the caller. Each calling script should
 # set its own shell options.
+
+# ---------------------------------------------------------------------------
+# Supabase CLI version constants
+# ---------------------------------------------------------------------------
+# Minimum version with ES256 JWT fix (supabase/cli#4818)
+SUPABASE_MIN_VERSION="2.76.4"
+# Pinned version used in CI — single source of truth (ci.yml reads this)
+SUPABASE_PINNED_VERSION="2.83.0"
+
+# ---------------------------------------------------------------------------
+# install_shellcheck — install shellcheck if not present (Linux only)
+#   Downloads static binary from GitHub Releases.
+#   No-op if shellcheck is already installed.
+# ---------------------------------------------------------------------------
+install_shellcheck() {
+  if command -v shellcheck &>/dev/null; then
+    return 0
+  fi
+
+  local arch
+  arch=$(uname -m)
+  local url="https://github.com/koalaman/shellcheck/releases/download/stable/shellcheck-stable.linux.${arch}.tar.xz"
+
+  local tmp
+  tmp=$(mktemp -d)
+  curl -fsSL "$url" | tar -xJ -C "$tmp"
+  if [ -w /usr/local/bin ]; then
+    cp "$tmp/shellcheck-stable/shellcheck" /usr/local/bin/shellcheck
+  else
+    mkdir -p "$HOME/.local/bin"
+    cp "$tmp/shellcheck-stable/shellcheck" "$HOME/.local/bin/shellcheck"
+    export PATH="$HOME/.local/bin:$PATH"
+  fi
+  rm -rf "$tmp"
+}
+
+# ---------------------------------------------------------------------------
+# install_jq — install jq if not present (Linux only)
+#   Uses apt-get if available, otherwise downloads binary directly.
+#   No-op if jq is already installed.
+# ---------------------------------------------------------------------------
+install_jq() {
+  if command -v jq &>/dev/null; then
+    return 0
+  fi
+
+  if command -v apt-get &>/dev/null; then
+    apt-get update -qq && apt-get install -y -qq jq
+  else
+    local arch
+    arch=$(uname -m)
+    case "$arch" in
+      x86_64)  arch="amd64" ;;
+      aarch64|arm64) arch="arm64" ;;
+    esac
+    local url="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-${arch}"
+    if [ -w /usr/local/bin ]; then
+      curl -fsSL "$url" -o /usr/local/bin/jq && chmod +x /usr/local/bin/jq
+    else
+      mkdir -p "$HOME/.local/bin"
+      curl -fsSL "$url" -o "$HOME/.local/bin/jq" && chmod +x "$HOME/.local/bin/jq"
+      export PATH="$HOME/.local/bin:$PATH"
+    fi
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# require_supabase_version — exits with an error if supabase CLI is too old
+# ---------------------------------------------------------------------------
+require_supabase_version() {
+  local version
+  version=$(supabase --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
+  if [ -z "$version" ]; then
+    echo "Warning: Could not determine Supabase CLI version." >&2
+    return
+  fi
+  local oldest
+  oldest=$(printf '%s\n%s\n' "$SUPABASE_MIN_VERSION" "$version" | sort -V | head -n1)
+  if [ "$oldest" != "$SUPABASE_MIN_VERSION" ]; then
+    echo "Error: Supabase CLI $version is too old. Minimum required: $SUPABASE_MIN_VERSION" >&2
+    echo "Older versions have a broken ES256 JWT signing bug (supabase/cli#4818)." >&2
+    echo "Reinstall: install_supabase_cli (or run session-start hook)" >&2
+    return 1
+  fi
+
+  # Warn if local version is behind the pinned CI version
+  local newest
+  newest=$(printf '%s\n%s\n' "$SUPABASE_PINNED_VERSION" "$version" | sort -V | tail -n1)
+  if [ "$newest" != "$version" ]; then
+    echo "Warning: Supabase CLI $version is behind CI pinned version $SUPABASE_PINNED_VERSION." >&2
+    echo "Consider upgrading to match CI: install_supabase_cli (or run session-start hook)" >&2
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# install_supabase_cli — download and install Supabase CLI binary (Linux only)
+#   Installs to /usr/local/bin if writable, else $HOME/.local/bin.
+#   No-op if supabase is already installed.
+#   If $CLAUDE_ENV_FILE is set and we fall back to ~/.local/bin, persists
+#   the PATH addition for the Claude Code session.
+# ---------------------------------------------------------------------------
+install_supabase_cli() {
+  if command -v supabase &>/dev/null; then
+    return 0
+  fi
+
+  local arch
+  arch=$(uname -m)
+  case "$arch" in
+    x86_64) arch="amd64" ;;
+    aarch64|arm64) arch="arm64" ;;
+  esac
+
+  local url="https://github.com/supabase/cli/releases/download/v${SUPABASE_PINNED_VERSION}/supabase_linux_${arch}.tar.gz"
+
+  if [ -w /usr/local/bin ]; then
+    curl -fsSL "$url" | tar -xz -C /usr/local/bin supabase
+  else
+    mkdir -p "$HOME/.local/bin"
+    curl -fsSL "$url" | tar -xz -C "$HOME/.local/bin" supabase
+    export PATH="$HOME/.local/bin:$PATH"
+    # Persist PATH for Claude Code web sessions
+    if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+      echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"
+    fi
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# start_supabase — idempotent start of local Supabase
+#   Service exclusions (realtime, edge_runtime) are in config.toml.
+# ---------------------------------------------------------------------------
+start_supabase() {
+  if supabase status &>/dev/null 2>&1; then
+    return 0
+  fi
+  supabase start
+}
+
+# ---------------------------------------------------------------------------
+# print_setup_env_vars — prints env vars from a running Supabase instance
+#   in dotenv format (KEY=value). Requires jq and a running Supabase.
+#   Usage: cd web && npm run setup:env
+# ---------------------------------------------------------------------------
+print_setup_env_vars() {
+  if ! command -v jq &>/dev/null; then
+    echo "Error: jq is required but not installed." >&2
+    return 1
+  fi
+
+  local status_json
+  if ! status_json=$(supabase status -o json 2>/dev/null); then
+    echo "Error: 'supabase status -o json' failed. Is Supabase running?" >&2
+    return 1
+  fi
+
+  if [ -z "$status_json" ]; then
+    echo "Error: 'supabase status -o json' returned no output." >&2
+    return 1
+  fi
+
+  local api_url anon_key service_role s3_url s3_key_id s3_key_secret
+  api_url=$(echo "$status_json" | jq -r '.API_URL')
+  anon_key=$(echo "$status_json" | jq -r '.ANON_KEY')
+  service_role=$(echo "$status_json" | jq -r '.SERVICE_ROLE_KEY')
+  s3_url=$(echo "$status_json" | jq -r '.STORAGE_S3_URL')
+  s3_key_id=$(echo "$status_json" | jq -r '.S3_PROTOCOL_ACCESS_KEY_ID')
+  s3_key_secret=$(echo "$status_json" | jq -r '.S3_PROTOCOL_ACCESS_KEY_SECRET')
+
+  local encryption_key
+  encryption_key=$(openssl rand -base64 32)
+
+  cat <<EOF
+NEXT_PUBLIC_SUPABASE_URL=${api_url}
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${anon_key}
+SMGR_API_URL=${api_url}
+SMGR_API_KEY=${anon_key}
+SMGR_S3_ENDPOINT=${s3_url}
+S3_ENDPOINT_URL=${s3_url}
+SMGR_S3_BUCKET=media
+SMGR_S3_REGION=local
+S3_ACCESS_KEY_ID=${s3_key_id}
+S3_SECRET_ACCESS_KEY=${s3_key_secret}
+SMGR_DEVICE_ID=local-dev
+SMGR_AUTO_ENRICH=false
+ENCRYPTION_KEY_CURRENT=${encryption_key}
+WEBHOOK_SERVICE_ACCOUNT_EMAIL=webhook@sitemgr.internal
+WEBHOOK_SERVICE_ACCOUNT_PASSWORD=unused-password-webhook-uses-service-token
+SUPABASE_SERVICE_ROLE_KEY=${service_role}
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# verify_supabase_env — checks that all required fields are present in
+#   supabase status JSON output. Run before print_setup_env_vars when you
+#   want to fail early on missing fields.
+# ---------------------------------------------------------------------------
+verify_supabase_env() {
+  if ! command -v jq &>/dev/null; then
+    echo "Error: jq is required but not installed." >&2
+    return 1
+  fi
+
+  local status_json
+  if ! status_json=$(supabase status -o json 2>/dev/null); then
+    echo "Error: 'supabase status -o json' failed. Is Supabase running?" >&2
+    return 1
+  fi
+
+  local missing
+  missing=$(echo "$status_json" | jq -r '
+    [
+      ["API_URL",                      .API_URL],
+      ["ANON_KEY",                     .ANON_KEY],
+      ["SERVICE_ROLE_KEY",             .SERVICE_ROLE_KEY],
+      ["STORAGE_S3_URL",               .STORAGE_S3_URL],
+      ["S3_PROTOCOL_ACCESS_KEY_ID",    .S3_PROTOCOL_ACCESS_KEY_ID],
+      ["S3_PROTOCOL_ACCESS_KEY_SECRET",.S3_PROTOCOL_ACCESS_KEY_SECRET]
+    ] | map(select(.[1] == null)) | .[][][0]
+  ')
+  if [ -n "$missing" ]; then
+    echo "Error: Missing fields from 'supabase status -o json':" >&2
+    while IFS= read -r field; do
+      echo "  - $field" >&2
+    done <<< "$missing"
+    echo "Try: supabase stop && supabase start" >&2
+    return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# verify_gotrue — probes GoTrue to confirm the service role key works.
+#   Useful during interactive dev setup; not needed in CI where tests
+#   will surface auth failures directly.
+# ---------------------------------------------------------------------------
+verify_gotrue() {
+  local api_url="${1:?Usage: verify_gotrue <api_url> <service_role_key>}"
+  local service_role_key="${2:?Usage: verify_gotrue <api_url> <service_role_key>}"
+
+  local probe_status
+  probe_status=$(curl -s -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer ${service_role_key}" \
+    -H "apikey: ${service_role_key}" \
+    "${api_url}/auth/v1/admin/users?per_page=1")
+  if [ "$probe_status" = "000" ]; then
+    echo "Error: Could not reach GoTrue at ${api_url}/auth/v1/." >&2
+    echo "Make sure Supabase is fully started before generating env vars." >&2
+    return 1
+  fi
+  if [ "$probe_status" -lt 200 ] || [ "$probe_status" -ge 300 ]; then
+    echo "Error: Service role key rejected by GoTrue (HTTP ${probe_status})." >&2
+    echo "Upgrade Supabase CLI to >= ${SUPABASE_MIN_VERSION}." >&2
+    return 1
+  fi
+}
 
 # ---------------------------------------------------------------------------
 # smoke_test [deploy_url]

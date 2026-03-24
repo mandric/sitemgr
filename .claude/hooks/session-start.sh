@@ -26,10 +26,18 @@ if [ -n "${GH_REPO_DETECTED:-}" ]; then
   export GH_REPO="$GH_REPO_DETECTED"
 fi
 
+# Source shared shell library (Supabase version constants, install/start helpers)
+# shellcheck source=../../../scripts/lib.sh
+source "$CLAUDE_PROJECT_DIR/scripts/lib.sh"
+
+# Install jq (required for env var generation and smoke tests)
+install_jq
+
+# Install shellcheck (required for shell script linting)
+install_shellcheck
+
 # Install Supabase CLI if not present
-if ! command -v supabase &>/dev/null; then
-  npm install -g supabase
-fi
+install_supabase_cli
 
 # Install Vercel CLI if not present
 if ! command -v vercel &>/dev/null; then
@@ -47,8 +55,12 @@ npm install
 
 # Start local Supabase (if not already running)
 cd "$CLAUDE_PROJECT_DIR"
-if ! supabase status &>/dev/null 2>&1; then
-  supabase start
+start_supabase
+
+# Generate .env.local from running Supabase (needed for integration tests)
+if [ ! -f "$CLAUDE_PROJECT_DIR/.env.local" ]; then
+  print_setup_env_vars > "$CLAUDE_PROJECT_DIR/.env.local" \
+    && echo "Generated .env.local from Supabase"
 fi
 
 # Plugin installation (ensures plugins are available in web sessions)

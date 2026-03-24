@@ -8,11 +8,11 @@ Media management system with LLM enrichment and WhatsApp bot interface.
 # 1. Run setup (installs Node.js dependencies)
 ./scripts/setup.sh
 
-# 2. Start Supabase and configure
-./scripts/local-dev.sh
+# 2. Start Supabase and generate env vars
+cd web && npm run setup:supabase && npm run setup:env
 
 # 3. Load environment variables
-source .env.local
+cd .. && source .env.local
 
 # 4. Run the CLI
 cd web && npm run smgr stats
@@ -41,9 +41,7 @@ sitemgr/
 │   ├── migrations/    # Database schema
 │   └── functions/     # Edge Functions (TypeScript)
 ├── scripts/           # Development scripts
-│   ├── setup.sh       # First-time setup
-│   ├── local-dev.sh   # Start local environment
-│   └── deploy.sh      # Manual deployment
+│   └── setup.sh       # First-time setup
 ├── tests/             # Integration tests
 └── design/            # Architecture docs
 ```
@@ -91,8 +89,8 @@ npm run smgr enrich -- --pending
 
 ```bash
 # Start environment
-./scripts/local-dev.sh
-source .env.local
+cd web && npm run setup:supabase && npm run setup:env
+cd .. && source .env.local
 
 # Run unit tests
 cd web && npm test

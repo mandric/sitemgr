@@ -21,7 +21,7 @@ This applies to error objects too — preserve the full object (`code`, `details
 **Core Principle: Tests use fixtures, production uses secrets**
 
 **Encryption Keys (Status-Based Naming):**
-- `ENCRYPTION_KEY_CURRENT` - Active key for new encryptions (required in production)
+- `ENCRYPTION_KEY_CURRENT` - Active key for new encryptions (required wherever the Next.js app runs: production, preview, local dev, E2E)
 - `ENCRYPTION_KEY_PREVIOUS` - Old key for decryption during rotation (optional in production)
 - `ENCRYPTION_KEY_NEXT` - Future key for gradual rollout (optional in production)
 - **DO NOT USE**: `ENCRYPTION_KEY`, `ENCRYPTION_KEY_V1`, `ENCRYPTION_KEY_V2`, `ENCRYPTION_KEY_V3` (legacy, removed)
@@ -29,7 +29,7 @@ This applies to error objects too — preserve the full object (`code`, `details
 
 **Supabase Service Role Key (Test/Admin Only):**
 - Application code (CLI, agent core, health endpoint, webhook handler) **never** uses the service role key
-- The service role key only appears in: integration test setup (`setup.ts`), CI deployment scripts, `scripts/setup/verify.sh`
+- The service role key only appears in: `.env.local` (for integration tests), integration test setup (`setup.ts`), CI deployment scripts, `scripts/setup/verify.sh`
 - The WhatsApp webhook uses a dedicated service account (`webhook@sitemgr.internal`) with narrowly-scoped RLS policies instead of the service role key
 - `WEBHOOK_SERVICE_ACCOUNT_EMAIL` and `WEBHOOK_SERVICE_ACCOUNT_PASSWORD` are Vercel Production runtime secrets for the webhook handler
 
@@ -57,10 +57,18 @@ When to use `vi.stubEnv()` (fixtures) vs setting in CI:
   });
   ```
 
-**E2E Tests:**
-- Only set env vars for services the test actually connects to
-- Current: Supabase URL/key (because E2E connects to local Supabase)
-- Not encryption keys (E2E doesn't exercise encryption paths)
+**E2E Tests (three runtimes):**
+
+E2E involves three separate runtimes, each with different env var needs:
+1. **Supabase** (Postgres, Auth, Storage) — started via `supabase start`, configured by `supabase/config.toml`
+2. **Next.js web app** (API routes + frontend) — the system under test, needs all env vars required for request handling
+3. **Playwright test runner** — drives the browser, only needs the app URL and Supabase URL/key to set up test users
+
+The web app needs `ENCRYPTION_KEY_CURRENT` in `.env.local` because API routes encrypt/decrypt bucket config secrets at request time. This must be a valid encryption key (correct length/format for AES) since data round-trips through Supabase during E2E — it's a **local dev secret**, not a throwaway fixture. It should never be reused in production.
+
+- **Supabase runtime**: No app-level env vars needed (configured via `config.toml`)
+- **Next.js runtime** (`.env.local`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `ENCRYPTION_KEY_CURRENT` (local dev secret)
+- **Playwright runtime**: Only needs the app URL to connect to
 - Not API keys (E2E doesn't call external APIs)
 
 **Never add production secrets to GitHub for tests** - use fixtures instead
@@ -109,12 +117,59 @@ When to use `vi.stubEnv()` (fixtures) vs setting in CI:
 
 - `project-manifest.md` — Split structure, dependencies, and execution order
 - `01-data-foundation/spec.md` through `05-cli/spec.md` — Per-split specs for `/deep-plan`
+- Files under `specs/` are **immutable after implementation** — do not update them during refactors or renames. They are historical records of the plan at the time it was executed.
 
 ### Backlog items (not v1 scope)
 
 - BYO S3-compatible storage (any provider, not just Supabase)
 - Local-first / offline mode with per-device SQLite
 - Enrichment metadata as sidecar files in S3 (post-prototype idea)
+
+## Autonomous Operation
+
+### Decision-Making Heuristics
+
+When running autonomously (via `/plan-next`, triggers, or background sessions), follow these rules to avoid blocking on human input:
+
+**Always safe to do without asking:**
+- Run tests, typecheck, lint, build
+- Read any file in the repo
+- Create/switch branches
+- Fix failing tests by reading test expectations and matching source code
+- Add new test files following existing patterns
+- Push to `claude/*` branches
+- Create PRs via `gh pr create`
+
+**Make your best judgment (don't ask):**
+- Choose between two reasonable implementation approaches — pick the simpler one
+- Decide on function/variable naming — match neighboring code style
+- Choose where to put new code — follow the existing module structure in `lib/`
+- Handle edge cases — follow patterns from similar code in the repo
+
+**Stop and report (don't guess):**
+- Database schema changes (new migrations, RLS policy changes)
+- Changes to auth flows or security-sensitive code
+- Adding new environment variables to production
+- Deleting or significantly restructuring existing features
+- Anything that would change the public API contract
+
+### Verification Checklist
+
+Before considering any implementation task done, run:
+```bash
+cd web && npm run typecheck && npm run lint && npm run test && npm run test:integration && npm run build
+```
+All five must pass. If any fail, fix them before committing.
+
+**Note:** `npm run test` runs unit tests only (`vitest run --project unit`). Integration tests (`test:integration`) and E2E tests (`test:e2e`) both require local Supabase and the web app running. The session-start hook starts Supabase automatically. The minimum version constant (`SUPABASE_MIN_VERSION`) and install/start helpers live in `scripts/lib.sh`.
+
+**Supabase Realtime is disabled** in `supabase/config.toml` — it requires IPv6 which is unavailable in container environments (Claude Code web sessions, CI). We don't use Realtime in v1. If re-enabling, test in a container environment first.
+
+### Slash Commands for Autonomous Work
+
+- `/plan-next` — Pick the next task, research it deeply, and produce an autonomous implementation plan
+- `/verify` — Run typecheck + lint + test + build, fix any issues
+- `/code-review` — Review PRs with multi-agent confidence-scored analysis (plugin skill, not a standalone command)
 
 ## Installing Claude Code Plugins for Web Sessions
 
