@@ -89,48 +89,18 @@ jobs:
           supabase start
           echo "Supabase started successfully"
 
-      - name: Extract Supabase connection details
+      - name: Configure environment
         run: |
-          supabase status -o json | jq -r '
-            "SMGR_API_URL=\(.API_URL)",
-            "SMGR_API_KEY=\(.ANON_KEY)",
-            "NEXT_PUBLIC_SUPABASE_URL=\(.API_URL)",
-            "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=\(.ANON_KEY)",
-            "SUPABASE_SERVICE_ROLE_KEY=\(.SERVICE_ROLE_KEY)",
-            "S3_ENDPOINT_URL=\(.STORAGE_S3_URL)",
-            "S3_ACCESS_KEY_ID=\(.S3_PROTOCOL_ACCESS_KEY_ID)",
-            "S3_SECRET_ACCESS_KEY=\(.S3_PROTOCOL_ACCESS_KEY_SECRET)"
-          ' >> "$GITHUB_ENV"
+          source scripts/lib.sh
+          print_setup_env_vars >> "$GITHUB_ENV"
+          # CI-specific overrides
+          echo "SMGR_DEVICE_ID=ci-test" >> "$GITHUB_ENV"
+          echo "SMGR_AUTO_ENRICH=true" >> "$GITHUB_ENV"
+          echo "SMGR_OLLAMA_URL=http://localhost:11434" >> "$GITHUB_ENV"
+          echo "SMGR_VISION_MODEL=moondream:1.8b" >> "$GITHUB_ENV"
 
       - name: Create webhook service account
         run: bash scripts/create-webhook-user.sh "${{ env.SMGR_API_URL }}" "${{ env.SUPABASE_SERVICE_ROLE_KEY }}"
-
-      - name: Verify integration test env vars
-        run: |
-          missing=0
-          for var in SMGR_API_URL SMGR_API_KEY SUPABASE_SERVICE_ROLE_KEY NEXT_PUBLIC_SUPABASE_URL NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY; do
-            if [ -z "${!var}" ] || [ "${!var}" = "null" ]; then
-              echo "ERROR: $var is not set (value: '${!var}')"
-              missing=1
-            fi
-          done
-          if [ "$missing" -eq 1 ]; then
-            echo "::error::Required env vars are missing. Run supabase start and check supabase status -o json."
-            exit 1
-          fi
-          echo "All required env vars verified"
-
-      - name: Configure environment for smgr
-        run: |
-          echo "SMGR_S3_ENDPOINT=${{ env.S3_ENDPOINT_URL }}" >> $GITHUB_ENV
-          echo "SMGR_S3_BUCKET=media" >> $GITHUB_ENV
-          echo "SMGR_S3_REGION=local" >> $GITHUB_ENV
-          echo "SMGR_DEVICE_ID=ci-test" >> $GITHUB_ENV
-          echo "SMGR_AUTO_ENRICH=true" >> $GITHUB_ENV
-          echo "SMGR_OLLAMA_URL=http://localhost:11434" >> $GITHUB_ENV
-          echo "SMGR_VISION_MODEL=moondream:1.8b" >> $GITHUB_ENV
-          echo "WEBHOOK_SERVICE_ACCOUNT_EMAIL=webhook@sitemgr.internal" >> $GITHUB_ENV
-          echo "WEBHOOK_SERVICE_ACCOUNT_PASSWORD=unused-password-webhook-uses-service-token" >> $GITHUB_ENV
 
       - name: Install Ollama
         run: curl -fsSL https://ollama.com/install.sh | sh
@@ -197,20 +167,12 @@ jobs:
       - name: Install Playwright browsers
         run: cd web && npx playwright install --with-deps chromium
 
-      - name: Extract Supabase connection details
+      - name: Configure environment
         run: |
-          supabase status -o json | jq -r '
-            "SUPABASE_URL=\(.API_URL)",
-            "SUPABASE_PUBLISHABLE_KEY=\(.ANON_KEY)"
-          ' >> "$GITHUB_ENV"
-
-      - name: Set up environment for E2E tests
-        run: |
-          cd web
-          printf '%s\n' \
-            "NEXT_PUBLIC_SUPABASE_URL=${{ env.SUPABASE_URL }}" \
-            "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ env.SUPABASE_PUBLISHABLE_KEY }}" \
-            > .env.local
+          source scripts/lib.sh
+          env_vars=$(print_setup_env_vars)
+          echo "$env_vars" >> "$GITHUB_ENV"
+          echo "$env_vars" > web/.env.local
 
       - name: Run E2E tests
         run: cd web && npm run test:e2e

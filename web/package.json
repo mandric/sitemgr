@@ -6,7 +6,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "setup:env": "../scripts/local-dev.sh print_setup_env_vars > ../.env.local && echo 'Generated .env.local from running Supabase instance'",
+    "setup:env": "bash -c 'source ../scripts/lib.sh && print_setup_env_vars > ../.env.local' && echo 'Generated .env.local from running Supabase instance'",
     "setup:supabase": "../scripts/local-dev.sh",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",

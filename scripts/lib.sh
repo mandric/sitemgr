@@ -179,40 +179,36 @@ print_setup_env_vars() {
     return 1
   fi
 
-  local api_url anon_key service_role_key db_url s3_key_id s3_key_secret
-  api_url=$(echo "$status_json" | jq -r '.API_URL')
-  anon_key=$(echo "$status_json" | jq -r '.ANON_KEY')
-  service_role_key=$(echo "$status_json" | jq -r '.SERVICE_ROLE_KEY')
-  db_url=$(echo "$status_json" | jq -r '.DB_URL')
-  s3_key_id=$(echo "$status_json" | jq -r '.S3_PROTOCOL_ACCESS_KEY_ID')
-  s3_key_secret=$(echo "$status_json" | jq -r '.S3_PROTOCOL_ACCESS_KEY_SECRET')
-
-  # Validate required fields before emitting any output
-  local missing=()
-  if [ -z "$api_url" ] || [ "$api_url" = "null" ]; then missing+=("API_URL"); fi
-  if [ -z "$anon_key" ] || [ "$anon_key" = "null" ]; then missing+=("ANON_KEY"); fi
-  if [ -z "$service_role_key" ] || [ "$service_role_key" = "null" ]; then missing+=("SERVICE_ROLE_KEY"); fi
-  if [ -z "$s3_key_id" ] || [ "$s3_key_id" = "null" ]; then missing+=("S3_PROTOCOL_ACCESS_KEY_ID"); fi
-  if [ -z "$s3_key_secret" ] || [ "$s3_key_secret" = "null" ]; then missing+=("S3_PROTOCOL_ACCESS_KEY_SECRET"); fi
-
-  if [ ${#missing[@]} -gt 0 ]; then
+  # Extract and validate all required fields in a single jq call.
+  # jq exits non-zero if any field is null, printing which ones are missing.
+  local extracted
+  if ! extracted=$(echo "$status_json" | jq -e -r '
+    def check(name): if . == null then error("missing: " + name) else . end;
+    {
+      api_url:        .API_URL        | check("API_URL"),
+      anon_key:       .ANON_KEY       | check("ANON_KEY"),
+      service_role:   .SERVICE_ROLE_KEY | check("SERVICE_ROLE_KEY"),
+      db_url:         .DB_URL         | check("DB_URL"),
+      s3_url:         .STORAGE_S3_URL | check("STORAGE_S3_URL"),
+      s3_key_id:      .S3_PROTOCOL_ACCESS_KEY_ID | check("S3_PROTOCOL_ACCESS_KEY_ID"),
+      s3_key_secret:  .S3_PROTOCOL_ACCESS_KEY_SECRET | check("S3_PROTOCOL_ACCESS_KEY_SECRET")
+    } | to_entries[] | "\(.key)=\(.value)"
+  ' 2>&1); then
     echo "Error: Missing fields from 'supabase status -o json':" >&2
-    for f in "${missing[@]}"; do
-      echo "  - $f" >&2
-    done
+    echo "$extracted" | grep '^jq:' | sed 's/.*missing: /  - /' >&2
     echo "Try: supabase stop && supabase start" >&2
     return 1
   fi
 
-  local s3_endpoint="${api_url}/storage/v1/s3"
-  local encryption_key
-  encryption_key=$(openssl rand -base64 32)
+  # Load extracted values as local variables
+  local api_url anon_key service_role db_url s3_url s3_key_id s3_key_secret
+  eval "$extracted"
 
   # Verify the service role key is accepted by GoTrue
   local probe_status
   probe_status=$(curl -s -o /dev/null -w '%{http_code}' \
-    -H "Authorization: Bearer ${service_role_key}" \
-    -H "apikey: ${service_role_key}" \
+    -H "Authorization: Bearer ${service_role}" \
+    -H "apikey: ${service_role}" \
     "${api_url}/auth/v1/admin/users?per_page=1")
   if [ "$probe_status" = "000" ]; then
     echo "Error: Could not reach GoTrue at ${api_url}/auth/v1/." >&2
@@ -225,43 +221,27 @@ print_setup_env_vars() {
     return 1
   fi
 
+  local encryption_key
+  encryption_key=$(openssl rand -base64 32)
+
   cat <<EOF
-# --- Web app (Supabase) ---
 NEXT_PUBLIC_SUPABASE_URL=${api_url}
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${anon_key}
 DATABASE_URL=${db_url}
-
-# --- CLI (auth provider -- same Supabase instance in local dev) ---
 SMGR_API_URL=${api_url}
 SMGR_API_KEY=${anon_key}
-
-# --- S3 / Storage ---
-SMGR_S3_ENDPOINT=${s3_endpoint}
-S3_ENDPOINT_URL=${s3_endpoint}
+SMGR_S3_ENDPOINT=${s3_url}
+S3_ENDPOINT_URL=${s3_url}
 SMGR_S3_BUCKET=media
 SMGR_S3_REGION=local
 S3_ACCESS_KEY_ID=${s3_key_id}
 S3_SECRET_ACCESS_KEY=${s3_key_secret}
-
-# --- smgr CLI ---
 SMGR_DEVICE_ID=local-dev
 SMGR_AUTO_ENRICH=false
-
-# --- Encryption (generated fresh -- local dev data is ephemeral) ---
 ENCRYPTION_KEY_CURRENT=${encryption_key}
-
-# --- Webhook service account (for WhatsApp webhook) ---
 WEBHOOK_SERVICE_ACCOUNT_EMAIL=webhook@sitemgr.internal
 WEBHOOK_SERVICE_ACCOUNT_PASSWORD=unused-password-webhook-uses-service-token
-
-# --- Service role key (tests and admin scripts only -- NOT for app code) ---
-SUPABASE_SERVICE_ROLE_KEY=${service_role_key}
-
-# --- Optional -- uncomment and fill in as needed ---
-# ANTHROPIC_API_KEY=
-# TWILIO_ACCOUNT_SID=
-# TWILIO_AUTH_TOKEN=
-# TWILIO_WHATSAPP_FROM=
+SUPABASE_SERVICE_ROLE_KEY=${service_role}
 EOF
 }
 
