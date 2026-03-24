@@ -162,7 +162,7 @@ start_supabase() {
 # ---------------------------------------------------------------------------
 # print_setup_env_vars — prints env vars from a running Supabase instance
 #   in dotenv format (KEY=value). Requires jq and a running Supabase.
-#   Usage: print_setup_env_vars > .env.local
+#   Usage: cd web && npm run setup:env
 # ---------------------------------------------------------------------------
 print_setup_env_vars() {
   if ! command -v jq &>/dev/null; then

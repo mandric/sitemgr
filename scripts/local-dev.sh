@@ -37,7 +37,7 @@ start_local_dev() {
   echo "Supabase Studio:  http://localhost:54323"
   echo ""
   echo "Save environment variables:"
-  echo "  ./scripts/local-dev.sh print_setup_env_vars > .env.local"
+  echo "  cd web && npm run setup:env"
   echo ""
   echo "Verify setup:  ./scripts/setup/verify.sh"
   echo "Unit tests:    cd web && npm test"

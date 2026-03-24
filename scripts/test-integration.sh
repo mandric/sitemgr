@@ -57,7 +57,7 @@ start_supabase
 
 if [ ! -f ".env.local" ]; then
   echo "ERROR: .env.local not found. Run ./scripts/local-dev.sh first:" >&2
-  echo "  ./scripts/local-dev.sh print_setup_env_vars > .env.local" >&2
+  echo "  cd web && npm run setup:env" >&2
   exit 1
 fi
 set -a
@@ -67,7 +67,7 @@ set +a
 
 if [ -z "${SMGR_API_URL:-}" ]; then
   echo "ERROR: SMGR_API_URL is not set after sourcing .env.local." >&2
-  echo "Re-generate it: ./scripts/local-dev.sh print_setup_env_vars > .env.local" >&2
+  echo "Re-generate it: cd web && npm run setup:env" >&2
   exit 1
 fi
 

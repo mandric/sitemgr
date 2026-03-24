@@ -11,7 +11,7 @@
 
 1. `./scripts/setup.sh` — validates required tools and installs npm dependencies
 2. `./scripts/local-dev.sh` — starts Supabase (idempotent; safe to re-run if already running)
-3. `./scripts/local-dev.sh print_setup_env_vars > .env.local` — writes `.env.local` with all required vars including a generated encryption key
+3. `cd web && npm run setup:env` — writes `.env.local` with all required vars including a generated encryption key
 4. `./scripts/setup/verify.sh` — confirms Supabase is reachable and all required env vars are set
 
 ## Running Tests
@@ -22,7 +22,7 @@
 ## Resetting
 
 - `supabase db reset` — wipes the local database and replays migrations; `.env.local` is unaffected
-- Re-run `./scripts/local-dev.sh print_setup_env_vars > .env.local` if Supabase keys change (safe to re-run; generates a new encryption key each time — this is intentional since local dev data is ephemeral)
+- Re-run `cd web && npm run setup:env` if Supabase keys change (safe to re-run; generates a new encryption key each time — this is intentional since local dev data is ephemeral)
 
 ## Stopping
 
