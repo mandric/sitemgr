@@ -29,7 +29,7 @@ This applies to error objects too — preserve the full object (`code`, `details
 
 **Supabase Service Role Key (Test/Admin Only):**
 - Application code (CLI, agent core, health endpoint, webhook handler) **never** uses the service role key
-- The service role key only appears in: integration test setup (`setup.ts`), CI deployment scripts, `scripts/setup/verify.sh`
+- The service role key only appears in: `.env.local` (for integration tests), integration test setup (`setup.ts`), CI deployment scripts, `scripts/setup/verify.sh`
 - The WhatsApp webhook uses a dedicated service account (`webhook@sitemgr.internal`) with narrowly-scoped RLS policies instead of the service role key
 - `WEBHOOK_SERVICE_ACCOUNT_EMAIL` and `WEBHOOK_SERVICE_ACCOUNT_PASSWORD` are Vercel Production runtime secrets for the webhook handler
 
