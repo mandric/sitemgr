@@ -120,7 +120,7 @@ When to use `vi.stubEnv()` (fixtures) vs setting in CI:
 
 ### Decision-Making Heuristics
 
-When running autonomously (via `/implement-next`, triggers, or background sessions), follow these rules to avoid blocking on human input:
+When running autonomously (via `/plan-next`, triggers, or background sessions), follow these rules to avoid blocking on human input:
 
 **Always safe to do without asking:**
 - Run tests, typecheck, lint, build
@@ -158,7 +158,7 @@ All five must pass. If any fail, fix them before committing.
 
 ### Slash Commands for Autonomous Work
 
-- `/implement-next` — Pick up the next unimplemented item and build it end-to-end
+- `/plan-next` — Pick the next task, research it deeply, and produce an autonomous implementation plan
 - `/verify` — Run typecheck + lint + test + build, fix any issues
 - `/code-review` — Review PRs with multi-agent confidence-scored analysis
 

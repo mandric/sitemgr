@@ -1,4 +1,4 @@
-# Implement Next Task
+# Plan Next Task
 
 ## Phase 1: Select (human intervention welcome)
 
