@@ -91,18 +91,16 @@ jobs:
 
       - name: Extract Supabase connection details
         run: |
-          set -euo pipefail
-          eval "$(supabase status -o env)"
-          {
-            echo "SMGR_API_URL=$API_URL"
-            echo "SMGR_API_KEY=$ANON_KEY"
-            echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"
-            echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$ANON_KEY"
-            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
-            echo "STORAGE_S3_URL=${STORAGE_S3_URL:-$(supabase status -o json | jq -r .STORAGE_S3_URL)}"
-            echo "AWS_ACCESS_KEY_ID=$S3_PROTOCOL_ACCESS_KEY_ID"
-            echo "AWS_SECRET_ACCESS_KEY=$S3_PROTOCOL_ACCESS_KEY_SECRET"
-          } >> "$GITHUB_ENV"
+          supabase status -o json | jq -r '
+            "SMGR_API_URL=\(.API_URL)",
+            "SMGR_API_KEY=\(.ANON_KEY)",
+            "NEXT_PUBLIC_SUPABASE_URL=\(.API_URL)",
+            "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=\(.ANON_KEY)",
+            "SUPABASE_SERVICE_ROLE_KEY=\(.SERVICE_ROLE_KEY)",
+            "STORAGE_S3_URL=\(.STORAGE_S3_URL)",
+            "AWS_ACCESS_KEY_ID=\(.S3_PROTOCOL_ACCESS_KEY_ID)",
+            "AWS_SECRET_ACCESS_KEY=\(.S3_PROTOCOL_ACCESS_KEY_SECRET)"
+          ' >> "$GITHUB_ENV"
 
       - name: Create webhook service account
         run: bash scripts/create-webhook-user.sh "${{ env.SMGR_API_URL }}" "${{ env.SUPABASE_SERVICE_ROLE_KEY }}"
@@ -202,11 +200,10 @@ jobs:
 
       - name: Extract Supabase connection details
         run: |
-          eval "$(supabase status -o env)"
-          {
-            echo "SUPABASE_URL=$API_URL"
-            echo "SUPABASE_PUBLISHABLE_KEY=$ANON_KEY"
-          } >> "$GITHUB_ENV"
+          supabase status -o json | jq -r '
+            "SUPABASE_URL=\(.API_URL)",
+            "SUPABASE_PUBLISHABLE_KEY=\(.ANON_KEY)"
+          ' >> "$GITHUB_ENV"
 
       - name: Set up environment for E2E tests
         run: |
