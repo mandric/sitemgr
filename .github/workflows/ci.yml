@@ -92,18 +92,17 @@ jobs:
       - name: Extract Supabase connection details
         run: |
           set -euo pipefail
-          STATUS_JSON=$(supabase status -o json)
-          echo "SMGR_API_URL=$(echo "$STATUS_JSON" | jq -r .API_URL)" >> $GITHUB_ENV
-          echo "SMGR_API_KEY=$(echo "$STATUS_JSON" | jq -r .ANON_KEY)" >> $GITHUB_ENV
-          echo "NEXT_PUBLIC_SUPABASE_URL=$(echo "$STATUS_JSON" | jq -r .API_URL)" >> $GITHUB_ENV
-          echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$(echo "$STATUS_JSON" | jq -r .ANON_KEY)" >> $GITHUB_ENV
-          echo "SUPABASE_SERVICE_ROLE_KEY=$(echo "$STATUS_JSON" | jq -r .SERVICE_ROLE_KEY)" >> $GITHUB_ENV
-          echo "STORAGE_S3_URL=$(echo "$STATUS_JSON" | jq -r .STORAGE_S3_URL)" >> $GITHUB_ENV
-
-          AWS_ACCESS_KEY=$(supabase status | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
-          AWS_SECRET_KEY=$(supabase status | grep "Secret Key" | awk -F '│' '{print $3}' | tr -d ' ')
-          echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_KEY" >> $GITHUB_ENV
+          eval "$(supabase status -o env)"
+          {
+            echo "SMGR_API_URL=$API_URL"
+            echo "SMGR_API_KEY=$ANON_KEY"
+            echo "NEXT_PUBLIC_SUPABASE_URL=$API_URL"
+            echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$ANON_KEY"
+            echo "SUPABASE_SERVICE_ROLE_KEY=$SERVICE_ROLE_KEY"
+            echo "STORAGE_S3_URL=${STORAGE_S3_URL:-$(supabase status -o json | jq -r .STORAGE_S3_URL)}"
+            echo "AWS_ACCESS_KEY_ID=$S3_PROTOCOL_ACCESS_KEY_ID"
+            echo "AWS_SECRET_ACCESS_KEY=$S3_PROTOCOL_ACCESS_KEY_SECRET"
+          } >> "$GITHUB_ENV"
 
       - name: Create webhook service account
         run: bash scripts/create-webhook-user.sh "${{ env.SMGR_API_URL }}" "${{ env.SUPABASE_SERVICE_ROLE_KEY }}"
@@ -203,8 +202,11 @@ jobs:
 
       - name: Extract Supabase connection details
         run: |
-          echo "SUPABASE_URL=$(supabase status -o json | jq -r .API_URL)" >> $GITHUB_ENV
-          echo "SUPABASE_PUBLISHABLE_KEY=$(supabase status -o json | jq -r .ANON_KEY)" >> $GITHUB_ENV
+          eval "$(supabase status -o env)"
+          {
+            echo "SUPABASE_URL=$API_URL"
+            echo "SUPABASE_PUBLISHABLE_KEY=$ANON_KEY"
+          } >> "$GITHUB_ENV"
 
       - name: Set up environment for E2E tests
         run: |
