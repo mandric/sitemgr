@@ -13,19 +13,15 @@ The spec is the source of truth for what to build. It may live as:
 - A `spec.md` file in `specs/<NN>-<name>/`
 - A GitHub issue body with requirements and acceptance criteria
 
-## Phase 2: Select (human intervention welcome)
+## Phase 2: Confirm spec with user (human intervention welcome)
 
-If the spec covers multiple tasks, pick the highest-impact item that has all dependencies met. Cross-reference with:
-- The project manifest (`project-manifest.md`) — check dependency order
-- Open GitHub issues — check priority and assignment
+Present the spec to the user and wait for confirmation before proceeding.
 
-Present the choice to the user and wait for confirmation before proceeding.
-
-If the task touches anything in the "stop and report" list from CLAUDE.md (migrations, RLS, auth, new production env vars, public API changes), flag it **now** before planning begins.
+If the spec touches anything in the "stop and report" list from CLAUDE.md (migrations, RLS, auth, new production env vars, public API changes), flag it **now** before planning begins.
 
 ## Phase 3: Plan → `/deep-plan`
 
-Run `/deep-plan` for the selected task. Pass the spec (file path or issue URL) as input. This produces a detailed, sectionized, TDD-oriented implementation plan with multi-LLM review.
+Run `/deep-plan`, passing the spec (file path or issue URL) as input. `/deep-plan` owns task breakdown internally — a spec is a single unit of work for one session. This produces a detailed, sectionized, TDD-oriented implementation plan with multi-LLM review.
 
 ## Phase 4: Implement → `/deep-implement`
 
