@@ -67,9 +67,7 @@ if ! command -v supabase &> /dev/null; then
     echo "❌ Supabase CLI not found"
     echo ""
     echo "Install it with:"
-    echo "  brew install supabase/tap/supabase"
-    echo "  # or"
-    echo "  npm install -g supabase"
+    echo "  source scripts/lib.sh && install_supabase_cli"
     exit 1
 fi
 

@@ -30,6 +30,9 @@ fi
 # shellcheck source=../../../scripts/lib.sh
 source "$CLAUDE_PROJECT_DIR/scripts/lib.sh"
 
+# Install jq (required for env var generation and smoke tests)
+install_jq
+
 # Install Supabase CLI if not present
 install_supabase_cli
 
@@ -53,12 +56,8 @@ start_supabase
 
 # Generate .env.local from running Supabase (needed for integration tests)
 if [ ! -f "$CLAUDE_PROJECT_DIR/.env.local" ]; then
-  if command -v jq &>/dev/null; then
-    "$CLAUDE_PROJECT_DIR/scripts/local-dev.sh" print_setup_env_vars > "$CLAUDE_PROJECT_DIR/.env.local" \
-      && echo "Generated .env.local from Supabase"
-  else
-    echo "Warning: jq not installed, skipping .env.local generation"
-  fi
+  print_setup_env_vars > "$CLAUDE_PROJECT_DIR/.env.local" \
+    && echo "Generated .env.local from Supabase"
 fi
 
 # Plugin installation (ensures plugins are available in web sessions)

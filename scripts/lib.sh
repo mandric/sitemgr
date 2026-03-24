@@ -4,9 +4,11 @@
 #
 # Usage:
 #   source scripts/lib.sh
+#   install_jq                              # install jq (Linux)
 #   require_supabase_version                # error if CLI too old
 #   install_supabase_cli                    # install CLI binary (Linux)
 #   start_supabase                          # idempotent start
+#   print_setup_env_vars                    # emit .env.local from running Supabase
 #   smoke_test                              # uses $VERCEL_APP_URL
 #   smoke_test "https://my-app.vercel.app"  # or pass explicitly
 #   vercel_log_check "dpl_abc123"
@@ -25,6 +27,36 @@ SUPABASE_MIN_VERSION="2.76.4"
 SUPABASE_INSTALL_VERSION="2.83.0"
 
 # ---------------------------------------------------------------------------
+# install_jq — install jq if not present (Linux only)
+#   Uses apt-get if available, otherwise downloads binary directly.
+#   No-op if jq is already installed.
+# ---------------------------------------------------------------------------
+install_jq() {
+  if command -v jq &>/dev/null; then
+    return 0
+  fi
+
+  if command -v apt-get &>/dev/null; then
+    apt-get update -qq && apt-get install -y -qq jq
+  else
+    local arch
+    arch=$(uname -m)
+    case "$arch" in
+      x86_64)  arch="amd64" ;;
+      aarch64|arm64) arch="arm64" ;;
+    esac
+    local url="https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-${arch}"
+    if [ -w /usr/local/bin ]; then
+      curl -fsSL "$url" -o /usr/local/bin/jq && chmod +x /usr/local/bin/jq
+    else
+      mkdir -p "$HOME/.local/bin"
+      curl -fsSL "$url" -o "$HOME/.local/bin/jq" && chmod +x "$HOME/.local/bin/jq"
+      export PATH="$HOME/.local/bin:$PATH"
+    fi
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # require_supabase_version — exits with an error if supabase CLI is too old
 # ---------------------------------------------------------------------------
 require_supabase_version() {
@@ -39,7 +71,7 @@ require_supabase_version() {
   if [ "$oldest" != "$SUPABASE_MIN_VERSION" ]; then
     echo "Error: Supabase CLI $version is too old. Minimum required: $SUPABASE_MIN_VERSION" >&2
     echo "Older versions have a broken ES256 JWT signing bug (supabase/cli#4818)." >&2
-    echo "Upgrade: brew upgrade supabase" >&2
+    echo "Reinstall: install_supabase_cli (or run session-start hook)" >&2
     return 1
   fi
 }
@@ -80,13 +112,121 @@ install_supabase_cli() {
 
 # ---------------------------------------------------------------------------
 # start_supabase — idempotent start of local Supabase
-#   Always excludes edge-runtime and realtime (not used in v1).
+#   Service exclusions (realtime, edge_runtime) are in config.toml.
 # ---------------------------------------------------------------------------
 start_supabase() {
   if supabase status &>/dev/null 2>&1; then
     return 0
   fi
-  supabase start --exclude edge-runtime,realtime
+  supabase start
+}
+
+# ---------------------------------------------------------------------------
+# print_setup_env_vars — prints all required local env vars to stdout in
+#   dotenv format (KEY=value). Requires jq and a running Supabase instance.
+#   Usage: print_setup_env_vars > .env.local
+# ---------------------------------------------------------------------------
+print_setup_env_vars() {
+  if ! command -v jq &>/dev/null; then
+    echo "Error: jq is required but not installed." >&2
+    return 1
+  fi
+
+  local status_json
+  if ! status_json=$(supabase status -o json 2>/dev/null); then
+    echo "Error: 'supabase status -o json' failed. Is Supabase running?" >&2
+    return 1
+  fi
+
+  if [ -z "$status_json" ]; then
+    echo "Error: 'supabase status -o json' returned no output." >&2
+    return 1
+  fi
+
+  local api_url anon_key service_role_key db_url s3_key_id s3_key_secret
+  api_url=$(echo "$status_json" | jq -r '.API_URL')
+  anon_key=$(echo "$status_json" | jq -r '.ANON_KEY')
+  service_role_key=$(echo "$status_json" | jq -r '.SERVICE_ROLE_KEY')
+  db_url=$(echo "$status_json" | jq -r '.DB_URL')
+  s3_key_id=$(echo "$status_json" | jq -r '.S3_PROTOCOL_ACCESS_KEY_ID')
+  s3_key_secret=$(echo "$status_json" | jq -r '.S3_PROTOCOL_ACCESS_KEY_SECRET')
+
+  # Validate required fields before emitting any output
+  local missing=()
+  if [ -z "$api_url" ] || [ "$api_url" = "null" ]; then missing+=("API_URL"); fi
+  if [ -z "$anon_key" ] || [ "$anon_key" = "null" ]; then missing+=("ANON_KEY"); fi
+  if [ -z "$service_role_key" ] || [ "$service_role_key" = "null" ]; then missing+=("SERVICE_ROLE_KEY"); fi
+  if [ -z "$s3_key_id" ] || [ "$s3_key_id" = "null" ]; then missing+=("S3_PROTOCOL_ACCESS_KEY_ID"); fi
+  if [ -z "$s3_key_secret" ] || [ "$s3_key_secret" = "null" ]; then missing+=("S3_PROTOCOL_ACCESS_KEY_SECRET"); fi
+
+  if [ ${#missing[@]} -gt 0 ]; then
+    echo "Error: Missing fields from 'supabase status -o json':" >&2
+    for f in "${missing[@]}"; do
+      echo "  - $f" >&2
+    done
+    echo "Try: supabase stop && supabase start" >&2
+    return 1
+  fi
+
+  local s3_endpoint="${api_url}/storage/v1/s3"
+  local encryption_key
+  encryption_key=$(openssl rand -base64 32)
+
+  # Verify the service role key is accepted by GoTrue
+  local probe_status
+  probe_status=$(curl -s -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer ${service_role_key}" \
+    -H "apikey: ${service_role_key}" \
+    "${api_url}/auth/v1/admin/users?per_page=1")
+  if [ "$probe_status" = "000" ]; then
+    echo "Error: Could not reach GoTrue at ${api_url}/auth/v1/." >&2
+    echo "Make sure Supabase is fully started before generating env vars." >&2
+    return 1
+  fi
+  if [ "$probe_status" -lt 200 ] || [ "$probe_status" -ge 300 ]; then
+    echo "Error: Service role key rejected by GoTrue (HTTP ${probe_status})." >&2
+    echo "Upgrade Supabase CLI to >= ${SUPABASE_MIN_VERSION}." >&2
+    return 1
+  fi
+
+  cat <<EOF
+# --- Web app (Supabase) ---
+NEXT_PUBLIC_SUPABASE_URL=${api_url}
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${anon_key}
+DATABASE_URL=${db_url}
+
+# --- CLI (auth provider -- same Supabase instance in local dev) ---
+SMGR_API_URL=${api_url}
+SMGR_API_KEY=${anon_key}
+
+# --- S3 / Storage ---
+SMGR_S3_ENDPOINT=${s3_endpoint}
+AWS_ENDPOINT_URL_S3=${s3_endpoint}
+SMGR_S3_BUCKET=media
+SMGR_S3_REGION=local
+AWS_ACCESS_KEY_ID=${s3_key_id}
+AWS_SECRET_ACCESS_KEY=${s3_key_secret}
+
+# --- smgr CLI ---
+SMGR_DEVICE_ID=local-dev
+SMGR_AUTO_ENRICH=false
+
+# --- Encryption (generated fresh -- local dev data is ephemeral) ---
+ENCRYPTION_KEY_CURRENT=${encryption_key}
+
+# --- Webhook service account (for WhatsApp webhook) ---
+WEBHOOK_SERVICE_ACCOUNT_EMAIL=webhook@sitemgr.internal
+WEBHOOK_SERVICE_ACCOUNT_PASSWORD=unused-password-webhook-uses-service-token
+
+# --- Service role key (tests and admin scripts only -- NOT for app code) ---
+SUPABASE_SERVICE_ROLE_KEY=${service_role_key}
+
+# --- Optional -- uncomment and fill in as needed ---
+# ANTHROPIC_API_KEY=
+# TWILIO_ACCOUNT_SID=
+# TWILIO_AUTH_TOKEN=
+# TWILIO_WHATSAPP_FROM=
+EOF
 }
 
 # ---------------------------------------------------------------------------

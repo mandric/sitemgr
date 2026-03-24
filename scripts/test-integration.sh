@@ -34,7 +34,7 @@ check_cmd() {
   fi
 }
 
-check_cmd supabase "Install: brew install supabase/tap/supabase"
+check_cmd supabase "Install: source scripts/lib.sh && install_supabase_cli"
 check_cmd docker   "Install Docker Desktop or docker engine"
 check_cmd node     "Install Node.js 20+: https://nodejs.org/"
 

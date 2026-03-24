@@ -81,7 +81,7 @@ jobs:
 
       - name: Start Supabase local environment
         run: |
-          supabase start --exclude edge-runtime,realtime
+          supabase start
           echo "Supabase started successfully"
 
       - name: Extract Supabase connection details
@@ -186,7 +186,7 @@ jobs:
         run: cd web && npm ci
 
       - name: Start Supabase
-        run: supabase start --exclude edge-runtime,realtime
+        run: supabase start
 
       - name: Install Playwright browsers
         run: cd web && npx playwright install --with-deps chromium
