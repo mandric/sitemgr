@@ -33,6 +33,9 @@ source "$CLAUDE_PROJECT_DIR/scripts/lib.sh"
 # Install jq (required for env var generation and smoke tests)
 install_jq
 
+# Install shellcheck (required for shell script linting)
+install_shellcheck
+
 # Install Supabase CLI if not present
 install_supabase_cli
 

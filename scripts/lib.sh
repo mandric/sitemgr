@@ -4,6 +4,7 @@
 #
 # Usage:
 #   source scripts/lib.sh
+#   install_shellcheck                      # install shellcheck (Linux)
 #   install_jq                              # install jq (Linux)
 #   require_supabase_version                # error if CLI too old
 #   install_supabase_cli                    # install CLI binary (Linux)
@@ -25,6 +26,33 @@
 SUPABASE_MIN_VERSION="2.76.4"
 # Pinned version used in CI — single source of truth (ci.yml reads this)
 SUPABASE_PINNED_VERSION="2.83.0"
+
+# ---------------------------------------------------------------------------
+# install_shellcheck — install shellcheck if not present (Linux only)
+#   Downloads static binary from GitHub Releases.
+#   No-op if shellcheck is already installed.
+# ---------------------------------------------------------------------------
+install_shellcheck() {
+  if command -v shellcheck &>/dev/null; then
+    return 0
+  fi
+
+  local arch
+  arch=$(uname -m)
+  local url="https://github.com/koalaman/shellcheck/releases/download/stable/shellcheck-stable.linux.${arch}.tar.xz"
+
+  local tmp
+  tmp=$(mktemp -d)
+  curl -fsSL "$url" | tar -xJ -C "$tmp"
+  if [ -w /usr/local/bin ]; then
+    cp "$tmp/shellcheck-stable/shellcheck" /usr/local/bin/shellcheck
+  else
+    mkdir -p "$HOME/.local/bin"
+    cp "$tmp/shellcheck-stable/shellcheck" "$HOME/.local/bin/shellcheck"
+    export PATH="$HOME/.local/bin:$PATH"
+  fi
+  rm -rf "$tmp"
+}
 
 # ---------------------------------------------------------------------------
 # install_jq — install jq if not present (Linux only)
