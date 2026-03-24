@@ -55,8 +55,8 @@ The current setup has several silent failure modes:
   - `API_URL` → `NEXT_PUBLIC_SUPABASE_URL`, `SMGR_API_URL`
   - `ANON_KEY` → `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SMGR_API_KEY`
   - `SERVICE_ROLE_KEY` → `SUPABASE_SECRET_KEY`
-  - `S3_PROTOCOL_ACCESS_KEY_ID` → `AWS_ACCESS_KEY_ID`
-  - `S3_PROTOCOL_ACCESS_KEY_SECRET` → `AWS_SECRET_ACCESS_KEY`
+  - `S3_PROTOCOL_ACCESS_KEY_ID` → `S3_ACCESS_KEY_ID`
+  - `S3_PROTOCOL_ACCESS_KEY_SECRET` → `S3_SECRET_ACCESS_KEY`
 - Generate `ENCRYPTION_KEY_CURRENT` if not already in `.env.local`:
   ```bash
   if ! grep -q "ENCRYPTION_KEY_CURRENT=" .env.local 2>/dev/null; then
@@ -138,13 +138,13 @@ Checking local dev environment...
   ✓ SMGR_API_KEY is set
   ✓ SUPABASE_SECRET_KEY is set
   ✓ ENCRYPTION_KEY_CURRENT is set
-  ✓ AWS_ACCESS_KEY_ID is set
+  ✓ S3_ACCESS_KEY_ID is set
 All checks passed.
 ```
 
 Checks:
 1. `curl -sf $SMGR_API_URL/rest/v1/ -H "apikey: $SMGR_API_KEY"` returns 200
-2. Required env vars are non-empty: `SMGR_API_URL`, `SMGR_API_KEY`, `SUPABASE_SECRET_KEY`, `ENCRYPTION_KEY_CURRENT`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+2. Required env vars are non-empty: `SMGR_API_URL`, `SMGR_API_KEY`, `SUPABASE_SECRET_KEY`, `ENCRYPTION_KEY_CURRENT`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`
 
 Does not check Storage (bucket access) or DB directly — vitest globalSetup covers integration-level validation.
 

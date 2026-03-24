@@ -48,8 +48,8 @@ index 0000000..1268510
 +check_var "SMGR_API_KEY"
 +check_var "SUPABASE_SECRET_KEY"
 +check_var "ENCRYPTION_KEY_CURRENT"
-+check_var "AWS_ACCESS_KEY_ID"
-+check_var "AWS_SECRET_ACCESS_KEY"
++check_var "S3_ACCESS_KEY_ID"
++check_var "S3_SECRET_ACCESS_KEY"
 +check_api_reachable
 +
 +if [ "$failures" -eq 0 ]; then

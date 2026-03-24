@@ -10,7 +10,7 @@ Rewrite `scripts/local-dev.sh` to eliminate four independent silent failure mode
 
 The current script (`scripts/local-dev.sh`) has these problems:
 
-1. **Table parsing.** S3 credentials are extracted with `awk -F '│'` against Unicode box-drawing characters in `supabase status` plain-text output. This is an internal CLI formatting detail that can change silently, leaving `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` as empty strings with no error.
+1. **Table parsing.** S3 credentials are extracted with `awk -F '│'` against Unicode box-drawing characters in `supabase status` plain-text output. This is an internal CLI formatting detail that can change silently, leaving `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` as empty strings with no error.
 
 2. **Missing encryption key.** The script never sets `ENCRYPTION_KEY_CURRENT`. The web application (`web/lib/crypto/encryption-versioned.ts`) requires it for encrypting data at rest. A developer running `next dev` after setup will encounter runtime errors immediately.
 
@@ -41,7 +41,7 @@ There is no automated unit test framework for shell scripts. The following manua
 # Test: all required vars are present in output
 ./scripts/local-dev.sh print_setup_env_vars | grep NEXT_PUBLIC_SUPABASE_URL
 ./scripts/local-dev.sh print_setup_env_vars | grep ENCRYPTION_KEY_CURRENT
-./scripts/local-dev.sh print_setup_env_vars | grep AWS_ACCESS_KEY_ID
+./scripts/local-dev.sh print_setup_env_vars | grep S3_ACCESS_KEY_ID
 
 # Test: redirect to file produces sourceable output
 ./scripts/local-dev.sh print_setup_env_vars > .env.local.test
@@ -89,7 +89,7 @@ Add a function named `print_setup_env_vars` that:
 
 1. Runs `supabase status -o json` and stores the result. If the command fails or returns empty output, print an error to stderr and exit non-zero.
 2. Uses `jq -r` to extract each field. All field names from the JSON are uppercase (e.g., `API_URL`, `ANON_KEY`, `S3_PROTOCOL_ACCESS_KEY_ID`).
-3. Derives `SMGR_S3_ENDPOINT` and `AWS_ENDPOINT_URL_S3` from `API_URL` by appending `/storage/v1/s3`.
+3. Derives `SMGR_S3_ENDPOINT` and `S3_ENDPOINT_URL` from `API_URL` by appending `/storage/v1/s3`.
 4. Generates `ENCRYPTION_KEY_CURRENT` fresh with `openssl rand -base64 32`. Always generate a new key — local dev data is ephemeral.
 5. Prints all variables in dotenv format (`KEY=value`) to stdout.
 6. Includes commented-out placeholders for optional vars.
@@ -102,9 +102,9 @@ Variable mapping (JSON key → dotenv variable(s)):
 | `ANON_KEY` | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SMGR_API_KEY` |
 | `SERVICE_ROLE_KEY` | `SUPABASE_SECRET_KEY` |
 | `DB_URL` | `DATABASE_URL` |
-| `S3_PROTOCOL_ACCESS_KEY_ID` | `AWS_ACCESS_KEY_ID` |
-| `S3_PROTOCOL_ACCESS_KEY_SECRET` | `AWS_SECRET_ACCESS_KEY` |
-| `$API_URL/storage/v1/s3` (derived) | `SMGR_S3_ENDPOINT`, `AWS_ENDPOINT_URL_S3` |
+| `S3_PROTOCOL_ACCESS_KEY_ID` | `S3_ACCESS_KEY_ID` |
+| `S3_PROTOCOL_ACCESS_KEY_SECRET` | `S3_SECRET_ACCESS_KEY` |
+| `$API_URL/storage/v1/s3` (derived) | `SMGR_S3_ENDPOINT`, `S3_ENDPOINT_URL` |
 
 Fixed CLI vars (always printed with these literal values):
 
@@ -171,7 +171,7 @@ To save environment variables:
 - Running `./scripts/local-dev.sh` twice does not error on the second run
 - Running `./scripts/local-dev.sh print_setup_env_vars | grep -c '='` returns at least 12 lines
 - `./scripts/local-dev.sh print_setup_env_vars | grep ENCRYPTION_KEY_CURRENT` returns a non-empty base64 value
-- `./scripts/local-dev.sh print_setup_env_vars | grep AWS_ACCESS_KEY_ID` returns the actual Supabase local S3 key (not empty, not a fallback literal like `local-access-key`)
+- `./scripts/local-dev.sh print_setup_env_vars | grep S3_ACCESS_KEY_ID` returns the actual Supabase local S3 key (not empty, not a fallback literal like `local-access-key`)
 - No `awk`, `grep "Access Key"`, or `grep "Secret Key"` patterns remain in the script
 - No `curl` bucket-creation call remains in the script
 - Running the script with Supabase stopped exits non-zero with a clear message

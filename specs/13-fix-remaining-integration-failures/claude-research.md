@@ -15,7 +15,7 @@
 
 ### S3/Storage Patterns
 
-- `createS3Client(config)` in `web/lib/media/s3.ts` reads `SMGR_S3_ENDPOINT`, `SMGR_S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+- `createS3Client(config)` in `web/lib/media/s3.ts` reads `SMGR_S3_ENDPOINT`, `SMGR_S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`
 - E2E test uploads fixtures to local Supabase Storage via `getS3Config()` but the `E2E_ENV` object passed to CLI subprocesses was **missing** S3 endpoint and credentials — the CLI subprocess couldn't find the locally-uploaded objects
 
 ### CLI Test Patterns
@@ -43,7 +43,7 @@
 
 - Three Supabase CLI usages in ci.yml: integration-tests, e2e-tests, deploy
 - All were using `version: latest` which could pull broken versions
-- CI extracts S3 credentials from `supabase status` and sets `SMGR_S3_ENDPOINT`, `AWS_ACCESS_KEY_ID`, etc. as env vars
+- CI extracts S3 credentials from `supabase status` and sets `SMGR_S3_ENDPOINT`, `S3_ACCESS_KEY_ID`, etc. as env vars
 
 ---
 

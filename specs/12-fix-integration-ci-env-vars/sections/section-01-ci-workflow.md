@@ -63,14 +63,14 @@ The resulting step should look like:
         run: |
           echo "NEXT_PUBLIC_SUPABASE_URL=${{ env.SMGR_API_URL }}" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${{ env.SMGR_API_KEY }}" >> $GITHUB_ENV
-          echo "SMGR_S3_ENDPOINT=${{ env.STORAGE_S3_URL }}" >> $GITHUB_ENV
+          echo "SMGR_S3_ENDPOINT=${{ env.S3_ENDPOINT_URL }}" >> $GITHUB_ENV
           echo "SMGR_S3_BUCKET=media" >> $GITHUB_ENV
           echo "SMGR_S3_REGION=local" >> $GITHUB_ENV
           echo "SMGR_DEVICE_ID=ci-test" >> $GITHUB_ENV
           echo "SMGR_AUTO_ENRICH=true" >> $GITHUB_ENV
           echo "SMGR_OLLAMA_URL=http://localhost:11434" >> $GITHUB_ENV
           echo "SMGR_VISION_MODEL=moondream:1.8b" >> $GITHUB_ENV
-          echo "AWS_ENDPOINT_URL_S3=${{ env.STORAGE_S3_URL }}" >> $GITHUB_ENV
+          echo "S3_ENDPOINT_URL=${{ env.S3_ENDPOINT_URL }}" >> $GITHUB_ENV
           echo "WEBHOOK_SERVICE_ACCOUNT_EMAIL=webhook@sitemgr.internal" >> $GITHUB_ENV
           echo "WEBHOOK_SERVICE_ACCOUNT_PASSWORD=unused-password-webhook-uses-service-token" >> $GITHUB_ENV
 ```

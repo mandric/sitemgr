@@ -40,7 +40,7 @@ The review makes a good point: bucket non-existence was the most common silent f
 ### 8. Specify `SMGR_S3_ENDPOINT` derivation (MEDIUM)
 The `-o env` output from Supabase CLI does not include a pre-constructed S3 URL. It must be constructed as `$API_URL/storage/v1/s3`. Adding this to the variable mapping table in Section 2.
 
-**Plan update:** Section 2 variable mapping table includes `SMGR_S3_ENDPOINT` and `AWS_ENDPOINT_URL_S3` as derived from `$API_URL`.
+**Plan update:** Section 2 variable mapping table includes `SMGR_S3_ENDPOINT` and `S3_ENDPOINT_URL` as derived from `$API_URL`.
 
 ### 9. Update printed instructions at end of `local-dev.sh` (MEDIUM)
 The script currently prints "Run integration tests: `./tests/integration_test.sh`". This must change to `./scripts/test-integration.sh`. Adding to Section 2.

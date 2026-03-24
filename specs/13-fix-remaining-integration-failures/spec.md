@@ -103,8 +103,8 @@ const E2E_ENV: Record<string, string> = {
   SMGR_AUTO_ENRICH: "false",
   SMGR_S3_ENDPOINT: s3Config.endpoint,
   SMGR_S3_REGION: s3Config.region,
-  AWS_ACCESS_KEY_ID: s3Config.credentials.accessKeyId,
-  AWS_SECRET_ACCESS_KEY: s3Config.credentials.secretAccessKey,
+  S3_ACCESS_KEY_ID: s3Config.credentials.accessKeyId,
+  S3_SECRET_ACCESS_KEY: s3Config.credentials.secretAccessKey,
 };
 ```
 

@@ -682,9 +682,9 @@ Enrich flags:
 S3 flags (watch, add):
   --bucket B             S3 bucket name (or SMGR_S3_BUCKET)
   --endpoint URL         Custom S3 endpoint (or SMGR_S3_ENDPOINT)
-  --region R             AWS region (or SMGR_S3_REGION, default: us-east-1)
-  --access-key-id K      AWS access key (or AWS_ACCESS_KEY_ID)
-  --secret-access-key S  AWS secret key (or AWS_SECRET_ACCESS_KEY)
+  --region R             S3 region (or SMGR_S3_REGION, default: us-east-1)
+  --access-key-id K      S3 access key (or S3_ACCESS_KEY_ID)
+  --secret-access-key S  S3 secret key (or S3_SECRET_ACCESS_KEY)
   --device-id D          Device identifier (or SMGR_DEVICE_ID, default: default)
 
 Watch flags:
@@ -705,7 +705,7 @@ Environment:
   SMGR_API_KEY           Backend public key (required)
   SMGR_S3_BUCKET         S3 bucket name
   SMGR_S3_ENDPOINT       Custom S3 endpoint (for Supabase Storage)
-  SMGR_S3_REGION         AWS region (default: us-east-1)
+  SMGR_S3_REGION         S3 region (default: us-east-1)
   ANTHROPIC_API_KEY      For enrichment
   SMGR_DEVICE_ID         Device identifier (default: default)
   SMGR_WATCH_INTERVAL    Poll interval in seconds (default: 60)

@@ -40,12 +40,12 @@ The smgr e2e integration test (Section 06) uploads images and verifies that the 
 
       - name: Configure environment for smgr
         run: |
-          echo "SMGR_S3_ENDPOINT=${{ env.STORAGE_S3_URL }}" >> $GITHUB_ENV
+          echo "SMGR_S3_ENDPOINT=${{ env.S3_ENDPOINT_URL }}" >> $GITHUB_ENV
           echo "SMGR_S3_BUCKET=media" >> $GITHUB_ENV
           echo "SMGR_S3_REGION=local" >> $GITHUB_ENV
           echo "SMGR_DEVICE_ID=ci-test" >> $GITHUB_ENV
           echo "SMGR_AUTO_ENRICH=false" >> $GITHUB_ENV
-          echo "AWS_ENDPOINT_URL_S3=${{ env.STORAGE_S3_URL }}" >> $GITHUB_ENV
+          echo "S3_ENDPOINT_URL=${{ env.S3_ENDPOINT_URL }}" >> $GITHUB_ENV
 
       - name: Create storage bucket
         run: |
@@ -130,14 +130,14 @@ Change these two lines in the existing step:
 ```yaml
       - name: Configure environment for smgr
         run: |
-          echo "SMGR_S3_ENDPOINT=${{ env.STORAGE_S3_URL }}" >> $GITHUB_ENV
+          echo "SMGR_S3_ENDPOINT=${{ env.S3_ENDPOINT_URL }}" >> $GITHUB_ENV
           echo "SMGR_S3_BUCKET=media" >> $GITHUB_ENV
           echo "SMGR_S3_REGION=local" >> $GITHUB_ENV
           echo "SMGR_DEVICE_ID=ci-test" >> $GITHUB_ENV
           echo "SMGR_AUTO_ENRICH=true" >> $GITHUB_ENV
           echo "SMGR_OLLAMA_URL=http://localhost:11434" >> $GITHUB_ENV
           echo "SMGR_VISION_MODEL=moondream:1.8b" >> $GITHUB_ENV
-          echo "AWS_ENDPOINT_URL_S3=${{ env.STORAGE_S3_URL }}" >> $GITHUB_ENV
+          echo "S3_ENDPOINT_URL=${{ env.S3_ENDPOINT_URL }}" >> $GITHUB_ENV
 ```
 
 Changes from the existing step:
@@ -179,12 +179,12 @@ After all changes, the job should look like this:
           echo "SUPABASE_SECRET_KEY=$(echo "$STATUS_JSON" | jq -r .SERVICE_ROLE_KEY)" >> $GITHUB_ENV
           echo "SUPABASE_PUBLISHABLE_KEY=$(echo "$STATUS_JSON" | jq -r .ANON_KEY)" >> $GITHUB_ENV
           echo "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=$(echo "$STATUS_JSON" | jq -r .ANON_KEY)" >> $GITHUB_ENV
-          echo "STORAGE_S3_URL=$(echo "$STATUS_JSON" | jq -r .STORAGE_S3_URL)" >> $GITHUB_ENV
+          echo "S3_ENDPOINT_URL=$(echo "$STATUS_JSON" | jq -r .S3_ENDPOINT_URL)" >> $GITHUB_ENV
 
           AWS_ACCESS_KEY=$(supabase status | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
           AWS_SECRET_KEY=$(supabase status | grep "Secret Key" | awk -F '│' '{print $3}' | tr -d ' ')
-          echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_KEY" >> $GITHUB_ENV
+          echo "S3_ACCESS_KEY_ID=$AWS_ACCESS_KEY" >> $GITHUB_ENV
+          echo "S3_SECRET_ACCESS_KEY=$AWS_SECRET_KEY" >> $GITHUB_ENV
 
       - name: Verify integration test env vars
         run: |
@@ -203,14 +203,14 @@ After all changes, the job should look like this:
 
       - name: Configure environment for smgr
         run: |
-          echo "SMGR_S3_ENDPOINT=${{ env.STORAGE_S3_URL }}" >> $GITHUB_ENV
+          echo "SMGR_S3_ENDPOINT=${{ env.S3_ENDPOINT_URL }}" >> $GITHUB_ENV
           echo "SMGR_S3_BUCKET=media" >> $GITHUB_ENV
           echo "SMGR_S3_REGION=local" >> $GITHUB_ENV
           echo "SMGR_DEVICE_ID=ci-test" >> $GITHUB_ENV
           echo "SMGR_AUTO_ENRICH=true" >> $GITHUB_ENV
           echo "SMGR_OLLAMA_URL=http://localhost:11434" >> $GITHUB_ENV
           echo "SMGR_VISION_MODEL=moondream:1.8b" >> $GITHUB_ENV
-          echo "AWS_ENDPOINT_URL_S3=${{ env.STORAGE_S3_URL }}" >> $GITHUB_ENV
+          echo "S3_ENDPOINT_URL=${{ env.S3_ENDPOINT_URL }}" >> $GITHUB_ENV
 
       - name: Install Ollama
         run: curl -fsSL https://ollama.com/install.sh | sh

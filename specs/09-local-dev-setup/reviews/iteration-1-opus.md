@@ -64,7 +64,7 @@ The most common silent failure was bucket non-existence. The verify script shoul
 
 ## 10. `SMGR_S3_ENDPOINT` Derivation Not Specified
 
-Section 2 lists variable mappings but omits how `SMGR_S3_ENDPOINT` and `AWS_ENDPOINT_URL_S3` are derived. The current script constructs these from the API URL. Specify whether there is an S3 URL key in the `-o env` output or whether it must be constructed as `$API_URL/storage/v1/s3`.
+Section 2 lists variable mappings but omits how `SMGR_S3_ENDPOINT` and `S3_ENDPOINT_URL` are derived. The current script constructs these from the API URL. Specify whether there is an S3 URL key in the `-o env` output or whether it must be constructed as `$API_URL/storage/v1/s3`.
 
 ---
 

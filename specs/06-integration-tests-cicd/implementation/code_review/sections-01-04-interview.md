@@ -14,7 +14,7 @@
 
 ## Items Let Go
 
-### 3. STORAGE_S3_URL not in verification list
+### 3. S3_ENDPOINT_URL not in verification list
 Pre-existing gap. The media tests don't use S3 env vars directly (they derive S3 config from the Supabase URL). Not worth expanding scope.
 
 ### 4. S3 key text parsing fragility

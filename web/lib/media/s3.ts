@@ -35,15 +35,19 @@ export interface S3Config {
 export function createS3Client(config: S3Config = {}): S3Client {
   const endpoint = config.endpoint ?? process.env.SMGR_S3_ENDPOINT;
   const region = config.region ?? process.env.SMGR_S3_REGION ?? "us-east-1";
+  const accessKeyId =
+    config.accessKeyId ?? process.env.S3_ACCESS_KEY_ID;
+  const secretAccessKey =
+    config.secretAccessKey ?? process.env.S3_SECRET_ACCESS_KEY;
 
   return new S3Client({
     ...(endpoint ? { endpoint } : {}),
     region,
-    ...(config.accessKeyId && config.secretAccessKey
+    ...(accessKeyId && secretAccessKey
       ? {
           credentials: {
-            accessKeyId: config.accessKeyId,
-            secretAccessKey: config.secretAccessKey,
+            accessKeyId,
+            secretAccessKey,
           },
         }
       : {}),

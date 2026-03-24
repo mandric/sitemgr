@@ -21,7 +21,7 @@
 #### 🔴 S3 credential extraction is brittle
 `scripts/local-dev.sh` lines 52–53 parse table-formatted terminal output:
 ```bash
-AWS_ACCESS_KEY_ID=$(echo "$STATUS_TABLE" | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
+S3_ACCESS_KEY_ID=$(echo "$STATUS_TABLE" | grep "Access Key" | awk -F '│' '{print $3}' | tr -d ' ')
 ```
 This breaks silently when Supabase CLI changes table formatting. The values can silently come out empty and get written to `.env.local` without validation.
 

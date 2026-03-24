@@ -18,7 +18,7 @@ if [ -z "$api_url" ] || [ "$api_url" = "null" ]; then missing+=("API_URL"); fi
 
 ### 2. Partial dotenv output emitted before validation catches missing fields (confidence: 95)
 
-Validation happens after the `cat <<EOF` heredoc. If a field is missing/null, partial content (e.g., `AWS_ACCESS_KEY_ID=null`) is already written to stdout before the script exits 1. When redirected to `.env.local`, this leaves a corrupted file silently.
+Validation happens after the `cat <<EOF` heredoc. If a field is missing/null, partial content (e.g., `S3_ACCESS_KEY_ID=null`) is already written to stdout before the script exits 1. When redirected to `.env.local`, this leaves a corrupted file silently.
 
 **Fix:** Move validation before the `cat <<EOF` block.
 

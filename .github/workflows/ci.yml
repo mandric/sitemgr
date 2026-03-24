@@ -97,9 +97,9 @@ jobs:
             "NEXT_PUBLIC_SUPABASE_URL=\(.API_URL)",
             "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=\(.ANON_KEY)",
             "SUPABASE_SERVICE_ROLE_KEY=\(.SERVICE_ROLE_KEY)",
-            "STORAGE_S3_URL=\(.STORAGE_S3_URL)",
-            "AWS_ACCESS_KEY_ID=\(.S3_PROTOCOL_ACCESS_KEY_ID)",
-            "AWS_SECRET_ACCESS_KEY=\(.S3_PROTOCOL_ACCESS_KEY_SECRET)"
+            "S3_ENDPOINT_URL=\(.STORAGE_S3_URL)",
+            "S3_ACCESS_KEY_ID=\(.S3_PROTOCOL_ACCESS_KEY_ID)",
+            "S3_SECRET_ACCESS_KEY=\(.S3_PROTOCOL_ACCESS_KEY_SECRET)"
           ' >> "$GITHUB_ENV"
 
       - name: Create webhook service account
@@ -122,14 +122,13 @@ jobs:
 
       - name: Configure environment for smgr
         run: |
-          echo "SMGR_S3_ENDPOINT=${{ env.STORAGE_S3_URL }}" >> $GITHUB_ENV
+          echo "SMGR_S3_ENDPOINT=${{ env.S3_ENDPOINT_URL }}" >> $GITHUB_ENV
           echo "SMGR_S3_BUCKET=media" >> $GITHUB_ENV
           echo "SMGR_S3_REGION=local" >> $GITHUB_ENV
           echo "SMGR_DEVICE_ID=ci-test" >> $GITHUB_ENV
           echo "SMGR_AUTO_ENRICH=true" >> $GITHUB_ENV
           echo "SMGR_OLLAMA_URL=http://localhost:11434" >> $GITHUB_ENV
           echo "SMGR_VISION_MODEL=moondream:1.8b" >> $GITHUB_ENV
-          echo "AWS_ENDPOINT_URL_S3=${{ env.STORAGE_S3_URL }}" >> $GITHUB_ENV
           echo "WEBHOOK_SERVICE_ACCOUNT_EMAIL=webhook@sitemgr.internal" >> $GITHUB_ENV
           echo "WEBHOOK_SERVICE_ACCOUNT_PASSWORD=unused-password-webhook-uses-service-token" >> $GITHUB_ENV
 

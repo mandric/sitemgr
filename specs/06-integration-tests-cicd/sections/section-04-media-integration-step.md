@@ -31,7 +31,7 @@ Timeout: 60 seconds per test.
 
 ### S3 credential note:
 
-The `setup.ts` helper uses the Supabase service role key as both S3 `accessKeyId` and `secretAccessKey`. This works with local Supabase Storage's S3-compatible API. The CI job also extracts proper S3 credentials (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`), but the media tests don't use them. This divergence is acceptable for local testing.
+The `setup.ts` helper uses the Supabase service role key as both S3 `accessKeyId` and `secretAccessKey`. This works with local Supabase Storage's S3-compatible API. The CI job also extracts proper S3 credentials (`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`), but the media tests don't use them. This divergence is acceptable for local testing.
 
 ### Prerequisites in the CI job:
 

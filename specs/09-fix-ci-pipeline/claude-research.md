@@ -42,7 +42,7 @@ The Supabase JS client maintains internal connections (GoTrue auth refresh timer
 
 ### Integration Tests Env Vars
 - Extracted from `supabase status -o json` into `$GITHUB_ENV`
-- 7 vars set: `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `STORAGE_S3_URL`, AWS credentials
+- 7 vars set: `SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `S3_ENDPOINT_URL`, AWS credentials
 - Verification step validates required vars before running tests
 
 ### E2E Tests Env Vars

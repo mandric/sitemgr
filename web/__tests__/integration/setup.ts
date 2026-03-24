@@ -84,8 +84,8 @@ export function getS3Config() {
   return {
     endpoint: `${SUPABASE_URL}/storage/v1/s3`,
     region: "local",
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID ?? SUPABASE_SERVICE_KEY,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY ?? SUPABASE_SERVICE_KEY,
+    accessKeyId: process.env.S3_ACCESS_KEY_ID ?? SUPABASE_SERVICE_KEY,
+    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? SUPABASE_SERVICE_KEY,
     forcePathStyle: true,
   };
 }
