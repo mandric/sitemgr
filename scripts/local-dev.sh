@@ -52,6 +52,7 @@ start_local_dev() {
 COMMAND="${1:-}"
 case "$COMMAND" in
   print_setup_env_vars)
+    verify_supabase_env
     print_setup_env_vars
     ;;
   "")
