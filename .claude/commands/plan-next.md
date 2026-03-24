@@ -34,14 +34,24 @@ gh pr create --title "<short title>" --body "<summary of changes, test results, 
 
 ## Phase 5: Review → `/code-review`
 
-Run `/code-review` on the PR. The review posts comments on the PR. If it surfaces high-confidence issues, fix them, push, and re-run `/code-review` until clean.
+Run `/code-review` on the PR. The review posts comments on the PR.
 
-## Phase 6: Ready for human review
+## Phase 6: Address review findings
+
+Read the code review comments and triage:
+
+- **Clear bugs or correctness issues** — fix them, commit, push.
+- **Style/quality suggestions that align with project conventions** — fix them, commit, push.
+- **Subjective or architectural suggestions** — don't act on these; note them for the human.
+
+If you made fixes, run `/verify` to make sure nothing broke, then push.
+
+## Phase 7: Ready for human review
 
 Present to the user:
 - PR URL
 - Summary of what was implemented
-- Code review results (clean or what was fixed)
+- Code review findings: what was fixed autonomously, what was left for human judgment
 - Any items that need human attention before merge
 
 **Stop here.** The user decides when to merge.
