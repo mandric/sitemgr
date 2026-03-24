@@ -23,6 +23,8 @@
 # ---------------------------------------------------------------------------
 # Minimum version with ES256 JWT fix (supabase/cli#4818)
 SUPABASE_MIN_VERSION="2.76.4"
+# Pinned version used in CI — single source of truth (ci.yml reads this)
+SUPABASE_PINNED_VERSION="2.83.0"
 
 # ---------------------------------------------------------------------------
 # install_jq — install jq if not present (Linux only)
@@ -72,6 +74,14 @@ require_supabase_version() {
     echo "Reinstall: install_supabase_cli (or run session-start hook)" >&2
     return 1
   fi
+
+  # Warn if local version is behind the pinned CI version
+  local newest
+  newest=$(printf '%s\n%s\n' "$SUPABASE_PINNED_VERSION" "$version" | sort -V | tail -n1)
+  if [ "$newest" != "$version" ]; then
+    echo "Warning: Supabase CLI $version is behind CI pinned version $SUPABASE_PINNED_VERSION." >&2
+    echo "Consider upgrading to match CI: install_supabase_cli (or run session-start hook)" >&2
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -93,7 +103,7 @@ install_supabase_cli() {
     aarch64|arm64) arch="arm64" ;;
   esac
 
-  local url="https://github.com/supabase/cli/releases/latest/download/supabase_linux_${arch}.tar.gz"
+  local url="https://github.com/supabase/cli/releases/download/v${SUPABASE_PINNED_VERSION}/supabase_linux_${arch}.tar.gz"
 
   if [ -w /usr/local/bin ]; then
     curl -fsSL "$url" | tar -xz -C /usr/local/bin supabase

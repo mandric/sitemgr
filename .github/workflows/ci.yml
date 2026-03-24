@@ -72,9 +72,14 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Read Supabase version from scripts/lib.sh
+        run: |
+          source scripts/lib.sh
+          echo "SUPABASE_PINNED_VERSION=$SUPABASE_PINNED_VERSION" >> "$GITHUB_ENV"
+
       - uses: supabase/setup-cli@v1
         with:
-          version: 2.83.0
+          version: ${{ env.SUPABASE_PINNED_VERSION }}
 
       - name: Install web dependencies
         run: cd web && npm ci
@@ -178,9 +183,14 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Read Supabase version from scripts/lib.sh
+        run: |
+          source scripts/lib.sh
+          echo "SUPABASE_PINNED_VERSION=$SUPABASE_PINNED_VERSION" >> "$GITHUB_ENV"
+
       - uses: supabase/setup-cli@v1
         with:
-          version: 2.83.0
+          version: ${{ env.SUPABASE_PINNED_VERSION }}
 
       - name: Install dependencies
         run: cd web && npm ci
@@ -239,9 +249,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read Supabase version from scripts/lib.sh
+        run: |
+          source scripts/lib.sh
+          echo "SUPABASE_PINNED_VERSION=$SUPABASE_PINNED_VERSION" >> "$GITHUB_ENV"
+
       - uses: supabase/setup-cli@v1
         with:
-          version: 2.83.0
+          version: ${{ env.SUPABASE_PINNED_VERSION }}
 
       - name: Link to Supabase project
         run: |
