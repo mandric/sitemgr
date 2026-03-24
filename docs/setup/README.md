@@ -10,7 +10,7 @@
 ## First-time Setup
 
 1. `./scripts/setup.sh` — validates required tools and installs npm dependencies
-2. `./scripts/local-dev.sh` — starts Supabase (idempotent; safe to re-run if already running)
+2. `cd web && npm run setup:supabase` — starts Supabase (idempotent; safe to re-run if already running)
 3. `cd web && npm run setup:env` — writes `.env.local` with all required vars including a generated encryption key
 4. `./scripts/setup/verify.sh` — confirms Supabase is reachable and all required env vars are set
 

@@ -56,7 +56,7 @@ start_supabase
 # ── Load environment ────────────────────────────────────────────
 
 if [ ! -f ".env.local" ]; then
-  echo "ERROR: .env.local not found. Run ./scripts/local-dev.sh first:" >&2
+  echo "ERROR: .env.local not found. Run these from web/:" >&2
   echo "  cd web && npm run setup:env" >&2
   exit 1
 fi
