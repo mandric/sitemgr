@@ -21,7 +21,7 @@ This applies to error objects too — preserve the full object (`code`, `details
 **Core Principle: Tests use fixtures, production uses secrets**
 
 **Encryption Keys (Status-Based Naming):**
-- `ENCRYPTION_KEY_CURRENT` - Active key for new encryptions (required in production)
+- `ENCRYPTION_KEY_CURRENT` - Active key for new encryptions (required wherever the Next.js app runs: production, preview, local dev, E2E)
 - `ENCRYPTION_KEY_PREVIOUS` - Old key for decryption during rotation (optional in production)
 - `ENCRYPTION_KEY_NEXT` - Future key for gradual rollout (optional in production)
 - **DO NOT USE**: `ENCRYPTION_KEY`, `ENCRYPTION_KEY_V1`, `ENCRYPTION_KEY_V2`, `ENCRYPTION_KEY_V3` (legacy, removed)
@@ -57,10 +57,18 @@ When to use `vi.stubEnv()` (fixtures) vs setting in CI:
   });
   ```
 
-**E2E Tests:**
-- Only set env vars for services the test actually connects to
-- Current: Supabase URL/key (because E2E connects to local Supabase)
-- Not encryption keys (E2E doesn't exercise encryption paths)
+**E2E Tests (three runtimes):**
+
+E2E involves three separate runtimes, each with different env var needs:
+1. **Supabase** (Postgres, Auth, Storage) — started via `supabase start`, configured by `supabase/config.toml`
+2. **Next.js web app** (API routes + frontend) — the system under test, needs all env vars required for request handling
+3. **Playwright test runner** — drives the browser, only needs the app URL and Supabase URL/key to set up test users
+
+The web app needs `ENCRYPTION_KEY_CURRENT` in `.env.local` (fixture value, not a real secret) because API routes encrypt/decrypt bucket config secrets at request time. This is a **web app runtime requirement**, not a Playwright requirement — but the app must have it to serve requests during E2E runs.
+
+- **Supabase runtime**: No app-level env vars needed (configured via `config.toml`)
+- **Next.js runtime** (`.env.local`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `ENCRYPTION_KEY_CURRENT` (fixture value)
+- **Playwright runtime**: Only needs the app URL to connect to
 - Not API keys (E2E doesn't call external APIs)
 
 **Never add production secrets to GitHub for tests** - use fixtures instead
