@@ -1,15 +1,15 @@
-# Plan Next Task
+# Plan Next
 
-Orchestrates task selection → planning → implementation → review using existing plugins.
+Orchestrates spec selection → planning → implementation → review using existing plugins.
 
 ## Phase 1: Find the spec
 
-Every task starts from a spec. Find or create one:
+Every spec is the source of truth for what to build. Find or create one:
 
-1. **Check for an existing spec** — look in `specs/` for a numbered directory matching the task, or in a GitHub issue with a detailed description
+1. **Check for an existing spec** — look in `specs/` for a numbered directory, or in a GitHub issue with a detailed description
 2. **If no spec exists** — ask the user to provide one, or use `/deep-project` to decompose a vague requirement into spec-ready planning units
 
-The spec is the source of truth for what to build. It may live as:
+A spec may live as:
 - A `spec.md` file in `specs/<NN>-<name>/`
 - A GitHub issue body with requirements and acceptance criteria
 
@@ -21,11 +21,11 @@ If the spec touches anything in the "stop and report" list from CLAUDE.md (migra
 
 ## Phase 3: Plan → `/deep-plan`
 
-Run `/deep-plan`, passing the spec (file path or issue URL) as input. `/deep-plan` owns task breakdown internally — a spec is a single unit of work for one session. This produces a detailed, sectionized, TDD-oriented implementation plan with multi-LLM review.
+Run `/deep-plan`, passing the spec (file path or issue URL) as input. `/deep-plan` breaks the spec into implementation tasks internally. This produces a detailed, sectionized, TDD-oriented implementation plan with multi-LLM review.
 
 ## Phase 4: Implement → `/deep-implement`
 
-Run `/deep-implement` against the plan produced by Phase 2. This handles TDD implementation, verification, and commits.
+Run `/deep-implement` against the plan produced by Phase 3. This handles TDD implementation, verification, and commits.
 
 ## Phase 5: Create PR
 
