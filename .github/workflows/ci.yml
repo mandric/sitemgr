@@ -91,7 +91,6 @@ jobs:
 
       - name: Configure environment
         run: |
-          set -euo pipefail
           source scripts/lib.sh
           print_setup_env_vars >> "$GITHUB_ENV"
           # CI-specific overrides
@@ -170,7 +169,6 @@ jobs:
 
       - name: Configure environment
         run: |
-          set -euo pipefail
           source scripts/lib.sh
           print_setup_env_vars >> "$GITHUB_ENV"
           print_setup_env_vars > web/.env.local
