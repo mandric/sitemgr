@@ -14,6 +14,10 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# Source shared shell library (Supabase version constants, install/start helpers)
+# shellcheck source=lib.sh
+source "$REPO_ROOT/scripts/lib.sh"
+
 SKIP_OLLAMA=false
 for arg in "$@"; do
   case "$arg" in
@@ -34,18 +38,7 @@ check_cmd supabase "Install: brew install supabase/tap/supabase"
 check_cmd docker   "Install Docker Desktop or docker engine"
 check_cmd node     "Install Node.js 20+: https://nodejs.org/"
 
-# Minimum Supabase CLI version required (ES256 JWT fix: supabase/cli#4818)
-SUPABASE_MIN_VERSION="2.76.4"
-version=$(supabase --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
-if [ -n "$version" ]; then
-  oldest=$(printf '%s\n%s\n' "$SUPABASE_MIN_VERSION" "$version" | sort -V | head -n1)
-  if [ "$oldest" != "$SUPABASE_MIN_VERSION" ]; then
-    echo "Error: Supabase CLI $version is too old. Minimum required: $SUPABASE_MIN_VERSION" >&2
-    echo "Older versions have a broken ES256 JWT signing bug (supabase/cli#4818)." >&2
-    echo "Upgrade: brew upgrade supabase" >&2
-    exit 1
-  fi
-fi
+require_supabase_version
 
 # ── npm dependencies ────────────────────────────────────────────
 
@@ -58,13 +51,7 @@ fi
 
 echo ""
 echo "=== Starting Supabase ==="
-
-# Check if already running
-if supabase status -o json &>/dev/null; then
-  echo "Supabase already running."
-else
-  supabase start
-fi
+start_supabase
 
 # ── Load environment ────────────────────────────────────────────
 

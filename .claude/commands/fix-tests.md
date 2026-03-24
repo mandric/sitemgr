@@ -2,7 +2,7 @@
 
 Run the test suite autonomously and fix all failures. Do not ask for help — use the codebase and test output to diagnose and fix issues.
 
-**Important:** Unit tests (`npm run test`) always work. Integration tests (`npm run test:integration`) require local Supabase — verify it's running with `supabase status` before attempting them. E2E tests (`test:e2e`) additionally require a running app (`next dev`). If Supabase is not running, skip integration/E2E and focus on unit tests.
+**Important:** Unit tests (`npm run test`) always work. Integration and E2E tests both require local Supabase **and** the web app running (`next dev`). The session-start hook starts Supabase automatically. Ensure the dev server is running before attempting integration or E2E tests.
 
 ## Steps
 
@@ -34,4 +34,4 @@ Run the test suite autonomously and fix all failures. Do not ask for help — us
 - Fix source code to match test expectations, not the other way around
 - Only fix a test if it's clearly wrong (testing old behavior, wrong assertion)
 - Don't refactor unrelated code
-- If a test requires a running service (Supabase, etc.), skip it and note why
+- If a test requires a service that isn't running, start it (Supabase should already be running via session-start hook)

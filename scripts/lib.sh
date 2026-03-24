@@ -4,6 +4,9 @@
 #
 # Usage:
 #   source scripts/lib.sh
+#   require_supabase_version                # error if CLI too old
+#   install_supabase_cli                    # install CLI binary (Linux)
+#   start_supabase                          # idempotent start
 #   smoke_test                              # uses $VERCEL_APP_URL
 #   smoke_test "https://my-app.vercel.app"  # or pass explicitly
 #   vercel_log_check "dpl_abc123"
@@ -12,6 +15,79 @@
 # NOTE: Do NOT set -euo pipefail here. This file is sourced by other scripts
 # and setting shell options would affect the caller. Each calling script should
 # set its own shell options.
+
+# ---------------------------------------------------------------------------
+# Supabase CLI version constants
+# ---------------------------------------------------------------------------
+# Minimum version with ES256 JWT fix (supabase/cli#4818)
+SUPABASE_MIN_VERSION="2.76.4"
+# Version to install in headless environments (web sessions, CI)
+SUPABASE_INSTALL_VERSION="2.83.0"
+
+# ---------------------------------------------------------------------------
+# require_supabase_version — exits with an error if supabase CLI is too old
+# ---------------------------------------------------------------------------
+require_supabase_version() {
+  local version
+  version=$(supabase --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
+  if [ -z "$version" ]; then
+    echo "Warning: Could not determine Supabase CLI version." >&2
+    return
+  fi
+  local oldest
+  oldest=$(printf '%s\n%s\n' "$SUPABASE_MIN_VERSION" "$version" | sort -V | head -n1)
+  if [ "$oldest" != "$SUPABASE_MIN_VERSION" ]; then
+    echo "Error: Supabase CLI $version is too old. Minimum required: $SUPABASE_MIN_VERSION" >&2
+    echo "Older versions have a broken ES256 JWT signing bug (supabase/cli#4818)." >&2
+    echo "Upgrade: brew upgrade supabase" >&2
+    return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# install_supabase_cli — download and install Supabase CLI binary (Linux only)
+#   Installs to /usr/local/bin if writable, else $HOME/.local/bin.
+#   No-op if supabase is already installed.
+#   If $CLAUDE_ENV_FILE is set and we fall back to ~/.local/bin, persists
+#   the PATH addition for the Claude Code session.
+# ---------------------------------------------------------------------------
+install_supabase_cli() {
+  if command -v supabase &>/dev/null; then
+    return 0
+  fi
+
+  local arch
+  arch=$(uname -m)
+  case "$arch" in
+    x86_64) arch="amd64" ;;
+    aarch64|arm64) arch="arm64" ;;
+  esac
+
+  local url="https://github.com/supabase/cli/releases/download/v${SUPABASE_INSTALL_VERSION}/supabase_linux_${arch}.tar.gz"
+
+  if [ -w /usr/local/bin ]; then
+    curl -fsSL "$url" | tar -xz -C /usr/local/bin supabase
+  else
+    mkdir -p "$HOME/.local/bin"
+    curl -fsSL "$url" | tar -xz -C "$HOME/.local/bin" supabase
+    export PATH="$HOME/.local/bin:$PATH"
+    # Persist PATH for Claude Code web sessions
+    if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+      echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"
+    fi
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# start_supabase — idempotent start of local Supabase
+#   Always excludes edge-runtime and realtime (not used in v1).
+# ---------------------------------------------------------------------------
+start_supabase() {
+  if supabase status &>/dev/null 2>&1; then
+    return 0
+  fi
+  supabase start --exclude edge-runtime,realtime
+}
 
 # ---------------------------------------------------------------------------
 # smoke_test [deploy_url]

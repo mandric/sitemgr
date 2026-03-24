@@ -26,17 +26,12 @@ if [ -n "${GH_REPO_DETECTED:-}" ]; then
   export GH_REPO="$GH_REPO_DETECTED"
 fi
 
-# Install Supabase CLI if not present (npm global install is blocked by the package)
-if ! command -v supabase &>/dev/null; then
-  SUPABASE_VERSION="2.83.0"
-  ARCH=$(uname -m)
-  case "$ARCH" in
-    x86_64) ARCH="amd64" ;;
-    aarch64|arm64) ARCH="arm64" ;;
-  esac
-  curl -fsSL "https://github.com/supabase/cli/releases/download/v${SUPABASE_VERSION}/supabase_linux_${ARCH}.tar.gz" \
-    | tar -xz -C /usr/local/bin supabase
-fi
+# Source shared shell library (Supabase version constants, install/start helpers)
+# shellcheck source=../../../scripts/lib.sh
+source "$CLAUDE_PROJECT_DIR/scripts/lib.sh"
+
+# Install Supabase CLI if not present
+install_supabase_cli
 
 # Install Vercel CLI if not present
 if ! command -v vercel &>/dev/null; then
@@ -53,15 +48,8 @@ cd "$CLAUDE_PROJECT_DIR/web"
 npm install
 
 # Start local Supabase (if not already running)
-# In web sessions: exclude edge-runtime (needs external DNS) and realtime (needs IPv6)
 cd "$CLAUDE_PROJECT_DIR"
-if ! supabase status &>/dev/null 2>&1; then
-  if [ "$CLAUDE_CODE_REMOTE" = "true" ]; then
-    supabase start --exclude edge-runtime,realtime
-  else
-    supabase start
-  fi
-fi
+start_supabase
 
 # Generate .env.local from running Supabase (needed for integration tests)
 if [ ! -f "$CLAUDE_PROJECT_DIR/.env.local" ]; then

@@ -148,11 +148,11 @@ When running autonomously (via `/implement-next`, triggers, or background sessio
 
 Before considering any implementation task done, run:
 ```bash
-cd web && npm run typecheck && npm run lint && npm run test && npm run build
+cd web && npm run typecheck && npm run lint && npm run test && npm run test:integration && npm run build
 ```
-All four must pass. If any fail, fix them before committing.
+All five must pass. If any fail, fix them before committing.
 
-**Note:** `npm run test` runs unit tests only (`vitest run --project unit`). Integration tests (`test:integration`) and E2E tests (`test:e2e`) require a local Supabase instance via `supabase start` (Docker). The session-start hook handles this automatically.
+**Note:** `npm run test` runs unit tests only (`vitest run --project unit`). Integration tests (`test:integration`) and E2E tests (`test:e2e`) both require local Supabase and the web app running. The session-start hook starts Supabase automatically. Supabase version constants and install/start helpers live in `scripts/lib.sh`.
 
 **Supabase Realtime is disabled** in `supabase/config.toml` — it requires IPv6 which is unavailable in container environments (Claude Code web sessions, CI). We don't use Realtime in v1. If re-enabling, test in a container environment first.
 
