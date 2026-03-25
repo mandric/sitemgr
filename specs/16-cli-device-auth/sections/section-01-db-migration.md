@@ -119,16 +119,25 @@ The unique index on `device_code` is created automatically by the `UNIQUE` const
 ALTER TABLE device_codes ENABLE ROW LEVEL SECURITY;
 
 -- Anon can insert (CLI initiates the flow before authentication)
+-- Constrain to prevent anon from setting privileged fields directly.
 CREATE POLICY "Anon can initiate device code flow"
   ON device_codes FOR INSERT
   TO anon
-  WITH CHECK (true);
+  WITH CHECK (
+    status = 'pending'
+    AND user_id IS NULL
+    AND token_hash IS NULL
+    AND approved_at IS NULL
+    AND email IS NULL
+  );
 
 -- No SELECT policy for anon. Reads go through the RPC function.
 -- Service role bypasses RLS for all operations (approve endpoint updates rows).
 ```
 
 There is intentionally no anon SELECT policy. The `get_device_code_status()` RPC function (below) is the only path for anonymous reads, and it returns a minimal subset of columns.
+
+**Deviation from original plan:** The WITH CHECK clause was tightened from `true` to constrain anon inserts to only set `status='pending'` with null privileged fields. This prevents direct Supabase client abuse where anon could insert pre-approved rows with arbitrary `token_hash` values. Identified during code review.
 
 ### 4. RPC Function
 

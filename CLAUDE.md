@@ -145,6 +145,9 @@ When running autonomously (via `/plan-next`, triggers, or background sessions), 
 - Decide on function/variable naming — match neighboring code style
 - Choose where to put new code — follow the existing module structure in `lib/`
 - Handle edge cases — follow patterns from similar code in the repo
+- Code review triage — auto-fix obvious improvements, let go of nitpicks, only ask about genuine tradeoffs
+- Context/compaction prompts — skip "continue or compact?" prompts when context usage is low (<50%). Just continue. Only prompt if context is actually near capacity (>80%)
+- Plugin workflow pauses — if a plugin skill (e.g. `/deep-implement`) has optional "wait for user" checkpoints, skip them during autonomous operation unless there's a genuine decision that requires human judgment
 
 **Stop and report (don't guess):**
 - Database schema changes (new migrations, RLS policy changes)
