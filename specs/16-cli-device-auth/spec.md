@@ -135,13 +135,17 @@ The device code flow needs to produce standard Supabase Auth tokens (access_toke
 
 ### CLI (`web/lib/auth/cli-auth.ts` + `web/bin/smgr.ts`)
 
-**New `login()` flow:**
-1. Call `POST /api/auth/device` to get device_code + user_code
-2. Try to open browser via `open` (macOS) / `xdg-open` (Linux) / `start` (Windows)
-3. Display: `"Opening browser... Enter this code: ABCD-1234"` and fallback URL if browser doesn't open
-4. Poll `POST /api/auth/device/token` with device_code every `interval` seconds
-5. On approval, call `supabase.auth.verifyOtp({token_hash, type: 'magiclink'})`
-6. Store credentials as today
+**Replace `login()` entirely:**
+1. Remove `prompt()`, `promptPassword()` helpers — no more terminal credential input
+2. Remove `login(emailArg?, passwordArg?)` signature
+3. New `login()` (no args):
+   - Call `POST /api/auth/device` to get device_code + user_code
+   - Try to open browser via `open` (macOS) / `xdg-open` (Linux) / `start` (Windows)
+   - Display: `"Opening browser... Enter this code: ABCD-1234"` and fallback URL if browser doesn't open
+   - Poll `POST /api/auth/device/token` with device_code every `interval` seconds
+   - On approval, call `supabase.auth.verifyOtp({token_hash, type: 'magiclink'})`
+   - Store credentials as today
+4. `smgr login` takes no arguments (remove `[email] [password]` from usage)
 
 **Updated `StoredCredentials`:**
 ```typescript
@@ -155,7 +159,7 @@ export interface StoredCredentials {
 }
 ```
 
-**Fallback:** Keep `smgr login --email <email> --password <password>` as a non-interactive fallback for CI/scripts. The device code flow is the default when running interactively (TTY detected).
+**No password fallback.** The device code flow is the only login method. Headless/CI use cases should use pre-provisioned credentials or service accounts, not interactive CLI login. Removing email/password login from the CLI eliminates a class of credential-handling risks.
 
 ### Env Vars
 
@@ -184,10 +188,8 @@ Alternatively, if we want to strictly avoid the service role key: use Supabase's
 
 ## Migration Path
 
-1. **Phase 1**: Add device code flow as the new default for `smgr login` (this spec)
-2. **Phase 2**: Keep email/password as `smgr login --password` fallback for CI/headless
-3. **Phase 3** (future): Add device management UI on the web (list devices, revoke)
-4. **Phase 4** (future): Remove email/password CLI login entirely
+1. **Phase 1**: Replace email/password CLI login with device code flow (this spec)
+2. **Phase 2** (future): Add device management UI on the web (list devices, revoke)
 
 ## Files to Change
 
@@ -198,9 +200,9 @@ Alternatively, if we want to strictly avoid the service role key: use Supabase's
 | `web/app/api/auth/device/token/route.ts` | Poll/exchange endpoint |
 | `web/app/api/auth/device/approve/route.ts` | Approval endpoint (authenticated) |
 | `web/app/auth/device/page.tsx` | Device code entry UI |
-| `web/lib/auth/cli-auth.ts` | New device code login flow, keep password fallback |
+| `web/lib/auth/cli-auth.ts` | Replace email/password login with device code flow, remove prompt helpers |
 | `web/lib/auth/device-codes.ts` | Server-side device code generation, validation, OTP exchange |
-| `web/bin/smgr.ts` | Update login command, add `--password` flag |
+| `web/bin/smgr.ts` | Update login command (no more email/password args) |
 | `web/middleware.ts` | Allow unauthenticated access to `/api/auth/device` and `/api/auth/device/token` |
 
 ## Testing
