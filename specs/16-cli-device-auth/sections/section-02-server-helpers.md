@@ -112,3 +112,13 @@ cd /home/user/sitemgr/web && npm run typecheck && npm run lint && npm run test &
 ```
 
 The new test file `web/__tests__/device-codes.test.ts` should be picked up automatically by the vitest `unit` project (it matches the default include pattern and is not in the `integration` or `e2e` directories).
+
+## Implementation Notes
+
+### Files Created
+- `web/lib/auth/device-codes.ts` — generateUserCode(), generateDeviceCode(), SAFE_CHARSET
+- `web/__tests__/device-codes.test.ts` — 6 unit tests
+
+### Deviations from Plan
+1. **SAFE_CHARSET is 31 chars, not 30** — Plan stated 30 characters but the actual charset string contains 31 (23 letters + 8 digits). This is correct — the exclusion list {0, O, 1, I, L} from the full alphanumeric set yields 31. Entropy is ~39.6 bits (slightly better than planned).
+2. **Added modulo bias comment** — Code review noted the `byte % 31` bias should be documented inline.
