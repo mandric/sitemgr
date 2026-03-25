@@ -60,7 +60,7 @@ describe("device code auth flow", () => {
     cleanupDeviceCodes.push(device_code);
 
     // 2. Create a test user
-    const { userId, client: userClient } = await createTestUser();
+    const { userId } = await createTestUser();
     cleanupUserIds.push(userId);
 
     // Get user email
