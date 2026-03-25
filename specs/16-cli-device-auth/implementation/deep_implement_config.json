@@ -25,6 +25,34 @@
     "section-02-server-helpers": {
       "status": "complete",
       "commit_hash": "1712af7"
+    },
+    "section-03-api-initiate": {
+      "status": "complete",
+      "commit_hash": "6694257"
+    },
+    "section-04-api-poll": {
+      "status": "complete",
+      "commit_hash": "12afc4d"
+    },
+    "section-05-api-approve": {
+      "status": "complete",
+      "commit_hash": "65fb83d"
+    },
+    "section-06-web-ui": {
+      "status": "complete",
+      "commit_hash": "d290c9b"
+    },
+    "section-07-cli-refactor": {
+      "status": "complete",
+      "commit_hash": "0adbe5e"
+    },
+    "section-08-integration-tests": {
+      "status": "complete",
+      "commit_hash": "5ab4706"
+    },
+    "section-09-cleanup": {
+      "status": "complete",
+      "commit_hash": "da92ee0"
     }
   },
   "pre_commit": {
