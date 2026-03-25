@@ -1,5 +1,5 @@
 /**
- * CLI authentication — wraps Supabase Auth for email/password login.
+ * CLI authentication — device code authorization flow.
  *
  * Stores credentials in ~/.sitemgr/credentials.json.
  * The CLI uses the anon key (safe to embed) + user JWT for all operations,
@@ -9,8 +9,8 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { homedir } from "node:os";
-import { createInterface } from "node:readline";
+import { homedir, hostname } from "node:os";
+import { exec } from "node:child_process";
 
 // ── Config dir ──────────────────────────────────────────────────
 
@@ -23,6 +23,7 @@ export interface StoredCredentials {
   user_id: string;
   email: string;
   expires_at: number; // unix epoch seconds
+  device_name?: string;
 }
 
 function ensureConfigDir() {
@@ -53,44 +54,22 @@ export function clearCredentials() {
   }
 }
 
-// ── Prompt helpers ──────────────────────────────────────────────
+// ── Browser helper ──────────────────────────────────────────────
 
-function prompt(question: string): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(answer.trim());
-    });
-  });
-}
+export function openBrowser(url: string): void {
+  const command =
+    process.platform === "darwin"
+      ? `open "${url}"`
+      : process.platform === "win32"
+        ? `start "${url}"`
+        : `xdg-open "${url}"`;
 
-function promptPassword(question: string): Promise<string> {
-  return new Promise((resolve) => {
-    process.stderr.write(question);
-    const stdin = process.stdin;
-    const wasRaw = stdin.isRaw;
-    if (stdin.isTTY) stdin.setRawMode(true);
-
-    let password = "";
-    const onData = (ch: Buffer) => {
-      const c = ch.toString("utf-8");
-      if (c === "\n" || c === "\r") {
-        stdin.removeListener("data", onData);
-        if (stdin.isTTY) stdin.setRawMode(wasRaw ?? false);
-        process.stderr.write("\n");
-        resolve(password);
-      } else if (c === "\u0003") {
-        // Ctrl-C
-        process.exit(130);
-      } else if (c === "\u007f" || c === "\b") {
-        password = password.slice(0, -1);
-      } else {
-        password += c;
-      }
-    };
-    stdin.resume();
-    stdin.on("data", onData);
+  exec(command, (err) => {
+    if (err) {
+      process.stderr.write(
+        `Could not open browser. Visit this URL manually:\n  ${url}\n`,
+      );
+    }
   });
 }
 
@@ -108,35 +87,95 @@ export function resolveApiConfig(): { url: string; anonKey: string } {
   return { url, anonKey };
 }
 
-// ── Login ───────────────────────────────────────────────────────
+// ── Login (device code flow) ────────────────────────────────────
 
-export async function login(emailArg?: string, passwordArg?: string): Promise<StoredCredentials> {
+export async function login(deviceName?: string): Promise<StoredCredentials> {
   const { url, anonKey } = resolveApiConfig();
-  const supabase = createSupabaseClient(url, anonKey);
+  const device_name = deviceName ?? hostname();
 
-  const email = emailArg || await prompt("Email: ");
-  const password = passwordArg || await promptPassword("Password: ");
+  // 1. Initiate device code flow
+  const initiateRes = await fetch(`${url}/api/auth/device`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ device_name }),
+  });
 
-  if (!email || !password) {
-    throw new Error("Email and password are required");
+  if (!initiateRes.ok) {
+    const body = await initiateRes.json().catch(() => ({}));
+    throw new Error(`Failed to initiate device code flow: ${body.error ?? initiateRes.statusText}`);
   }
 
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw error;
+  const { device_code, user_code, verification_url, expires_at, interval } =
+    await initiateRes.json();
 
-  const session = data.session;
-  if (!session) throw new Error("No session returned from login");
+  // 2. Open browser and print instructions
+  openBrowser(verification_url);
+  process.stderr.write(`Opening browser... Enter this code if prompted: ${user_code}\n`);
+  process.stderr.write("Waiting for browser approval. Press Ctrl+C to cancel.\n");
 
-  const creds: StoredCredentials = {
-    access_token: session.access_token,
-    refresh_token: session.refresh_token,
-    user_id: session.user.id,
-    email: session.user.email ?? email,
-    expires_at: session.expires_at ?? 0,
-  };
+  // 3. Poll for approval
+  const expiresAtMs = new Date(expires_at).getTime();
+  const pollInterval = (interval ?? 5) * 1000;
 
-  saveCredentials(creds);
-  return creds;
+  while (true) {
+    if (Date.now() > expiresAtMs) {
+      throw new Error("Device code expired. Please run 'smgr login' again.");
+    }
+
+    await new Promise((r) => setTimeout(r, pollInterval));
+
+    const pollRes = await fetch(`${url}/api/auth/device/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ device_code }),
+    });
+
+    if (!pollRes.ok) {
+      throw new Error("Poll request failed");
+    }
+
+    const pollData = await pollRes.json();
+
+    if (pollData.status === "pending") continue;
+
+    if (pollData.status === "expired") {
+      throw new Error("Device code expired. Please run 'smgr login' again.");
+    }
+
+    if (pollData.status === "denied") {
+      throw new Error("Device authorization denied.");
+    }
+
+    if (pollData.status === "approved" && pollData.token_hash) {
+      // 4. Verify OTP to get a session
+      const supabase = createSupabaseClient(url, anonKey);
+      const { data, error } = await supabase.auth.verifyOtp({
+        token_hash: pollData.token_hash,
+        type: "magiclink",
+      });
+
+      if (error) throw error;
+      const session = data.session;
+      if (!session) throw new Error("No session returned from OTP verification");
+
+      const creds: StoredCredentials = {
+        access_token: session.access_token,
+        refresh_token: session.refresh_token,
+        user_id: session.user.id,
+        email: session.user.email ?? pollData.email,
+        expires_at: session.expires_at ?? 0,
+        device_name: device_name,
+      };
+
+      saveCredentials(creds);
+      return creds;
+    }
+
+    // consumed or other terminal status
+    if (pollData.status !== "pending") {
+      throw new Error(`Unexpected status: ${pollData.status}`);
+    }
+  }
 }
 
 // ── Refresh (called automatically) ──────────────────────────────
