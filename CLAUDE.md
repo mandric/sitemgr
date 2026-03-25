@@ -167,7 +167,15 @@ All five must pass. If any fail, fix them before committing.
 
 **Note:** `npm run test` runs unit tests only (`vitest run --project unit`). Integration tests (`test:integration`) and E2E tests (`test:e2e`) both require local Supabase and the web app running. The session-start hook starts Supabase automatically. The minimum version constant (`SUPABASE_MIN_VERSION`) and install/start helpers live in `scripts/lib.sh`.
 
-**Docker and Supabase are always available** in web sessions — both can be installed and started. If Docker daemon isn't running, start it with `sudo dockerd &>/tmp/dockerd.log &` and wait for it. If `supabase start` fails with network errors, retry with exponential backoff. Do NOT skip integration tests because of infrastructure setup issues — fix the setup and run them.
+**Docker and Supabase are always available** in web sessions — both can be installed and started. Do NOT skip integration tests because of infrastructure setup issues — fix the setup and run them.
+
+**Docker proxy setup (web sessions):** Docker can't resolve DNS directly in container environments. It needs the egress proxy. To fix:
+1. Kill any existing Docker daemon: `sudo kill $(cat /var/run/docker.pid 2>/dev/null) 2>/dev/null`
+2. Restart Docker with proxy env vars: `sudo -E dockerd &>/tmp/dockerd.log &` (the `-E` flag passes `HTTP_PROXY`/`HTTPS_PROXY` from the shell)
+3. Verify: `docker pull public.ecr.aws/supabase/postgres:15.8.1.085` should succeed
+4. Then `supabase start` will work
+
+**Next.js dev server for integration tests:** Some integration tests (device-auth, e2e) need the Next.js dev server running. The globalSetup auto-spawns it, but if it fails, start manually: `npx next dev --port 3000 &>/tmp/next-dev.log &` with the required env vars (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_KEY_CURRENT`).
 
 **Supabase Realtime is disabled** in `supabase/config.toml` — it requires IPv6 which is unavailable in container environments (Claude Code web sessions, CI). We don't use Realtime in v1. If re-enabling, test in a container environment first.
 
