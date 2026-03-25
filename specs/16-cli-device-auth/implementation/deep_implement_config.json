@@ -17,7 +17,16 @@
     "section-08-integration-tests",
     "section-09-cleanup"
   ],
-  "sections_state": {},
+  "sections_state": {
+    "section-01-db-migration": {
+      "status": "complete",
+      "commit_hash": "13d39c4"
+    },
+    "section-02-server-helpers": {
+      "status": "complete",
+      "commit_hash": "1712af7"
+    }
+  },
   "pre_commit": {
     "present": false,
     "type": "none",
