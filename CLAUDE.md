@@ -167,6 +167,8 @@ All five must pass. If any fail, fix them before committing.
 
 **Note:** `npm run test` runs unit tests only (`vitest run --project unit`). Integration tests (`test:integration`) and E2E tests (`test:e2e`) both require local Supabase and the web app running. The session-start hook starts Supabase automatically. The minimum version constant (`SUPABASE_MIN_VERSION`) and install/start helpers live in `scripts/lib.sh`.
 
+**Docker and Supabase are always available** in web sessions — both can be installed and started. If Docker daemon isn't running, start it with `sudo dockerd &>/tmp/dockerd.log &` and wait for it. If `supabase start` fails with network errors, retry with exponential backoff. Do NOT skip integration tests because of infrastructure setup issues — fix the setup and run them.
+
 **Supabase Realtime is disabled** in `supabase/config.toml` — it requires IPv6 which is unavailable in container environments (Claude Code web sessions, CI). We don't use Realtime in v1. If re-enabling, test in a container environment first.
 
 ### Slash Commands for Autonomous Work
