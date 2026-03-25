@@ -163,17 +163,13 @@ export interface StoredCredentials {
 
 ### Env Vars
 
-No new production env vars required. The API routes use the existing Supabase server client (which already has admin access via `SUPABASE_SERVICE_ROLE_KEY` in the server context... actually wait — per CLAUDE.md, app code never uses the service role key).
+New production env vars (Vercel):
+- `DEVICE_AUTH_SERVICE_ACCOUNT_EMAIL` — e.g. `device-auth@sitemgr.internal`
+- `DEVICE_AUTH_SERVICE_ACCOUNT_PASSWORD` — password for the service account
 
-**Important constraint:** Application code never uses `SUPABASE_SERVICE_ROLE_KEY`. The `auth.admin.generateLink()` call requires admin/service role access. Options:
+**Service account approach:** Application code never uses `SUPABASE_SERVICE_ROLE_KEY`. The `auth.admin.generateLink()` call requires admin access, so instead we use a dedicated service account (same pattern as the WhatsApp webhook handler). The `/api/auth/device/approve` route signs in as `device-auth@sitemgr.internal` and uses that session to perform the OTP generation.
 
-1. **Create a dedicated internal API endpoint** that runs with elevated privileges (similar to how the webhook handler uses a service account)
-2. **Use a device-auth service account** — a dedicated Supabase user with a special role, similar to `webhook@sitemgr.internal`
-3. **Re-evaluate the constraint for this specific use case** — `generateLink` is a controlled server-side operation, not a general admin bypass
-
-**Recommended: Option 3 with narrow scope.** The `/api/auth/device/approve` route is the only place that needs admin access, and it's authenticated (the user must be logged in). Create a `getDeviceAuthAdminClient()` helper that uses the service role key, scoped to this single use case. Document the exception in CLAUDE.md.
-
-Alternatively, if we want to strictly avoid the service role key: use Supabase's built-in magic link flow — have the server call `signInWithOtp({email})` which sends the user an email, and the user clicks the link. But this adds friction (extra email step) and doesn't match the smooth device code UX.
+**TODO (future):** Evaluate whether the service account pattern is the right long-term approach for device auth. The service account can call `signInWithOtp` to trigger a magic link, but cannot call `auth.admin.generateLink()` (that requires the service role key). We may need to either: (a) use a different OTP mechanism that doesn't require admin, (b) create a narrow service role key exception for this endpoint, or (c) use a Supabase Edge Function with admin privileges. Punt this decision — get the flow working first with whatever OTP approach the service account supports.
 
 ## Security Considerations
 
@@ -225,6 +221,6 @@ Alternatively, if we want to strictly avoid the service role key: use Supabase's
 
 ## Open Questions
 
-1. **Service role key exception**: Should we create a narrow exception to the "no service role key in app code" rule for `generateLink`, or find an alternative approach? → Recommend: narrow exception, documented.
+1. ~~**Service role key exception**~~ — Decided: use service account pattern, punt admin API question to future.
 2. **Device name**: Should the CLI auto-detect a device name (hostname) or let the user provide one? → Recommend: auto-detect hostname, allow override with `--device-name`.
 3. **Concurrent codes**: Should a user be limited to N active device codes? → Recommend: max 5 pending codes per IP, no per-user limit (user isn't known at initiation time).
