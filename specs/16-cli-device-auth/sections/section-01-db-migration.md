@@ -205,3 +205,20 @@ cd /home/user/sitemgr/web && npm run typecheck && npm run lint && npm run test &
 ```
 
 All five checks must pass. The new integration tests in `device-codes-schema.test.ts` should be picked up automatically by the integration test project configuration.
+
+## Implementation Notes
+
+### Files Created
+- `supabase/migrations/20260325000000_device_codes.sql` — Migration SQL (matches plan exactly)
+- `web/__tests__/integration/device-codes-schema.test.ts` — Integration tests (12 test cases)
+
+### Deviations from Plan
+1. **Tightened anon INSERT policy** — Changed `WITH CHECK (true)` to constrain `status = 'pending' AND user_id IS NULL AND token_hash IS NULL AND approved_at IS NULL AND email IS NULL`. Prevents anon from inserting pre-approved rows directly via Supabase client. (Code review finding, auto-fixed.)
+2. **Added column exclusivity assertion** — RPC test now verifies only expected columns are returned (no leakage).
+3. **Added negative test** — "anon CANNOT insert with privileged fields" verifies the tightened policy.
+
+### Test Count
+12 integration test cases across 3 describe blocks:
+- Schema validation (6 tests)
+- RPC behavior (2 tests)
+- RLS policies (4 tests, including negative test for privileged fields)
