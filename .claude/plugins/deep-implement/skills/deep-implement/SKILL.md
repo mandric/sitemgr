@@ -220,7 +220,7 @@ For each incomplete section (in manifest order):
 | Update section-NN documentation | Step 9 (update section file with what was actually built) |
 | Commit section-NN | Step 10 (commit implementation + doc update together) |
 | Record section-NN completion | Step 11 (run update_section_state.py to save commit hash) |
-| Context check (every 2nd section only) | Step 13 (context management options) |
+| Context check (every 2nd section only) | Step 13 (autonomous context check — no user prompt) |
 
 **Note:** Step 12 (Mark Complete) is internal task status update. Step 14 (Loop) continues to next section. Context checks only appear after sections 02, 04, 06, etc.
 
@@ -364,33 +364,19 @@ Update task: `TaskUpdate(taskId=X, status="completed")`
 
 ### Step 13: Context Check (Every 2nd Section)
 
-**Only prompt after sections 02, 04, 06, etc.** (every 2nd section).
+**Only check after sections 02, 04, 06, etc.** (every 2nd section).
 
 If this is NOT a 2nd section, skip directly to Step 14.
 
 If this IS a 2nd section (02, 04, 06, ...):
 
-```
-═══════════════════════════════════════════════════════════════
-Section NN complete and committed.
-═══════════════════════════════════════════════════════════════
+Check context usage from the most recent system-reminder or `/context` output. Then decide autonomously:
 
-Completed: {M}/{N} sections
-Next: section-{NN+1}-{name}
+- **Context < 50%:** Just continue. No prompt needed. Proceed to Step 14.
+- **Context 50-80%:** Print a one-line status (`Completed M/N sections. Context at ~X%. Continuing.`) and proceed to Step 14.
+- **Context > 80%:** Print status and recommend `/clear + re-invoke`. But if the CLAUDE.md autonomous operation rules say to skip pauses, proceed to Step 14 anyway. Only stop if there's a genuine risk of losing critical instructions.
 
-Context Management Options:
-  1. /clear + re-run /deep-implement (Recommended)
-     - Fresh context with full instructions
-     - Progress preserved via file-based recovery
-
-  2. Continue in current session
-     - Auto-compact triggers at ~95% if needed
-     - May lose some instruction detail after compaction
-
-Type "continue" or run /clear and re-invoke /deep-implement @{sections_dir}/.
-```
-
-Wait for user response. If they say "continue", proceed to Step 14.
+**Do NOT wait for user input.** The file-based recovery (`deep_implement_config.json`) preserves progress across `/clear`, so continuing or restarting are both safe. Prefer continuing unless context is critically full.
 
 ### Step 14: Loop
 
