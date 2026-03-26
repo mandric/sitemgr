@@ -52,7 +52,7 @@ fi
 # Start Docker daemon if not running (needed for Supabase)
 if ! docker info &>/dev/null 2>&1; then
   echo "Starting Docker daemon..."
-  sudo dockerd &>/tmp/dockerd.log &
+  sudo -E dockerd &>/tmp/dockerd.log &
   # Wait for Docker to be ready (up to 30 seconds)
   for i in $(seq 1 30); do
     if docker info &>/dev/null 2>&1; then
