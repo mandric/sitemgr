@@ -165,6 +165,26 @@ cd web && npm run typecheck && npm run lint && npm run test && npm run test:inte
 ```
 All five must pass. If any fail, fix them before committing.
 
+### Post-Implementation Checklist (mandatory)
+
+After completing any feature implementation (via `/deep-implement`, manual, or any other method):
+
+1. **Run `/verify`** — all checks must pass (typecheck, lint, unit tests, integration tests, build)
+2. **Push and create/update PR** — push to `claude/*` branch, create or update the PR with a summary
+3. **Run `/code-review`** on the PR — this posts review comments
+4. **Address review findings:**
+   - Clear bugs or correctness issues → fix, commit, push
+   - Style/quality aligned with project conventions → fix, commit, push
+   - Subjective or architectural suggestions → note for the human, don't act
+5. **Re-verify after fixes** — run `/verify` again if you made changes
+6. **Update PR description** — reflect final state: what was built, what was fixed, what needs human attention
+7. **Present for human review:**
+   - PR URL
+   - Summary of what was implemented
+   - Code review: what was fixed autonomously, what was left for human judgment
+   - Any items needing human attention before merge
+   - **Stop here.** The user decides when to merge.
+
 **Note:** `npm run test` runs unit tests only (`vitest run --project unit`). Integration tests (`test:integration`) and E2E tests (`test:e2e`) both require local Supabase and the web app running. The session-start hook starts Supabase automatically. The minimum version constant (`SUPABASE_MIN_VERSION`) and install/start helpers live in `scripts/lib.sh`.
 
 **Docker and Supabase are always available** in web sessions — both can be installed and started. Do NOT skip integration tests because of infrastructure setup issues — fix the setup and run them.
