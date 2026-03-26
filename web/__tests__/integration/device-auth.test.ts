@@ -11,7 +11,7 @@ import {
   createTestUser,
 } from "./setup";
 
-const APP_URL = `http://localhost:${process.env.WEB_PORT ?? "3000"}`;
+const APP_URL = process.env.SMGR_WEB_URL ?? `http://localhost:${process.env.WEB_PORT ?? "3000"}`;
 
 describe("device code auth flow", () => {
   let admin: SupabaseClient;
