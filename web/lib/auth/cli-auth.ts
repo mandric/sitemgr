@@ -105,7 +105,8 @@ export async function login(deviceName?: string): Promise<StoredCredentials> {
 
   if (!initiateRes.ok) {
     const body = await initiateRes.json().catch(() => ({}));
-    throw new Error(`Failed to initiate device code flow: ${body.error ?? initiateRes.statusText}`);
+    const msg = typeof body.error === "string" ? body.error : body.error?.message ?? initiateRes.statusText;
+    throw new Error(`Failed to initiate device code flow: ${msg}`);
   }
 
   const { device_code, user_code, verification_url, expires_at, interval } =

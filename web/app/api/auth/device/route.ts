@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   const device_name = body.device_name ?? "unknown";
   const device_code = generateDeviceCode();
   const expires_at = new Date(Date.now() + EXPIRY_MINUTES * 60 * 1000).toISOString();
-  const client_ip = request.headers.get("x-forwarded-for") ?? "unknown";
+  const client_ip = request.headers.get("x-forwarded-for") ?? null;
 
   const siteUrl =
     process.env.NEXT_PUBLIC_SITE_URL ??
@@ -75,6 +75,7 @@ export async function POST(request: Request) {
     }
 
     // Non-retryable error
+    console.error("[device-auth] insert failed:", error);
     return NextResponse.json({ error }, { status: 500 });
   }
 
