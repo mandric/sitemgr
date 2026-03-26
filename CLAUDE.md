@@ -147,7 +147,7 @@ When running autonomously (via `/plan-next`, triggers, or background sessions), 
 - Choose where to put new code — follow the existing module structure in `lib/`
 - Handle edge cases — follow patterns from similar code in the repo
 - Code review triage — auto-fix obvious improvements, let go of nitpicks, only ask about genuine tradeoffs
-- Context/compaction prompts — skip "continue or compact?" prompts when context usage is low (<50%). Just continue. Only prompt if context is actually near capacity (>80%)
+- Context/compaction — never prompt about context management. If compaction happens, follow the Compaction Recovery protocol below
 - Plugin workflow pauses — if a plugin skill (e.g. `/deep-implement`) has optional "wait for user" checkpoints, skip them during autonomous operation unless there's a genuine decision that requires human judgment
 
 **Stop and report (don't guess):**
@@ -156,6 +156,18 @@ When running autonomously (via `/plan-next`, triggers, or background sessions), 
 - Adding new environment variables to production
 - Deleting or significantly restructuring existing features
 - Anything that would change the public API contract
+
+### Compaction Recovery
+
+If context compaction occurs mid-task, **immediately re-orient before continuing:**
+
+1. **Read `git log --oneline -10`** — see what's been committed recently
+2. **Read `git diff --stat`** — see what's uncommitted
+3. **Read the PR** (if one exists on the current branch) — the description has the implementation summary
+4. **Check for deep-implement state** — `cat specs/*/implementation/deep_implement_config.json 2>/dev/null` shows completed sections and commit hashes
+5. **Read CLAUDE.md** — it's already reloaded, but re-read the post-implementation checklist to know what's left
+
+Then resume where you left off. If the current section's work is uncommitted and unclear, redo it — the cost is small. Do NOT proceed with degraded understanding; take 30 seconds to rebuild context from artifacts.
 
 ### Verification Checklist
 
