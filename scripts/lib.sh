@@ -192,6 +192,13 @@ print_setup_env_vars() {
   local encryption_key
   encryption_key=$(openssl rand -base64 32)
 
+  # Check if web app is running (non-blocking warning)
+  local web_url="http://localhost:3000"
+  if ! curl -sf --connect-timeout 2 "${web_url}/api/health" >/dev/null 2>&1; then
+    echo "Warning: Next.js web app not running at ${web_url}. Start with: cd web && npm run dev" >&2
+    echo "         CLI 'smgr login' requires the web app. Other commands work without it." >&2
+  fi
+
   cat <<EOF
 NEXT_PUBLIC_SUPABASE_URL=${api_url}
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${anon_key}
