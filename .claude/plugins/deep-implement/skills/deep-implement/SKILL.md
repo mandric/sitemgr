@@ -220,9 +220,8 @@ For each incomplete section (in manifest order):
 | Update section-NN documentation | Step 9 (update section file with what was actually built) |
 | Commit section-NN | Step 10 (commit implementation + doc update together) |
 | Record section-NN completion | Step 11 (run update_section_state.py to save commit hash) |
-| Context check (every 2nd section only) | Step 13 (autonomous context check — no user prompt) |
 
-**Note:** Step 12 (Mark Complete) is internal task status update. Step 14 (Loop) continues to next section. Context checks only appear after sections 02, 04, 06, etc.
+**Note:** Step 12 (Mark Complete) is internal task status update. Step 13 (Loop) continues to next section. If compaction happens mid-implementation, committed sections are safe in git and tracked in `deep_implement_config.json` — just redo the current section.
 
 ### Step 1: Mark In Progress
 
@@ -362,23 +361,7 @@ This records the commit hash so the section is recognized as complete on resume.
 
 Update task: `TaskUpdate(taskId=X, status="completed")`
 
-### Step 13: Context Check (Every 2nd Section)
-
-**Only check after sections 02, 04, 06, etc.** (every 2nd section).
-
-If this is NOT a 2nd section, skip directly to Step 14.
-
-If this IS a 2nd section (02, 04, 06, ...):
-
-Check context usage from the most recent system-reminder or `/context` output. Then decide autonomously:
-
-- **Context < 50%:** Just continue. No prompt needed. Proceed to Step 14.
-- **Context 50-80%:** Print a one-line status (`Completed M/N sections. Context at ~X%. Continuing.`) and proceed to Step 14.
-- **Context > 80%:** Print status and recommend `/clear + re-invoke`. But if the CLAUDE.md autonomous operation rules say to skip pauses, proceed to Step 14 anyway. Only stop if there's a genuine risk of losing critical instructions.
-
-**Do NOT wait for user input.** The file-based recovery (`deep_implement_config.json`) preserves progress across `/clear`, so continuing or restarting are both safe. Prefer continuing unless context is critically full.
-
-### Step 14: Loop
+### Step 13: Loop
 
 Repeat from Step 1 for next section.
 
@@ -450,15 +433,13 @@ Please review the section file.
 
 The setup script detects completed sections via `deep_implement_config.json` and marks their tasks complete. You'll resume from the next pending section with fresh instructions.
 
-**After compaction (if user chose "continue"):**
+**After compaction:**
+
+Committed sections are safe (tracked in `deep_implement_config.json` with commit hashes). If compaction causes confusion about the current section, just redo it — the cost is small. To recover paths:
 
 1. Call `TaskList` to see current state
-2. Find context tasks to recover paths:
-   - `plugin_root=...` - extract value after `=`
-   - `sections_dir=...` - extract value after `=`
-   - `state_dir=...` - extract value after `=`
-3. Find next pending, unblocked task
-4. Resume workflow from that task
+2. Find context tasks to recover paths (`plugin_root=...`, `sections_dir=...`, `state_dir=...`)
+3. Find next pending task and resume
 
 ---
 

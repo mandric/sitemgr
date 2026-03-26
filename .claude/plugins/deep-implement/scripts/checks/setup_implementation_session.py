@@ -28,7 +28,6 @@ from scripts.lib.task_reconciliation import TaskListContext
 from scripts.lib.impl_tasks import (
     SECTION_STEP_IDS,
     SECTION_STEP_DEFINITIONS,
-    COMPACTION_TASK,
     FINALIZATION_TASK,
     RESUME_STEP_COMPLETE_MAPPING,
     CONTEXT_ITEM_KEYS,
@@ -574,22 +573,6 @@ def generate_implementation_tasks(
             ))
             position += 1
 
-        # Compaction prompt every 2nd section (after sections 2, 4, 6, etc.)
-        if (section_index + 1) % 2 == 0:
-            if is_completed:
-                status = TaskStatus.COMPLETED
-            else:
-                status = TaskStatus.PENDING
-
-            tasks.append(TaskToWrite(
-                position=position,
-                subject=COMPACTION_TASK.subject.format(section=section, display_name=display_name),
-                status=status,
-                description=COMPACTION_TASK.description.format(section=section, display_name=display_name),
-                active_form=COMPACTION_TASK.active_form.format(section=section, display_name=display_name),
-            ))
-            position += 1
-
     # Finalization task
     all_complete = all(s in completed_sections for s in sections) if sections else False
     tasks.append(TaskToWrite(
@@ -632,10 +615,8 @@ def build_impl_dependency_graph(
     steps_per_section = len(SECTION_STEP_IDS)
 
     for section_index, section in enumerate(sections):
-        # Calculate section start position accounting for compaction tasks
-        # Each section has 6 steps, compaction added after every 2nd section
-        compaction_tasks_before = section_index // 2
-        section_start = context_count + 1 + (section_index * steps_per_section) + compaction_tasks_before
+        # Each section has N steps, no compaction tasks
+        section_start = context_count + 1 + (section_index * steps_per_section)
 
         # Link steps within section (sequential)
         for step_offset in range(steps_per_section - 1):
@@ -646,45 +627,19 @@ def build_impl_dependency_graph(
 
         # Link first step to previous section's commit (if not first section)
         if section_index > 0:
-            # Previous section's commit position
-            prev_compaction_tasks = (section_index - 1) // 2
-            prev_section_start = context_count + 1 + ((section_index - 1) * steps_per_section) + prev_compaction_tasks
+            prev_section_start = context_count + 1 + ((section_index - 1) * steps_per_section)
             prev_commit_pos = prev_section_start + steps_per_section - 1
-
-            # Add compaction position if this section is at a 3-boundary (e.g., section 3, 6, 9)
-            # The compaction task comes AFTER the commit of section 3, 6, 9, etc.
-            if section_index % 2 == 0:
-                # There's a compaction task between the previous commit and this section's first step
-                compaction_pos = prev_commit_pos + 1
-                blocked_by[section_start].append(str(compaction_pos))
-                blocks[compaction_pos].append(str(section_start))
-                # The compaction itself is blocked by the previous commit
-                blocked_by[compaction_pos].append(str(prev_commit_pos))
-                blocks[prev_commit_pos].append(str(compaction_pos))
-            else:
-                # No compaction, link directly to previous commit
-                blocked_by[section_start].append(str(prev_commit_pos))
-                blocks[prev_commit_pos].append(str(section_start))
+            blocked_by[section_start].append(str(prev_commit_pos))
+            blocks[prev_commit_pos].append(str(section_start))
 
     # Finalization task (last position)
     if tasks and sections:
         final_pos = tasks[-1].position
-        # Find last section's commit position
         last_section_index = len(sections) - 1
-        last_compaction_tasks = last_section_index // 2
-        last_section_start = context_count + 1 + (last_section_index * steps_per_section) + last_compaction_tasks
+        last_section_start = context_count + 1 + (last_section_index * steps_per_section)
         last_commit_pos = last_section_start + steps_per_section - 1
-
-        # Check if last section has a compaction task after it
-        if (last_section_index + 1) % 2 == 0:
-            # Compaction after last commit, finalization blocked by compaction
-            last_compaction_pos = last_commit_pos + 1
-            blocked_by[final_pos].append(str(last_compaction_pos))
-            blocks[last_compaction_pos].append(str(final_pos))
-        else:
-            # No compaction, finalization blocked by last commit
-            blocked_by[final_pos].append(str(last_commit_pos))
-            blocks[last_commit_pos].append(str(final_pos))
+        blocked_by[final_pos].append(str(last_commit_pos))
+        blocks[last_commit_pos].append(str(final_pos))
 
         # Context tasks blockedBy finalization (keeps them pending until workflow completes)
         for context_pos in range(1, context_count + 1):
