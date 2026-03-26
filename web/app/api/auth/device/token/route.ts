@@ -54,11 +54,34 @@ export async function POST(request: Request) {
     return NextResponse.json({ status: "expired" });
   }
 
-  // Approved: return token_hash + email, then consume
+  // Approved: verify OTP server-side and return session directly
   if (row.status === "approved" && row.token_hash) {
     const { token_hash, email } = row;
     await supabase.rpc("consume_device_code", { p_device_code: device_code });
-    return NextResponse.json({ status: "approved", token_hash, email });
+
+    // Verify OTP to create a session — the CLI never touches Supabase directly
+    const { data: otpData, error: otpError } = await supabase.auth.verifyOtp({
+      token_hash,
+      type: "magiclink",
+    });
+
+    if (otpError || !otpData.session) {
+      console.error("[device-token] verifyOtp error:", otpError);
+      return NextResponse.json(
+        { status: "approved", error: "Failed to create session" },
+        { status: 500 },
+      );
+    }
+
+    const session = otpData.session;
+    return NextResponse.json({
+      status: "approved",
+      access_token: session.access_token,
+      refresh_token: session.refresh_token,
+      user_id: session.user.id,
+      email: session.user.email ?? email,
+      expires_at: session.expires_at ?? 0,
+    });
   }
 
   // Best-effort polled_at update

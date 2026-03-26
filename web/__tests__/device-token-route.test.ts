@@ -73,7 +73,7 @@ describe("POST /api/auth/device/token", () => {
     expect(body.token_hash).toBeUndefined();
   });
 
-  it("returns approved with token_hash and email, then consumes", async () => {
+  it("returns approved with session fields after server-side verifyOtp", async () => {
     const rpcMock = vi.fn()
       .mockResolvedValueOnce({
         data: [
@@ -87,23 +87,42 @@ describe("POST /api/auth/device/token", () => {
         error: null,
       })
       // consume_device_code call
-      .mockResolvedValueOnce({ data: null, error: null })
-      // update_device_code_polled_at call
       .mockResolvedValueOnce({ data: null, error: null });
 
-    mockGetUserClient.mockReturnValue({ rpc: rpcMock } as never);
+    const verifyOtpMock = vi.fn().mockResolvedValue({
+      data: {
+        session: {
+          access_token: "at-123",
+          refresh_token: "rt-456",
+          expires_at: 9999999999,
+          user: { id: "user-id-789", email: "user@example.com" },
+        },
+      },
+      error: null,
+    });
+
+    mockGetUserClient.mockReturnValue({
+      rpc: rpcMock,
+      auth: { verifyOtp: verifyOtpMock },
+    } as never);
 
     const { POST } = await import("@/app/api/auth/device/token/route");
     const response = await POST(makeRequest({ device_code: "abc123" }));
     expect(response.status).toBe(200);
     const body = await response.json();
     expect(body.status).toBe("approved");
-    expect(body.token_hash).toBe("secret-hash");
+    expect(body.access_token).toBe("at-123");
+    expect(body.refresh_token).toBe("rt-456");
+    expect(body.user_id).toBe("user-id-789");
     expect(body.email).toBe("user@example.com");
 
-    // Verify consume was called
+    // Verify consume was called before verifyOtp
     expect(rpcMock).toHaveBeenCalledWith("consume_device_code", {
       p_device_code: "abc123",
+    });
+    expect(verifyOtpMock).toHaveBeenCalledWith({
+      token_hash: "secret-hash",
+      type: "magiclink",
     });
   });
 

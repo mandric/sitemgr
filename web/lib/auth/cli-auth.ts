@@ -77,24 +77,27 @@ export function openBrowser(url: string): void {
 
 /**
  * Resolves the API URL and public key for the backend.
- * Set SMGR_API_URL and SMGR_API_KEY in your environment.
+ * SMGR_API_URL / SMGR_API_KEY — Supabase (used by data commands until Phase 3 migration)
+ * SMGR_WEB_URL — Next.js web app (used by device code auth flow)
  */
-export function resolveApiConfig(): { url: string; anonKey: string } {
+export function resolveApiConfig(): { url: string; anonKey: string; webUrl: string } {
   const url = process.env.SMGR_API_URL?.trim();
   const anonKey = process.env.SMGR_API_KEY?.replace(/\s+/g, "");
+  const webUrl = process.env.SMGR_WEB_URL?.trim();
   if (!url) throw new Error("SMGR_API_URL is required");
   if (!anonKey) throw new Error("SMGR_API_KEY is required");
-  return { url, anonKey };
+  if (!webUrl) throw new Error("SMGR_WEB_URL is required (e.g. http://localhost:3000)");
+  return { url, anonKey, webUrl };
 }
 
 // ── Login (device code flow) ────────────────────────────────────
 
 export async function login(deviceName?: string): Promise<StoredCredentials> {
-  const { url, anonKey } = resolveApiConfig();
+  const { webUrl } = resolveApiConfig();
   const device_name = deviceName ?? hostname();
 
   // 1. Initiate device code flow
-  const initiateRes = await fetch(`${url}/api/auth/device`, {
+  const initiateRes = await fetch(`${webUrl}/api/auth/device`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ device_name }),
@@ -124,7 +127,7 @@ export async function login(deviceName?: string): Promise<StoredCredentials> {
 
     await new Promise((r) => setTimeout(r, pollInterval));
 
-    const pollRes = await fetch(`${url}/api/auth/device/token`, {
+    const pollRes = await fetch(`${webUrl}/api/auth/device/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ device_code }),
@@ -146,24 +149,14 @@ export async function login(deviceName?: string): Promise<StoredCredentials> {
       throw new Error("Device authorization denied.");
     }
 
-    if (pollData.status === "approved" && pollData.token_hash) {
-      // 4. Verify OTP to get a session
-      const supabase = createSupabaseClient(url, anonKey);
-      const { data, error } = await supabase.auth.verifyOtp({
-        token_hash: pollData.token_hash,
-        type: "magiclink",
-      });
-
-      if (error) throw error;
-      const session = data.session;
-      if (!session) throw new Error("No session returned from OTP verification");
-
+    if (pollData.status === "approved" && pollData.access_token) {
+      // 4. Session returned directly from poll endpoint (verifyOtp done server-side)
       const creds: StoredCredentials = {
-        access_token: session.access_token,
-        refresh_token: session.refresh_token,
-        user_id: session.user.id,
-        email: session.user.email ?? pollData.email,
-        expires_at: session.expires_at ?? 0,
+        access_token: pollData.access_token,
+        refresh_token: pollData.refresh_token,
+        user_id: pollData.user_id,
+        email: pollData.email,
+        expires_at: pollData.expires_at ?? 0,
         device_name: device_name,
       };
 

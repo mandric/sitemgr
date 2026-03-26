@@ -4,13 +4,6 @@ vi.mock("node:child_process", () => ({
   exec: vi.fn(),
 }));
 
-const mockVerifyOtp = vi.fn();
-vi.mock("@supabase/supabase-js", () => ({
-  createClient: vi.fn(() => ({
-    auth: { verifyOtp: mockVerifyOtp },
-  })),
-}));
-
 // Mock fs operations used by saveCredentials
 vi.mock("node:fs", async () => {
   const actual = await vi.importActual("node:fs");
@@ -32,6 +25,15 @@ const INITIATE_RESPONSE = {
   interval: 0.01, // very short for tests
 };
 
+const APPROVED_SESSION_RESPONSE = {
+  status: "approved",
+  access_token: "at-123",
+  refresh_token: "rt-456",
+  user_id: "uid-789",
+  email: "user@test.com",
+  expires_at: 9999999999,
+};
+
 function mockFetchResponses(...responses: Array<{ status: number; body: unknown }>) {
   const fetchSpy = vi.spyOn(globalThis, "fetch");
   for (const r of responses) {
@@ -44,8 +46,9 @@ function mockFetchResponses(...responses: Array<{ status: number; body: unknown 
 
 describe("login() device code flow", () => {
   beforeEach(() => {
-    vi.stubEnv("SMGR_API_URL", "http://localhost:3000");
+    vi.stubEnv("SMGR_API_URL", "http://localhost:54321");
     vi.stubEnv("SMGR_API_KEY", "test-anon-key");
+    vi.stubEnv("SMGR_WEB_URL", "http://localhost:3000");
     vi.clearAllMocks();
 
     // Suppress stderr output during tests
@@ -60,20 +63,8 @@ describe("login() device code flow", () => {
   it("calls POST /api/auth/device and receives device_code + user_code", async () => {
     const fetchSpy = mockFetchResponses(
       { status: 201, body: INITIATE_RESPONSE },
-      { status: 200, body: { status: "approved", token_hash: "hash123", email: "user@test.com" } },
+      { status: 200, body: APPROVED_SESSION_RESPONSE },
     );
-
-    mockVerifyOtp.mockResolvedValue({
-      data: {
-        session: {
-          access_token: "at",
-          refresh_token: "rt",
-          expires_at: 9999999999,
-          user: { id: "uid", email: "user@test.com" },
-        },
-      },
-      error: null,
-    });
 
     await login("test-device");
 
@@ -91,18 +82,8 @@ describe("login() device code flow", () => {
 
     mockFetchResponses(
       { status: 201, body: INITIATE_RESPONSE },
-      { status: 200, body: { status: "approved", token_hash: "h", email: "e@t.com" } },
+      { status: 200, body: APPROVED_SESSION_RESPONSE },
     );
-
-    mockVerifyOtp.mockResolvedValue({
-      data: {
-        session: {
-          access_token: "at", refresh_token: "rt", expires_at: 0,
-          user: { id: "uid", email: "e@t.com" },
-        },
-      },
-      error: null,
-    });
 
     await login();
 
@@ -116,18 +97,8 @@ describe("login() device code flow", () => {
       { status: 201, body: INITIATE_RESPONSE },
       { status: 200, body: { status: "pending" } },
       { status: 200, body: { status: "pending" } },
-      { status: 200, body: { status: "approved", token_hash: "hash", email: "e@t.com" } },
+      { status: 200, body: APPROVED_SESSION_RESPONSE },
     );
-
-    mockVerifyOtp.mockResolvedValue({
-      data: {
-        session: {
-          access_token: "at", refresh_token: "rt", expires_at: 0,
-          user: { id: "uid", email: "e@t.com" },
-        },
-      },
-      error: null,
-    });
 
     await login();
 
@@ -135,28 +106,18 @@ describe("login() device code flow", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(4);
   });
 
-  it("on approved, calls verifyOtp with token_hash and type magiclink", async () => {
+  it("on approved, saves session credentials directly (no verifyOtp)", async () => {
     mockFetchResponses(
       { status: 201, body: INITIATE_RESPONSE },
-      { status: 200, body: { status: "approved", token_hash: "my-hash", email: "e@t.com" } },
+      { status: 200, body: APPROVED_SESSION_RESPONSE },
     );
 
-    mockVerifyOtp.mockResolvedValue({
-      data: {
-        session: {
-          access_token: "at", refresh_token: "rt", expires_at: 0,
-          user: { id: "uid", email: "e@t.com" },
-        },
-      },
-      error: null,
-    });
+    const creds = await login();
 
-    await login();
-
-    expect(mockVerifyOtp).toHaveBeenCalledWith({
-      token_hash: "my-hash",
-      type: "magiclink",
-    });
+    expect(creds.access_token).toBe("at-123");
+    expect(creds.refresh_token).toBe("rt-456");
+    expect(creds.user_id).toBe("uid-789");
+    expect(creds.email).toBe("user@test.com");
   });
 
   it("throws on expired response", async () => {
@@ -193,23 +154,28 @@ describe("login() device code flow", () => {
   it("sends device_name in initiate request body", async () => {
     const fetchSpy = mockFetchResponses(
       { status: 201, body: INITIATE_RESPONSE },
-      { status: 200, body: { status: "approved", token_hash: "h", email: "e@t.com" } },
+      { status: 200, body: APPROVED_SESSION_RESPONSE },
     );
-
-    mockVerifyOtp.mockResolvedValue({
-      data: {
-        session: {
-          access_token: "at", refresh_token: "rt", expires_at: 0,
-          user: { id: "uid", email: "e@t.com" },
-        },
-      },
-      error: null,
-    });
 
     await login("my-laptop");
 
     const initCall = fetchSpy.mock.calls[0];
     const body = JSON.parse(initCall[1]?.body as string);
     expect(body.device_name).toBe("my-laptop");
+  });
+
+  it("uses SMGR_WEB_URL for fetch calls, not SMGR_API_URL", async () => {
+    const fetchSpy = mockFetchResponses(
+      { status: 201, body: INITIATE_RESPONSE },
+      { status: 200, body: APPROVED_SESSION_RESPONSE },
+    );
+
+    await login();
+
+    // Both calls should use the web URL, not the Supabase URL
+    for (const call of fetchSpy.mock.calls) {
+      expect(call[0]).toContain("localhost:3000");
+      expect(call[0]).not.toContain("localhost:54321");
+    }
   });
 });

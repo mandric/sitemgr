@@ -5,9 +5,8 @@
  * Runs against real local Supabase and the Next.js dev server.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  getSupabaseConfig,
   getAdminClient,
   createTestUser,
 } from "./setup";
@@ -90,7 +89,7 @@ describe("device code auth flow", () => {
       .eq("device_code", device_code);
     expect(updateError).toBeNull();
 
-    // 5. Poll for approved status
+    // 5. Poll for approved status — server-side verifyOtp returns session directly
     const pollRes = await fetch(`${APP_URL}/api/auth/device/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -99,25 +98,12 @@ describe("device code auth flow", () => {
     expect(pollRes.status).toBe(200);
     const pollData = await pollRes.json();
     expect(pollData.status).toBe("approved");
-    expect(pollData.token_hash).toBe(hashedToken);
+    expect(pollData.access_token).toBeDefined();
+    expect(pollData.refresh_token).toBeDefined();
+    expect(pollData.user_id).toBeDefined();
     expect(pollData.email).toBe(testEmail);
 
-    // 6. Verify OTP to get a session
-    const config = getSupabaseConfig();
-    const anonClient = createClient(config.url, config.anonKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
-    const { data: otpData, error: otpError } = await anonClient.auth.verifyOtp(
-      {
-        token_hash: hashedToken,
-        type: "magiclink",
-      },
-    );
-    expect(otpError).toBeNull();
-    expect(otpData.session).toBeDefined();
-    expect(otpData.session!.user.email).toBe(testEmail);
-
-    // 7. Second poll should return consumed (no token_hash)
+    // 6. Second poll should return consumed (no session fields)
     const pollRes2 = await fetch(`${APP_URL}/api/auth/device/token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -126,7 +112,7 @@ describe("device code auth flow", () => {
     expect(pollRes2.status).toBe(200);
     const pollData2 = await pollRes2.json();
     expect(pollData2.status).toBe("consumed");
-    expect(pollData2.token_hash).toBeUndefined();
+    expect(pollData2.access_token).toBeUndefined();
   });
 
   it("expired code returns expired status on poll", async () => {
