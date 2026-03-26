@@ -95,6 +95,17 @@ CLI / Browser  →  Our Web API  →  Supabase (implementation detail)
 Test cleanup   →  Supabase Admin (direct, acceptable)
 ```
 
+## Known UX issue: CLI doesn't load .env.local
+
+`npm run smgr` runs `tsx bin/smgr.ts` which doesn't load `.env.local` — that's a Next.js convention, not a Node/tsx one. Users must `source .env.local` first or set env vars manually. This is a poor developer experience.
+
+Options to fix (pick one during implementation):
+- CLI auto-loads `~/.sitemgr/config` or `.env.local` via `dotenv` on startup
+- `smgr setup` command writes env vars to `~/.sitemgr/config` and the CLI always reads it
+- Phase 4's single `SITEMGR_URL` env var simplifies this — one var is easy to set in a shell profile
+
+Until fixed, the workaround is: `source .env.local && npm run smgr login`
+
 ## Notes
 
 - S3 operations (watch, add commands) are a separate concern — the CLI talks directly to S3, not through the web API. This is acceptable for v1.
