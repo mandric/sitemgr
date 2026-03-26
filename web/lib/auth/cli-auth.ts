@@ -207,6 +207,7 @@ export async function refreshSession(): Promise<StoredCredentials | null> {
     user_id: data.session.user.id,
     email: data.session.user.email ?? creds.email,
     expires_at: data.session.expires_at ?? 0,
+    device_name: creds.device_name,
   };
 
   saveCredentials(updated);

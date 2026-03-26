@@ -29,7 +29,7 @@ This applies to error objects too — preserve the full object (`code`, `details
 
 **Supabase Service Role Key (Test/Admin + Device Auth Exception):**
 - Application code (CLI, agent core, health endpoint, webhook handler) **never** uses the service role key
-- **Exception:** `/api/auth/device/approve` uses the service role key solely for `admin.generateLink()` to generate a magic link token hash during device code approval. This endpoint is itself authenticated (user must be logged in via cookie session). This is the only application endpoint with this exception. Evaluating alternatives (service account, edge function) is deferred to a future spec.
+- **Exception:** `/api/auth/device/approve` uses the service role key for `admin.generateLink()` to generate a magic link token hash during device code approval, and for the `device_codes` table lookup and update (service role bypasses RLS). This endpoint is itself authenticated (user must be logged in via cookie session). This is the only application endpoint with this exception. Evaluating alternatives (service account, edge function) is deferred to a future spec.
 - The service role key only appears in: `.env.local` (for integration tests), integration test setup (`setup.ts`), CI deployment scripts, `scripts/setup/verify.sh`, and the device approve endpoint
 - The WhatsApp webhook uses a dedicated service account (`webhook@sitemgr.internal`) with narrowly-scoped RLS policies instead of the service role key
 - `WEBHOOK_SERVICE_ACCOUNT_EMAIL` and `WEBHOOK_SERVICE_ACCOUNT_PASSWORD` are Vercel Production runtime secrets for the webhook handler

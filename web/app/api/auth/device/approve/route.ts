@@ -52,7 +52,22 @@ export async function POST(request: Request) {
     .gt("expires_at", new Date().toISOString())
     .single();
 
-  if (lookupError || !row) {
+  if (lookupError) {
+    // PGRST116 = no rows found (expected for invalid/expired codes)
+    if (lookupError.code === "PGRST116") {
+      return NextResponse.json(
+        { error: "Code not found or expired" },
+        { status: 404 },
+      );
+    }
+    console.error("[device-approve] lookup error:", lookupError);
+    return NextResponse.json(
+      { error: "Failed to look up device code" },
+      { status: 500 },
+    );
+  }
+
+  if (!row) {
     return NextResponse.json(
       { error: "Code not found or expired" },
       { status: 404 },
