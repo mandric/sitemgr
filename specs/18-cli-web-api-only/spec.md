@@ -66,10 +66,17 @@ The CLI should have a single env var pointing to the web API. All operations go 
 
 10. **Single CLI env var**: `SITEMGR_URL` (or `SITEMGR_WEB_URL`) pointing to the Next.js app. Remove `SMGR_API_KEY` (anon key) from CLI — the web API handles auth internally.
 
+### Phase 5: Integration tests use our APIs, not Supabase
+
+11. **Replace `createTestUser()` in `setup.ts`**: Currently calls `admin.auth.admin.createUser()` and `signInWithPassword()` directly against Supabase. Integration tests should exercise the same APIs we maintain — create users through our web API auth flow, not through Supabase admin methods. This validates our API routes end-to-end.
+
+12. **Audit all integration test helpers**: Any direct Supabase calls in test setup/teardown that have a corresponding web API route should be migrated. The only acceptable direct Supabase usage is for test-only operations that have no web API equivalent (e.g., cleanup/deletion via admin client).
+
 ## Priority
 
-- **Phase 1 is urgent** — the device code login (spec 16) is broken without it
+- **Phase 1 is done** — CLI login uses web API (merged in PR #50)
 - **Phases 2-4 are important** but can be done incrementally
+- **Phase 5** should follow phases 2-3 (need the web API routes to exist before tests can use them)
 
 ## Notes
 
