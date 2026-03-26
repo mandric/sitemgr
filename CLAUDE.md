@@ -118,6 +118,7 @@ The web app needs `ENCRYPTION_KEY_CURRENT` in `.env.local` because API routes en
 
 - `project-manifest.md` — Split structure, dependencies, and execution order
 - `01-data-foundation/spec.md` through `05-cli/spec.md` — Per-split specs for `/deep-plan`
+- **`specs/` is the source of truth for all features, bugs, and refactors.** Each gets a numbered directory (`specs/<NN>-<name>/spec.md`). Use `/plan-next` to pick the next spec, plan it, and implement it.
 - Files under `specs/` are **immutable after implementation** — do not update them during refactors or renames. They are historical records of the plan at the time it was executed.
 
 ### Backlog items (not v1 scope)
