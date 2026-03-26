@@ -196,6 +196,7 @@ After completing any feature implementation (via `/deep-implement`, manual, or a
    - Summary of what was implemented
    - Code review: what was fixed autonomously, what was left for human judgment
    - Any items needing human attention before merge
+   - **Verify CI pipeline passes** before presenting — check with `get_check_runs` on the PR. If CI fails, fix the issue first.
    - **Stop here.** The user decides when to merge.
 
 **Note:** `npm run test` runs unit tests only (`vitest run --project unit`). Integration tests (`test:integration`) and E2E tests (`test:e2e`) both require local Supabase and the web app running. The session-start hook starts Supabase automatically. The minimum version constant (`SUPABASE_MIN_VERSION`) and install/start helpers live in `scripts/lib.sh`.
