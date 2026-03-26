@@ -78,6 +78,23 @@ The CLI should have a single env var pointing to the web API. All operations go 
 - **Phases 2-4 are important** but can be done incrementally
 - **Phase 5** should follow phases 2-3 (need the web API routes to exist before tests can use them)
 
+## Design: domain API vs direct Supabase
+
+**Principle:** If a user or the CLI will ever call it, it goes through our web API. Supabase is an implementation detail behind that API.
+
+**Domain API (our routes):** Expose operations that make sense for our domain, not Supabase's shape. `POST /api/auth/signup`, `GET /api/events?search=beach`, `DELETE /api/events/:id` — these are contracts we control. The implementation uses Supabase today but the contract is ours. If we swap Supabase for something else, clients don't break.
+
+**No passthroughs:** Don't wrap Supabase 1:1 (e.g., `POST /api/admin/users` → `admin.createUser()`). That adds latency and maintenance for no abstraction benefit. Design routes around what our app needs, not what Supabase offers.
+
+**Direct Supabase is acceptable for:** Test-only admin operations that don't map to user-facing features — user deletion, DB reset, bulk cleanup. If/when the app needs these operations, that's when we add the route.
+
+```
+CLI / Browser  →  Our Web API  →  Supabase (implementation detail)
+                  (domain ops)
+
+Test cleanup   →  Supabase Admin (direct, acceptable)
+```
+
 ## Notes
 
 - S3 operations (watch, add commands) are a separate concern — the CLI talks directly to S3, not through the web API. This is acceptable for v1.
