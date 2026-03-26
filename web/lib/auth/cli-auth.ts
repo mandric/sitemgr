@@ -78,15 +78,14 @@ export function openBrowser(url: string): void {
 /**
  * Resolves the API URL and public key for the backend.
  * SMGR_API_URL / SMGR_API_KEY — Supabase (used by data commands until Phase 3 migration)
- * SMGR_WEB_URL — Next.js web app (used by device code auth flow)
+ * SMGR_WEB_URL — Next.js web app (used by device code auth flow, optional for other commands)
  */
-export function resolveApiConfig(): { url: string; anonKey: string; webUrl: string } {
+export function resolveApiConfig(): { url: string; anonKey: string; webUrl?: string } {
   const url = process.env.SMGR_API_URL?.trim();
   const anonKey = process.env.SMGR_API_KEY?.replace(/\s+/g, "");
   const webUrl = process.env.SMGR_WEB_URL?.trim();
   if (!url) throw new Error("SMGR_API_URL is required");
   if (!anonKey) throw new Error("SMGR_API_KEY is required");
-  if (!webUrl) throw new Error("SMGR_WEB_URL is required (e.g. http://localhost:3000)");
   return { url, anonKey, webUrl };
 }
 
@@ -94,6 +93,7 @@ export function resolveApiConfig(): { url: string; anonKey: string; webUrl: stri
 
 export async function login(deviceName?: string): Promise<StoredCredentials> {
   const { webUrl } = resolveApiConfig();
+  if (!webUrl) throw new Error("SMGR_WEB_URL is required for login (e.g. http://localhost:3000)");
   const device_name = deviceName ?? hostname();
 
   // 1. Initiate device code flow
