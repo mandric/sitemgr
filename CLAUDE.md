@@ -183,7 +183,7 @@ All five must pass. If any fail, fix them before committing.
 After completing any feature implementation (via `/deep-implement`, manual, or any other method):
 
 1. **Run `/verify`** — all checks must pass (typecheck, lint, unit tests, integration tests, build)
-2. **Push and create/update PR** — push to `claude/*` branch, create or update the PR with a summary. **Update the PR description after every meaningful commit** — it serves as the living record of the work for human reviewers and future agents.
+2. **Push and create/update PR** — push to `claude/*` branch, create or update the PR with a summary. **Keep the PR description current** — update it after each chunk of work when the PR is ready for its next review pass. The description is the living record for human reviewers and future agents.
 3. **Run `/code-review`** on the PR — this posts review comments
 4. **Address review findings:**
    - Clear bugs or correctness issues → fix, commit, push
