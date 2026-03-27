@@ -19,42 +19,46 @@ Replace the CLI's email/password login with a device code authorization flow (RF
 
 ### Flow Overview
 
+```mermaid
+sequenceDiagram
+    participant CLI
+    participant WebAPI as Web API (Next.js)
+    participant Supabase
+    participant Browser
+
+    CLI->>WebAPI: POST /api/auth/device<br/>{device_name}
+    WebAPI->>Supabase: INSERT device_codes (anon)
+    WebAPI-->>CLI: 201 {device_code, user_code,<br/>verification_url, expires_at, interval}
+
+    CLI->>Browser: Open verification_url
+    Note over CLI: Display: "Enter code: XXXX-XXXX"
+
+    Browser->>WebAPI: User visits /auth/device?code=XXXX
+    Note over Browser: User logs in (if needed),<br/>clicks "Approve"
+    Browser->>WebAPI: POST /api/auth/device/approve<br/>{user_code} + session cookie
+
+    WebAPI->>Supabase: admin.generateLink(magiclink)
+    Supabase-->>WebAPI: {hashed_token}
+    WebAPI->>Supabase: UPDATE device_codes SET<br/>status=approved, token_hash
+
+    loop Every 5 seconds
+        CLI->>WebAPI: POST /api/auth/device/token<br/>{device_code}
+        WebAPI->>Supabase: RPC get_device_code_status
+        alt Still pending
+            WebAPI-->>CLI: {status: "pending"}
+        else Approved
+            WebAPI->>Supabase: RPC consume_device_code
+            WebAPI->>Supabase: auth.verifyOtp(token_hash)
+            Supabase-->>WebAPI: {session}
+            WebAPI-->>CLI: {status: "approved",<br/>access_token, refresh_token,<br/>user_id, email}
+        end
+    end
+
+    Note over CLI: Save to ~/.sitemgr/credentials.json
+    CLI->>CLI: "Logged in as user@example.com"
 ```
-CLI                          Server API                    Browser
- │                              │                            │
- ├─ POST /api/auth/device ─────►│                            │
- │◄── {device_code,             │                            │
- │     user_code,               │                            │
- │     verification_url,        │                            │
- │     expires_at, interval}    │                            │
- │                              │                            │
- ├─ open browser ───────────────┼───────────────────────────►│
- │   "Go to URL, enter code"    │                            │
- │                              │                            │
- │                              │    User visits /auth/device│
- │                              │    Logs in (if needed)     │
- │                              │    Enters user_code        │
- │                              │◄── POST /api/auth/device/  │
- │                              │         approve            │
- │                              │                            │
- │                              │  Server: validate code,    │
- │                              │  generate magic link OTP   │
- │                              │  via admin API, store with │
- │                              │  device_code               │
- │                              │                            │
- ├─ POST /api/auth/device/token►│                            │
- │   (polling with device_code) │                            │
- │◄── {status: "approved",      │                            │
- │     token_hash, email}       │                            │
- │                              │                            │
- │  CLI: verifyOtp(token_hash)  │                            │
- │  → gets access_token +       │                            │
- │    refresh_token              │                            │
- │                              │                            │
- │  Store in ~/.sitemgr/        │                            │
- │    credentials.json          │                            │
- └──────────────────────────────┴────────────────────────────┘
-```
+
+**Key design point:** The CLI never talks to Supabase directly. `verifyOtp` runs server-side in the poll endpoint. The CLI receives a ready-to-use session.
 
 ### Step-by-Step
 
