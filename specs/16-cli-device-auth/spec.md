@@ -222,6 +222,7 @@ New production env vars (Vercel):
 - OAuth/SSO provider support (Google, GitHub login) — separate effort, but device code flow is compatible
 - Push notification to CLI (WebSocket) instead of polling — polling is sufficient for v1
 - QR code display in terminal — nice-to-have, not required
+- **Rate limiting on `POST /api/auth/device`** — the initiate endpoint is intentionally unauthenticated (the CLI isn't logged in yet). Anyone can create pending device codes, but they're useless without the user_code (only shown in the terminal) and an authenticated approval. The worst case is DB spam (rows expire in 10 minutes and are cleaned up). Rate limiting by IP or globally is a sensible hardening measure for production but not required for v1.
 
 ## Open Questions
 
