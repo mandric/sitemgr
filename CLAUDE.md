@@ -27,14 +27,15 @@ This applies to error objects too — preserve the full object (`code`, `details
 - **DO NOT USE**: `ENCRYPTION_KEY`, `ENCRYPTION_KEY_V1`, `ENCRYPTION_KEY_V2`, `ENCRYPTION_KEY_V3` (legacy, removed)
 - **DO NOT USE**: `SUPABASE_SECRET_KEY` (renamed to `SUPABASE_SERVICE_ROLE_KEY`, removed from runtime)
 
-**Supabase Service Role Key (Test/Admin Only):**
+**Supabase Service Role Key (Test/Admin + Device Auth Exception):**
 - Application code (CLI, agent core, health endpoint, webhook handler) **never** uses the service role key
-- The service role key only appears in: `.env.local` (for integration tests), integration test setup (`setup.ts`), CI deployment scripts, `scripts/setup/verify.sh`
+- **Exception:** `/api/auth/device/approve` uses the service role key for `admin.generateLink()` to generate a magic link token hash during device code approval, and for the `device_codes` table lookup and update (service role bypasses RLS). This endpoint is itself authenticated (user must be logged in via cookie session). This is the only application endpoint with this exception. Evaluating alternatives (service account, edge function) is deferred to a future spec.
+- The service role key only appears in: `.env.local` (for integration tests), integration test setup (`setup.ts`), CI deployment scripts, `scripts/setup/verify.sh`, and the device approve endpoint
 - The WhatsApp webhook uses a dedicated service account (`webhook@sitemgr.internal`) with narrowly-scoped RLS policies instead of the service role key
 - `WEBHOOK_SERVICE_ACCOUNT_EMAIL` and `WEBHOOK_SERVICE_ACCOUNT_PASSWORD` are Vercel Production runtime secrets for the webhook handler
 
 **Where Secrets Live:**
-- **Vercel Production**: All runtime secrets for deployed app (does NOT include `SUPABASE_SERVICE_ROLE_KEY` — app code never uses it)
+- **Vercel Production**: All runtime secrets for deployed app (includes `SUPABASE_SERVICE_ROLE_KEY` — used only by `/api/auth/device/approve` for `admin.generateLink()`)
 - **GitHub Production Environment**: Only deployment secrets (VERCEL_TOKEN, SUPABASE_ACCESS_TOKEN, SUPABASE_SERVICE_ROLE_KEY for storage bucket creation)
 - **NO GitHub secrets for tests**: Tests use `vi.stubEnv()` with fixture values, not real secrets
 - **NO repository secrets**: GitHub repository-level secrets NOT used (only environment-level)
@@ -117,6 +118,7 @@ The web app needs `ENCRYPTION_KEY_CURRENT` in `.env.local` because API routes en
 
 - `project-manifest.md` — Split structure, dependencies, and execution order
 - `01-data-foundation/spec.md` through `05-cli/spec.md` — Per-split specs for `/deep-plan`
+- **`specs/` is the source of truth for all features, bugs, and refactors.** Each gets a numbered directory (`specs/<NN>-<name>/spec.md`). Use `/plan-next` to pick the next spec, plan it, and implement it.
 - Files under `specs/` are **immutable after implementation** — do not update them during refactors or renames. They are historical records of the plan at the time it was executed.
 
 ### Backlog items (not v1 scope)
@@ -145,6 +147,9 @@ When running autonomously (via `/plan-next`, triggers, or background sessions), 
 - Decide on function/variable naming — match neighboring code style
 - Choose where to put new code — follow the existing module structure in `lib/`
 - Handle edge cases — follow patterns from similar code in the repo
+- Code review triage — auto-fix obvious improvements, let go of nitpicks, only ask about genuine tradeoffs
+- Context/compaction — never prompt about context management. If compaction happens, follow the Compaction Recovery protocol below
+- Plugin workflow pauses — if a plugin skill (e.g. `/deep-implement`) has optional "wait for user" checkpoints, skip them during autonomous operation unless there's a genuine decision that requires human judgment
 
 **Stop and report (don't guess):**
 - Database schema changes (new migrations, RLS policy changes)
@@ -152,6 +157,18 @@ When running autonomously (via `/plan-next`, triggers, or background sessions), 
 - Adding new environment variables to production
 - Deleting or significantly restructuring existing features
 - Anything that would change the public API contract
+
+### Compaction Recovery
+
+If context compaction occurs mid-task, **immediately re-orient before continuing:**
+
+1. **Read `git log --oneline -10`** — see what's been committed recently
+2. **Read `git diff --stat`** — see what's uncommitted
+3. **Read the PR** (if one exists on the current branch) — the description has the implementation summary
+4. **Check for deep-implement state** — `cat specs/*/implementation/deep_implement_config.json 2>/dev/null` shows completed sections and commit hashes
+5. **Read CLAUDE.md** — it's already reloaded, but re-read the post-implementation checklist to know what's left
+
+Then resume where you left off. If the current section's work is uncommitted and unclear, redo it — the cost is small. Do NOT proceed with degraded understanding; take 30 seconds to rebuild context from artifacts.
 
 ### Verification Checklist
 
@@ -161,7 +178,34 @@ cd web && npm run typecheck && npm run lint && npm run test && npm run test:inte
 ```
 All five must pass. If any fail, fix them before committing.
 
+### Post-Implementation Checklist (mandatory)
+
+After completing any feature implementation (via `/deep-implement`, manual, or any other method):
+
+1. **Run `/verify`** — all checks must pass (typecheck, lint, unit tests, integration tests, build)
+2. **Push and create/update PR** — push to `claude/*` branch, create or update the PR with a summary. **Keep the PR description current** — update it after each chunk of work when the PR is ready for its next review pass. The description is the living record for human reviewers and future agents.
+3. **Run `/code-review`** on the PR — this posts review comments
+4. **Address review findings:**
+   - Clear bugs or correctness issues → fix, commit, push
+   - Style/quality aligned with project conventions → fix, commit, push
+   - Subjective or architectural suggestions → note for the human, don't act
+5. **Re-verify after fixes** — run `/verify` again if you made changes
+6. **Update PR description** — reflect final state: what was built, what was fixed, what needs human attention
+7. **Present for human review:**
+   - PR URL
+   - Summary of what was implemented
+   - Code review: what was fixed autonomously, what was left for human judgment
+   - Any items needing human attention before merge
+   - **Verify CI pipeline passes** before presenting — check with `get_check_runs` on the PR. If CI fails, fix the issue first.
+   - **Stop here.** The user decides when to merge.
+
 **Note:** `npm run test` runs unit tests only (`vitest run --project unit`). Integration tests (`test:integration`) and E2E tests (`test:e2e`) both require local Supabase and the web app running. The session-start hook starts Supabase automatically. The minimum version constant (`SUPABASE_MIN_VERSION`) and install/start helpers live in `scripts/lib.sh`.
+
+**Docker and Supabase are always available** in web sessions — both can be installed and started. Do NOT skip integration tests because of infrastructure setup issues — fix the setup and run them.
+
+**Docker proxy setup (web sessions):** Docker can't resolve DNS directly in container environments. It needs the egress proxy. The session-start hook handles this automatically with `sudo -E dockerd` (the `-E` flag passes `HTTP_PROXY`/`HTTPS_PROXY` from the shell). If Docker pulls fail manually, ensure you use `sudo -E`.
+
+**Next.js dev server for integration tests:** Some integration tests (device-auth, e2e) need the Next.js dev server running. The globalSetup auto-spawns it, but if it fails, start manually: `npx next dev --port 3000 &>/tmp/next-dev.log &` with the required env vars (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_KEY_CURRENT`).
 
 **Supabase Realtime is disabled** in `supabase/config.toml` — it requires IPv6 which is unavailable in container environments (Claude Code web sessions, CI). We don't use Realtime in v1. If re-enabling, test in a container environment first.
 

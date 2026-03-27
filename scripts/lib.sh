@@ -10,6 +10,7 @@
 #   install_supabase_cli                    # install CLI binary (Linux)
 #   start_supabase                          # idempotent start
 #   print_setup_env_vars                    # emit .env.local from running Supabase
+#   source_dotenv .env.local                # load and export vars from a .env file
 #   verify_supabase_env                     # check required fields in supabase status
 #   verify_gotrue <url> <key>               # probe GoTrue with service role key
 #   smoke_test                              # uses $VERCEL_APP_URL
@@ -20,6 +21,26 @@
 # NOTE: Do NOT set -euo pipefail here. This file is sourced by other scripts
 # and setting shell options would affect the caller. Each calling script should
 # set its own shell options.
+
+# ---------------------------------------------------------------------------
+# source_dotenv — load a .env file and export all variables
+#
+# Usage: source_dotenv .env.local
+#        source_dotenv /path/to/.env
+#
+# Skips blank lines and comments (#). Handles KEY=VALUE with or without quotes.
+# ---------------------------------------------------------------------------
+source_dotenv() {
+  local envfile="${1:-.env.local}"
+  if [ ! -f "$envfile" ]; then
+    echo "Error: $envfile not found" >&2
+    return 1
+  fi
+  set -a
+  # shellcheck disable=SC1090
+  source "$envfile"
+  set +a
+}
 
 # ---------------------------------------------------------------------------
 # Supabase CLI version constants
@@ -192,11 +213,19 @@ print_setup_env_vars() {
   local encryption_key
   encryption_key=$(openssl rand -base64 32)
 
+  # Check if web app is running (non-blocking warning)
+  local web_url="http://localhost:3000"
+  if ! curl -sf --connect-timeout 2 "${web_url}/api/health" >/dev/null 2>&1; then
+    echo "Warning: Next.js web app not running at ${web_url}. Start with: cd web && npm run dev" >&2
+    echo "         CLI 'smgr login' requires the web app. Other commands work without it." >&2
+  fi
+
   cat <<EOF
 NEXT_PUBLIC_SUPABASE_URL=${api_url}
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${anon_key}
 SMGR_API_URL=${api_url}
 SMGR_API_KEY=${anon_key}
+SMGR_WEB_URL=http://localhost:3000
 SMGR_S3_ENDPOINT=${s3_url}
 S3_ENDPOINT_URL=${s3_url}
 SMGR_S3_BUCKET=media

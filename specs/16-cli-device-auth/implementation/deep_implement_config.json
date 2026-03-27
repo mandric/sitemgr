@@ -1,0 +1,67 @@
+{
+  "plugin_root": "/home/user/sitemgr/.claude/plugins/deep-implement",
+  "sections_dir": "/home/user/sitemgr/specs/16-cli-device-auth/sections",
+  "target_dir": "/home/user/sitemgr",
+  "state_dir": "/home/user/sitemgr/specs/16-cli-device-auth/implementation",
+  "git_root": "/home/user/sitemgr",
+  "commit_style": "simple",
+  "test_command": "uv run pytest",
+  "sections": [
+    "section-01-db-migration",
+    "section-02-server-helpers",
+    "section-03-api-initiate",
+    "section-04-api-poll",
+    "section-05-api-approve",
+    "section-06-web-ui",
+    "section-07-cli-refactor",
+    "section-08-integration-tests",
+    "section-09-cleanup"
+  ],
+  "sections_state": {
+    "section-01-db-migration": {
+      "status": "complete",
+      "commit_hash": "13d39c4"
+    },
+    "section-02-server-helpers": {
+      "status": "complete",
+      "commit_hash": "1712af7"
+    },
+    "section-03-api-initiate": {
+      "status": "complete",
+      "commit_hash": "6694257"
+    },
+    "section-04-api-poll": {
+      "status": "complete",
+      "commit_hash": "12afc4d"
+    },
+    "section-05-api-approve": {
+      "status": "complete",
+      "commit_hash": "65fb83d"
+    },
+    "section-06-web-ui": {
+      "status": "complete",
+      "commit_hash": "d290c9b"
+    },
+    "section-07-cli-refactor": {
+      "status": "complete",
+      "commit_hash": "0adbe5e"
+    },
+    "section-08-integration-tests": {
+      "status": "complete",
+      "commit_hash": "5ab4706"
+    },
+    "section-09-cleanup": {
+      "status": "complete",
+      "commit_hash": "da92ee0"
+    }
+  },
+  "pre_commit": {
+    "present": false,
+    "type": "none",
+    "config_file": null,
+    "native_hook": null,
+    "may_modify_files": false,
+    "detected_formatters": []
+  },
+  "created_at": "2026-03-25T15:28:09.827008+00:00"
+}

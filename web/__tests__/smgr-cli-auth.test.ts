@@ -37,6 +37,7 @@ describe("smgr getClient()", () => {
     mockResolveApiConfig.mockReturnValue({
       url: "http://localhost:54321",
       anonKey: "test-anon-key",
+      webUrl: "http://localhost:3000",
     });
     mockRefreshSession.mockResolvedValue({
       access_token: "test-access-token",

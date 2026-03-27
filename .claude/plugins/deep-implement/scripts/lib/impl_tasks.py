@@ -77,9 +77,9 @@ SECTION_STEP_DEFINITIONS: dict[str, TaskDefinition] = {
 
 # Compaction prompt task - added only every 2nd section
 COMPACTION_TASK = TaskDefinition(
-    subject="Prompt user for compaction after {section}",
-    description="Prompt user to compact the conversation",
-    active_form="Prompting for compaction after {display_name}",
+    subject="Context check after {section}",
+    description="Check context usage and decide whether to continue or recommend /clear",
+    active_form="Checking context after {display_name}",
 )
 
 # Finalization task - at the end of all sections

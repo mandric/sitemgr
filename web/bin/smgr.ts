@@ -604,11 +604,9 @@ async function cmdAdd(args: string[]) {
 
 // ── Auth Commands ────────────────────────────────────────────
 
-async function cmdLogin(args: string[]) {
+async function cmdLogin() {
   try {
-    const email = args[0];
-    const password = args[1];
-    const creds = await login(email, password);
+    const creds = await login();
     console.log(`Logged in as ${creds.email} (${creds.user_id})`);
   } catch (err) {
     cliError(`Login failed: ${(err as Error).message ?? err}`, EXIT.SERVICE);
@@ -642,7 +640,7 @@ if (process.argv.includes("--verbose")) verboseMode = true;
 const [command, ...rest] = process.argv.slice(2);
 
 const commands: Record<string, (args: string[]) => Promise<void>> = {
-  login: cmdLogin,
+  login: () => cmdLogin(),
   logout: () => cmdLogout(),
   whoami: () => cmdWhoami(),
   query: cmdQuery,
@@ -657,7 +655,7 @@ if (!command || !(command in commands)) {
   console.log(`smgr — S3-event-driven media indexer
 
 Usage:
-  smgr login [email] [password]  Authenticate with email/password
+  smgr login                    Authenticate via browser (device code flow)
   smgr logout                   Clear stored credentials
   smgr whoami                   Show current session info
 
@@ -670,7 +668,8 @@ Usage:
   smgr add <file> [S3 flags] [--prefix path/] [--no-enrich]
 
 Authentication:
-  Run 'smgr login' to authenticate. Credentials are stored in ~/.sitemgr/credentials.json.
+  Run 'smgr login' to authenticate. A browser window will open for you to approve
+  the device. Credentials are stored in ~/.sitemgr/credentials.json.
 
 Flags (all commands):
   --verbose         Show technical error details on failure
