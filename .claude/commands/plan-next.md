@@ -1,6 +1,6 @@
 # Plan Next
 
-Orchestrate: find spec → plan → implement → verify → review → present.
+Orchestrate the full autonomous development process: find spec → plan → implement → verify → review → present.
 
 ## Steps
 
@@ -12,4 +12,9 @@ Orchestrate: find spec → plan → implement → verify → review → present.
 
 4. **Implement** — Run `/deep-implement` against the sections directory.
 
-5. **Follow post-implementation checklist** — See CLAUDE.md "Post-Implementation Checklist (mandatory)". This includes: verify, PR, code-review, address findings, re-verify, update PR, present for human review.
+5. **Run the Autonomous Development Process** — See CLAUDE.md "Autonomous Development Process". This runs end-to-end without stopping for human input unless a "stop and report" item is hit or the fix loop is exhausted:
+   - Phase 1: Verify (fix loop on failures)
+   - Phase 2: Push & PR
+   - Phase 3: Code review → auto-fix findings → re-verify
+   - Phase 4: CI check (fix loop on failures)
+   - Phase 5: Present to human with PR URL, summary, and items needing attention

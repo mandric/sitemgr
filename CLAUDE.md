@@ -129,25 +129,32 @@ The web app needs `ENCRYPTION_KEY_CURRENT` in `.env.local` because API routes en
 
 ## Autonomous Operation
 
+### Core Principle: Fix First, Ask Second
+
+Claude acts as **first-tier support**. When something fails — a test, a lint rule, a build, a CI check, a code review finding — Claude's default behavior is to **diagnose and fix it**, not escalate to the human. Only escalate after genuine investigation and multiple fix attempts.
+
+This applies to every phase: implementation, verification, code review, and CI.
+
 ### Decision-Making Heuristics
 
-When running autonomously (via `/plan-next`, triggers, or background sessions), follow these rules to avoid blocking on human input:
+When running autonomously (via `/plan-next`, triggers, or background sessions), follow these rules:
 
 **Always safe to do without asking:**
 - Run tests, typecheck, lint, build
 - Read any file in the repo
 - Create/switch branches
 - Fix failing tests by reading test expectations and matching source code
+- Fix lint/typecheck errors, then re-run the failing check
 - Add new test files following existing patterns
 - Push to `claude/*` branches
-- Create PRs via `gh pr create`
+- Create PRs
 
 **Make your best judgment (don't ask):**
 - Choose between two reasonable implementation approaches — pick the simpler one
 - Decide on function/variable naming — match neighboring code style
 - Choose where to put new code — follow the existing module structure in `lib/`
 - Handle edge cases — follow patterns from similar code in the repo
-- Code review triage — auto-fix obvious improvements, let go of nitpicks, only ask about genuine tradeoffs
+- Fix code review findings that are clear bugs, correctness issues, or convention violations
 - Context/compaction — never prompt about context management. If compaction happens, follow the Compaction Recovery protocol below
 - Plugin workflow pauses — if a plugin skill (e.g. `/deep-implement`) has optional "wait for user" checkpoints, skip them during autonomous operation unless there's a genuine decision that requires human judgment
 
@@ -158,6 +165,63 @@ When running autonomously (via `/plan-next`, triggers, or background sessions), 
 - Deleting or significantly restructuring existing features
 - Anything that would change the public API contract
 
+### The Fix Loop
+
+When any check fails (typecheck, lint, test, build, code review, CI), follow this loop:
+
+```
+failure → read error → diagnose → fix → re-run failed check → pass? → continue
+                                    ↑                            |
+                                    └── retry (max 3 attempts) ──┘
+                                              |
+                                         escalate with context
+```
+
+**Rules:**
+1. **Read the error first.** Don't guess — read the actual output.
+2. **Fix the code to match the expectation.** Never weaken a test assertion or disable a lint rule to make a failure go away. If a test expectation is wrong, verify against the spec before changing it.
+3. **Re-run only the failing check**, not the full suite. Run the full suite once at the end.
+4. **3 genuine attempts.** Each attempt must try a *different* approach. If attempt 1 was "fix the type annotation" and it didn't work, attempt 2 should investigate why, not retry the same fix.
+5. **Escalate with context.** If stuck after 3 attempts, report: what failed, what was tried, why each attempt didn't work. The human should be able to act on this without re-investigating.
+
+### Autonomous Development Process
+
+After completing any feature implementation (via `/deep-implement`, manual, or any other method), run this process end-to-end. Do not stop for human input unless you hit a "stop and report" item or exhaust the fix loop.
+
+**Phase 1: Verify**
+1. Run `/verify` — typecheck, lint, unit tests, integration tests, build.
+2. If anything fails, enter the fix loop. Fix and re-run the failing check.
+3. Once all checks pass, proceed.
+
+**Phase 2: Push & PR**
+1. Push to `claude/*` branch.
+2. Create or update the PR with a summary of what was built.
+
+**Phase 3: Code Review**
+1. Run `/code-review` on the PR.
+2. Review findings are trusted. For each finding:
+   - Clear bug or correctness issue → fix, commit, push.
+   - Convention/style violation → fix, commit, push.
+   - Subjective or architectural suggestion → note it, don't act on it.
+3. If fixes were made, re-run `/verify` (full suite this time since code changed).
+4. Update the PR description to reflect fixes made.
+
+**Phase 4: CI**
+1. Check CI status on the PR.
+2. If CI fails, enter the fix loop — read the failure logs, fix, push, wait for re-run.
+3. If CI passes, proceed.
+
+**Phase 5: Present**
+1. Present to the human with:
+   - PR URL
+   - Summary of what was implemented
+   - What code review findings were fixed autonomously
+   - What was left for human judgment (subjective/architectural items)
+   - Any "stop and report" items encountered during the process
+2. **Stop here.** The user decides when to merge.
+
+**Keep the PR description current** — update it after each chunk of work. The description is the living record for human reviewers and future agents.
+
 ### Compaction Recovery
 
 If context compaction occurs mid-task, **immediately re-orient before continuing:**
@@ -166,54 +230,33 @@ If context compaction occurs mid-task, **immediately re-orient before continuing
 2. **Read `git diff --stat`** — see what's uncommitted
 3. **Read the PR** (if one exists on the current branch) — the description has the implementation summary
 4. **Check for deep-implement state** — `cat specs/*/implementation/deep_implement_config.json 2>/dev/null` shows completed sections and commit hashes
-5. **Read CLAUDE.md** — it's already reloaded, but re-read the post-implementation checklist to know what's left
+5. **Read CLAUDE.md** — it's already reloaded, but re-read the autonomous process to know what phase you're in
 
 Then resume where you left off. If the current section's work is uncommitted and unclear, redo it — the cost is small. Do NOT proceed with degraded understanding; take 30 seconds to rebuild context from artifacts.
 
-### Verification Checklist
+### Test Infrastructure
 
-Before considering any implementation task done, run:
-```bash
-cd web && npm run typecheck && npm run lint && npm run test && npm run test:integration && npm run build
-```
-All five must pass. If any fail, fix them before committing.
+**Test tiers (all mandatory before pushing):**
+- `npm run typecheck` — type errors
+- `npm run lint` — style/convention errors
+- `npm run test` — unit tests (`vitest run --project unit`)
+- `npm run test:integration` — integration tests (requires local Supabase + Next.js dev server)
+- `npm run build` — production build
 
-### Post-Implementation Checklist (mandatory)
+Integration tests are **not optional**. If infra isn't ready, fix the infra first, then run the tests.
 
-After completing any feature implementation (via `/deep-implement`, manual, or any other method):
-
-1. **Run `/verify`** — all checks must pass (typecheck, lint, unit tests, integration tests, build)
-2. **Push and create/update PR** — push to `claude/*` branch, create or update the PR with a summary. **Keep the PR description current** — update it after each chunk of work when the PR is ready for its next review pass. The description is the living record for human reviewers and future agents.
-3. **Run `/code-review`** on the PR — this posts review comments
-4. **Address review findings:**
-   - Clear bugs or correctness issues → fix, commit, push
-   - Style/quality aligned with project conventions → fix, commit, push
-   - Subjective or architectural suggestions → note for the human, don't act
-5. **Re-verify after fixes** — run `/verify` again if you made changes
-6. **Update PR description** — reflect final state: what was built, what was fixed, what needs human attention
-7. **Present for human review:**
-   - PR URL
-   - Summary of what was implemented
-   - Code review: what was fixed autonomously, what was left for human judgment
-   - Any items needing human attention before merge
-   - **Verify CI pipeline passes** before presenting — check with `get_check_runs` on the PR. If CI fails, fix the issue first.
-   - **Stop here.** The user decides when to merge.
-
-**Note:** `npm run test` runs unit tests only (`vitest run --project unit`). Integration tests (`test:integration`) and E2E tests (`test:e2e`) both require local Supabase and the web app running. The session-start hook starts Supabase automatically. The minimum version constant (`SUPABASE_MIN_VERSION`) and install/start helpers live in `scripts/lib.sh`.
-
-**Docker and Supabase are always available** in web sessions — both can be installed and started. Do NOT skip integration tests because of infrastructure setup issues — fix the setup and run them.
-
-**Docker proxy setup (web sessions):** Docker can't resolve DNS directly in container environments. It needs the egress proxy. The session-start hook handles this automatically with `sudo -E dockerd` (the `-E` flag passes `HTTP_PROXY`/`HTTPS_PROXY` from the shell). If Docker pulls fail manually, ensure you use `sudo -E`.
-
-**Next.js dev server for integration tests:** Some integration tests (device-auth, e2e) need the Next.js dev server running. The globalSetup auto-spawns it, but if it fails, start manually: `npx next dev --port 3000 &>/tmp/next-dev.log &` with the required env vars (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_KEY_CURRENT`).
-
-**Supabase Realtime is disabled** in `supabase/config.toml` — it requires IPv6 which is unavailable in container environments (Claude Code web sessions, CI). We don't use Realtime in v1. If re-enabling, test in a container environment first.
+**Infrastructure notes:**
+- The session-start hook starts Supabase automatically. The minimum version constant (`SUPABASE_MIN_VERSION`) and install/start helpers live in `scripts/lib.sh`.
+- Docker and Supabase are always available in web sessions — both can be installed and started.
+- **Docker proxy (web sessions):** Docker needs the egress proxy. The session-start hook handles this with `sudo -E dockerd` (the `-E` flag passes `HTTP_PROXY`/`HTTPS_PROXY`). If Docker pulls fail, ensure `sudo -E`.
+- **Next.js dev server:** Some integration tests need the Next.js dev server. The globalSetup auto-spawns it. If it fails, start manually: `npx next dev --port 3000 &>/tmp/next-dev.log &` with env vars (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_KEY_CURRENT`).
+- **Supabase Realtime is disabled** in `supabase/config.toml` — requires IPv6, unavailable in containers. Not used in v1.
 
 ### Slash Commands for Autonomous Work
 
-- `/plan-next` — Pick the next task, research it deeply, and produce an autonomous implementation plan
-- `/verify` — Run typecheck + lint + test + build, fix any issues
-- `/code-review` — Review PRs with multi-agent confidence-scored analysis (plugin skill, not a standalone command)
+- `/plan-next` — Pick the next task, plan, implement, and run the full autonomous process
+- `/verify` — Run typecheck + lint + test + integration + build, enter fix loop on failures
+- `/code-review` — Review PRs with multi-agent confidence-scored analysis (plugin skill)
 
 ## Installing Claude Code Plugins for Web Sessions
 
