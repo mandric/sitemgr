@@ -186,11 +186,17 @@ failure → read error → diagnose → fix → re-run failed check → pass? �
 
 ### Autonomous Development Process
 
-After completing any feature implementation (via `/deep-implement`, manual, or any other method), run this process end-to-end. Do not stop for human input unless you hit a "stop and report" item or exhaust the fix loop.
+This is the end-to-end process for implementing any spec. It runs without stopping for human input unless a "stop and report" item is hit or the fix loop is exhausted. The process is the same whether triggered by `/plan-next`, by the user saying "work on spec N", or any other entry point.
+
+**Phase 0: Plan & Implement**
+1. **Find the spec** — Look in `specs/` for the target directory with `spec.md`. If using `/plan-next` without a specific spec, pick the next unimplemented one.
+2. **Confirm with user** — Present the spec. Flag anything from the "stop and report" list (migrations, RLS, auth, new env vars, public API changes) before proceeding.
+3. **Plan** — Run `/deep-plan` with the spec path. Skip if a plan already exists (check for `sections/` directory).
+4. **Implement** — Run `/deep-implement` against the sections directory.
 
 **Phase 1: Verify**
-1. Run `/verify` — typecheck, lint, unit tests, integration tests, build.
-2. If anything fails, enter the fix loop. Fix and re-run the failing check.
+1. Run all checks: typecheck, lint, unit tests, integration tests, build (see "Test Infrastructure" below for commands).
+2. If anything fails, enter the fix loop. Fix and re-run only the failing check.
 3. Once all checks pass, proceed.
 
 **Phase 2: Push & PR**
@@ -203,7 +209,7 @@ After completing any feature implementation (via `/deep-implement`, manual, or a
    - Clear bug or correctness issue → fix, commit, push.
    - Convention/style violation → fix, commit, push.
    - Subjective or architectural suggestion → note it, don't act on it.
-3. If fixes were made, re-run `/verify` (full suite this time since code changed).
+3. If fixes were made, re-run all checks (full suite since code changed).
 4. Update the PR description to reflect fixes made.
 
 **Phase 4: CI**
@@ -252,10 +258,12 @@ Integration tests are **not optional**. If infra isn't ready, fix the infra firs
 - **Next.js dev server:** Some integration tests need the Next.js dev server. The globalSetup auto-spawns it. If it fails, start manually: `npx next dev --port 3000 &>/tmp/next-dev.log &` with env vars (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_KEY_CURRENT`).
 - **Supabase Realtime is disabled** in `supabase/config.toml` — requires IPv6, unavailable in containers. Not used in v1.
 
-### Slash Commands for Autonomous Work
+### Slash Commands
 
-- `/plan-next` — Pick the next task, plan, implement, and run the full autonomous process
-- `/verify` — Run typecheck + lint + test + integration + build, enter fix loop on failures
+Slash commands are thin triggers — they start a process, but the process itself is defined above. Do not duplicate process logic in command files.
+
+- `/plan-next` — Find the next unimplemented spec and start the Autonomous Development Process
+- `/verify` — Run all checks from "Test Infrastructure" and enter the fix loop on failures
 - `/code-review` — Review PRs with multi-agent confidence-scored analysis (plugin skill)
 
 ## Installing Claude Code Plugins for Web Sessions
