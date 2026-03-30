@@ -1,14 +1,1 @@
-# Verify
-
-Run all checks from CLAUDE.md "Test Infrastructure". On failure, follow "The Fix Loop".
-
-```bash
-cd web
-echo "=== TypeCheck ===" && npm run typecheck 2>&1 | tail -20
-echo "=== Lint ===" && npm run lint 2>&1 | tail -20
-echo "=== Unit Tests ===" && npm run test 2>&1 | tail -30
-echo "=== Integration Tests ===" && npm run test:integration 2>&1 | tail -30
-echo "=== Build ===" && npm run build 2>&1 | tail -20
-```
-
-If on a branch with a PR, also check CI status. Report a summary of pass/fail for each check.
+Run all checks from CLAUDE.md "Test Infrastructure" and enter "The Fix Loop" on failures. If on a branch with a PR, also check CI status.

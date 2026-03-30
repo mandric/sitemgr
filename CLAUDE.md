@@ -213,7 +213,7 @@ This is the end-to-end process for implementing any spec. It runs without stoppi
 4. Update the PR description to reflect fixes made.
 
 **Phase 4: CI**
-1. Check CI status on the PR.
+1. Check CI status on the PR using `get_check_runs` (GitHub MCP tool) or `gh pr checks <pr-number>`.
 2. If CI fails, enter the fix loop — read the failure logs, fix, push, wait for re-run.
 3. If CI passes, proceed.
 
@@ -242,12 +242,16 @@ Then resume where you left off. If the current section's work is uncommitted and
 
 ### Test Infrastructure
 
-**Test tiers (all mandatory before pushing):**
-- `npm run typecheck` — type errors
-- `npm run lint` — style/convention errors
-- `npm run test` — unit tests (`vitest run --project unit`)
-- `npm run test:integration` — integration tests (requires local Supabase + Next.js dev server)
-- `npm run build` — production build
+**All checks run from the `web/` directory.** Test tiers (all mandatory before pushing):
+
+```bash
+cd web
+echo "=== TypeCheck ===" && npm run typecheck 2>&1 | tail -20
+echo "=== Lint ===" && npm run lint 2>&1 | tail -20
+echo "=== Unit Tests ===" && npm run test 2>&1 | tail -30
+echo "=== Integration Tests ===" && npm run test:integration 2>&1 | tail -30
+echo "=== Build ===" && npm run build 2>&1 | tail -20
+```
 
 Integration tests are **not optional**. If infra isn't ready, fix the infra first, then run the tests.
 
