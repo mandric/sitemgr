@@ -44,11 +44,6 @@ if ! command -v vercel &>/dev/null; then
   npm install -g vercel
 fi
 
-# Install Playwright browsers if not present
-if ! npx playwright install --dry-run chromium &>/dev/null 2>&1; then
-  npx playwright install --with-deps chromium
-fi
-
 # Start Docker daemon if not running (needed for Supabase)
 if ! docker info &>/dev/null 2>&1; then
   echo "Starting Docker daemon..."
@@ -66,6 +61,10 @@ fi
 # Install Node.js dependencies for the web app
 cd "$CLAUDE_PROJECT_DIR/web"
 npm install
+
+# Install Playwright browsers AFTER npm install (npm may resolve a newer
+# @playwright/test version that requires newer browser binaries)
+npx playwright install --with-deps chromium
 
 # Start local Supabase (if not already running)
 cd "$CLAUDE_PROJECT_DIR"
