@@ -68,7 +68,7 @@ E2E involves three separate runtimes, each with different env var needs:
 The web app needs `ENCRYPTION_KEY_CURRENT` in `.env.local` because API routes encrypt/decrypt bucket config secrets at request time. This must be a valid encryption key (correct length/format for AES) since data round-trips through Supabase during E2E — it's a **local dev secret**, not a throwaway fixture. It should never be reused in production.
 
 - **Supabase runtime**: No app-level env vars needed (configured via `config.toml`)
-- **Next.js runtime** (`.env.local`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `ENCRYPTION_KEY_CURRENT` (local dev secret)
+- **Next.js runtime** (`.env.local`): `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `ENCRYPTION_KEY_CURRENT` (local dev secret)
 - **Playwright runtime**: Only needs the app URL to connect to
 - Not API keys (E2E doesn't call external APIs)
 
@@ -213,7 +213,7 @@ This is the end-to-end process for implementing any spec. It runs without stoppi
 4. Update the PR description to reflect fixes made.
 
 **Phase 4: CI**
-1. Check CI status on the PR using `get_check_runs` (GitHub MCP tool) or `gh pr checks <pr-number>`.
+1. Check CI status on the PR using `gh pr checks <pr-number>`.
 2. If CI fails, enter the fix loop — read the failure logs, fix, push, wait for re-run.
 3. If CI passes, proceed.
 
@@ -250,10 +250,16 @@ echo "=== TypeCheck ===" && npm run typecheck 2>&1 | tail -20
 echo "=== Lint ===" && npm run lint 2>&1 | tail -20
 echo "=== Unit Tests ===" && npm run test 2>&1 | tail -30
 echo "=== Integration Tests ===" && npm run test:integration 2>&1 | tail -30
+echo "=== E2E Tests ===" && npm run test:e2e 2>&1 | tail -30
 echo "=== Build ===" && npm run build 2>&1 | tail -20
 ```
 
-Integration tests are **not optional**. If infra isn't ready, fix the infra first, then run the tests.
+Integration and E2E tests are **not optional**. If infra isn't ready, fix the infra first, then run the tests.
+
+**E2E tests** (`npm run test:e2e`) use Playwright and require:
+- Local Supabase running (`supabase start`)
+- Next.js dev server running (globalSetup auto-spawns it)
+- Chromium installed (session-start hook runs `npx playwright install --with-deps chromium`)
 
 **Infrastructure notes:**
 - The session-start hook starts Supabase automatically. The minimum version constant (`SUPABASE_MIN_VERSION`) and install/start helpers live in `scripts/lib.sh`.
