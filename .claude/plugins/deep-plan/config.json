@@ -1,6 +1,6 @@
 {
   "context": {
-    "check_enabled": true,
+    "check_enabled": false,
     "_comment": "check_enabled: set false to skip context prompts before critical operations"
   },
   "vertex_ai": {

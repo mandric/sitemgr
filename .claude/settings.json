@@ -34,7 +34,11 @@
       "Bash(tsx *)",
       "Bash(dockerd *)",
       "Bash(docker *)",
-      "Bash(sleep *)"
+      "Bash(sleep *)",
+      "WebSearch",
+      "WebFetch",
+      "Edit",
+      "Write"
     ]
   },
   "hooks": {
