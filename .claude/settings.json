@@ -36,7 +36,9 @@
       "Bash(docker *)",
       "Bash(sleep *)",
       "WebSearch",
-      "WebFetch"
+      "WebFetch",
+      "Edit",
+      "Write"
     ]
   },
   "hooks": {
@@ -58,28 +60,13 @@
     "code-review@local-plugins": true,
     "frontend-design@local-plugins": true,
     "feature-dev@local-plugins": true,
-    "ralph-wiggum@local-plugins": true,
-    "deep-project@piercelamb-plugins": true,
-    "deep-implement@piercelamb-plugins": true,
-    "code-review@claude-plugins-official": true
+    "ralph-wiggum@local-plugins": true
   },
   "extraKnownMarketplaces": {
     "local-plugins": {
       "source": {
         "source": "file",
         "path": ".claude/plugins/.claude-plugin/marketplace.json"
-      }
-    },
-    "piercelamb-plugins": {
-      "source": {
-        "source": "github",
-        "repo": "piercelamb/deep-implement"
-      }
-    },
-    "claude-plugins-official": {
-      "source": {
-        "source": "github",
-        "repo": "anthropics/claude-plugins-official"
       }
     }
   }
