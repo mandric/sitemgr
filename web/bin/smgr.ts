@@ -28,6 +28,7 @@ import { enrichImage } from "../lib/media/enrichment";
 import type { ModelConfig } from "../lib/media/enrichment";
 import { createLogger, LogComponent } from "../lib/logger";
 
+import { runWithRequestId } from "../lib/request-context";
 import { S3ErrorType } from "../lib/media/s3-errors";
 import { login, clearCredentials, loadCredentials, refreshSession, resolveApiConfig } from "../lib/auth/cli-auth";
 
@@ -318,7 +319,7 @@ async function cmdEnrich(args: string[]) {
       await apiPost("/api/enrichments", { event_id: eventId, result });
       console.error("Done.");
     } catch (err) {
-      cliError(`Failed: ${(err as Error).message ?? err}`, exitCodeForS3Error(err), String(err));
+      cliError(`Failed to enrich event ${eventId}: ${(err as Error).message ?? err}`, exitCodeForS3Error(err), String(err));
     }
     return;
   }
@@ -767,10 +768,12 @@ Environment:
 }
 
 // Load model config once at startup if a user ID is available
-const creds = loadCredentials();
-if (creds?.user_id) {
-  apiGet<{ data: { provider: string; base_url: string | null; model: string; api_key_encrypted: string | null } | null }>("/api/model-config")
-    .then(({ data: configRow }) => {
+const requestId = crypto.randomUUID();
+runWithRequestId(requestId, async () => {
+  const creds = loadCredentials();
+  if (creds?.user_id) {
+    try {
+      const { data: configRow } = await apiGet<{ data: { provider: string; base_url: string | null; model: string; api_key_encrypted: string | null } | null }>("/api/model-config");
       if (configRow) {
         modelConfig = {
           provider: configRow.provider,
@@ -780,19 +783,13 @@ if (creds?.user_id) {
         };
         logger.info("loaded model config", { provider: configRow.provider, model: configRow.model });
       }
-    })
-    .catch((err) => {
+    } catch (err) {
       logger.warn("failed to load model config", { error: String(err) });
-    })
-    .finally(() => {
-      commands[command](rest).catch((err) => {
-        logger.error("unhandled command error", { error: String(err), stack: err?.stack });
-        cliError(err.message ?? String(err), EXIT.INTERNAL);
-      });
-    });
-} else {
+    }
+  }
+
   commands[command](rest).catch((err) => {
     logger.error("unhandled command error", { error: String(err), stack: err?.stack });
     cliError(err.message ?? String(err), EXIT.INTERNAL);
   });
-}
+});
