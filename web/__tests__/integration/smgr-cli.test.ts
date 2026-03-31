@@ -19,7 +19,6 @@ import {
   createTestUser,
   seedUserData,
   cleanupUserData,
-  getSupabaseConfig,
   type SeedResult,
 } from "./setup";
 import { insertEvent, insertEnrichment } from "../../lib/media/db";
@@ -37,12 +36,11 @@ let tempHome: string;
 
 /** Base env vars for all CLI invocations. */
 function cliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  const cfg = getSupabaseConfig();
+  const port = process.env.WEB_PORT ?? "3000";
   return {
     ...process.env,
     HOME: tempHome,
-    SMGR_API_URL: cfg.url,
-    SMGR_API_KEY: cfg.anonKey,
+    SMGR_WEB_URL: `http://localhost:${port}`,
     SMGR_DEVICE_ID: "test-cli",
     // Prevent Node/tsx from dropping into interactive mode
     NODE_NO_WARNINGS: "1",

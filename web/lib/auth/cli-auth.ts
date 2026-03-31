@@ -2,11 +2,9 @@
  * CLI authentication — device code authorization flow.
  *
  * Stores credentials in ~/.sitemgr/credentials.json.
- * The CLI uses the anon key (safe to embed) + user JWT for all operations,
- * so the service role key (SUPABASE_SERVICE_ROLE_KEY) is never needed on user machines.
+ * The CLI talks only to the web API (Next.js routes) using Bearer tokens.
  */
 
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, hostname } from "node:os";
@@ -76,24 +74,19 @@ export function openBrowser(url: string): void {
 // ── API config resolution ───────────────────────────────────────
 
 /**
- * Resolves the API URL and public key for the backend.
- * SMGR_API_URL / SMGR_API_KEY — Supabase (used by data commands until Phase 3 migration)
- * SMGR_WEB_URL — Next.js web app (used by device code auth flow, optional for other commands)
+ * Resolves the web API URL for the CLI.
+ * SMGR_WEB_URL — Next.js web app URL (e.g. http://localhost:3000)
  */
-export function resolveApiConfig(): { url: string; anonKey: string; webUrl?: string } {
-  const url = process.env.SMGR_API_URL?.trim();
-  const anonKey = process.env.SMGR_API_KEY?.replace(/\s+/g, "");
+export function resolveApiConfig(): { webUrl: string } {
   const webUrl = process.env.SMGR_WEB_URL?.trim();
-  if (!url) throw new Error("SMGR_API_URL is required");
-  if (!anonKey) throw new Error("SMGR_API_KEY is required");
-  return { url, anonKey, webUrl };
+  if (!webUrl) throw new Error("SMGR_WEB_URL is required (e.g. http://localhost:3000)");
+  return { webUrl };
 }
 
 // ── Login (device code flow) ────────────────────────────────────
 
 export async function login(deviceName?: string): Promise<StoredCredentials> {
   const { webUrl } = resolveApiConfig();
-  if (!webUrl) throw new Error("SMGR_WEB_URL is required for login (e.g. http://localhost:3000)");
   const device_name = deviceName ?? hostname();
 
   // 1. Initiate device code flow
@@ -182,25 +175,35 @@ export async function refreshSession(): Promise<StoredCredentials | null> {
   const now = Math.floor(Date.now() / 1000);
   if (creds.expires_at > now + 60) return creds;
 
-  const { url, anonKey } = resolveApiConfig();
-  const supabase = createSupabaseClient(url, anonKey);
+  let webUrl: string;
+  try {
+    ({ webUrl } = resolveApiConfig());
+  } catch {
+    // Can't refresh without web URL
+    clearCredentials();
+    return null;
+  }
 
-  const { data, error } = await supabase.auth.refreshSession({
-    refresh_token: creds.refresh_token,
+  const res = await fetch(`${webUrl}/api/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: creds.refresh_token }),
   });
 
-  if (error || !data.session) {
+  if (!res.ok) {
     // Refresh failed — credentials are stale
     clearCredentials();
     return null;
   }
 
+  const session = await res.json();
+
   const updated: StoredCredentials = {
-    access_token: data.session.access_token,
-    refresh_token: data.session.refresh_token,
-    user_id: data.session.user.id,
-    email: data.session.user.email ?? creds.email,
-    expires_at: data.session.expires_at ?? 0,
+    access_token: session.access_token,
+    refresh_token: session.refresh_token,
+    user_id: session.user_id,
+    email: session.email ?? creds.email,
+    expires_at: session.expires_at ?? 0,
     device_name: creds.device_name,
   };
 

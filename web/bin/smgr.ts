@@ -1,7 +1,7 @@
 #!/usr/bin/env npx tsx
 /**
  * smgr CLI — TypeScript port of the Python prototype.
- * Talks to Supabase Postgres (not SQLite).
+ * Talks to the web API (Next.js routes), not Supabase directly.
  *
  * Usage:
  *   npx tsx bin/smgr.ts query --search "beach" --format json
@@ -16,19 +16,6 @@ import { readFileSync, statSync } from "node:fs";
 import { resolve, basename } from "node:path";
 import pLimit from "p-limit";
 import {
-  getUserClient,
-  queryEvents,
-  showEvent,
-  getStats,
-  getEnrichStatus,
-  getPendingEnrichments,
-  insertEvent,
-  insertEnrichment,
-  upsertWatchedKey,
-  getWatchedKeys,
-  findEventByHash,
-} from "../lib/media/db";
-import {
   sha256Bytes,
   newEventId,
   detectContentType,
@@ -39,34 +26,10 @@ import {
 import { createS3Client, listS3Objects, downloadS3Object, uploadS3Object } from "../lib/media/s3";
 import { enrichImage } from "../lib/media/enrichment";
 import type { ModelConfig } from "../lib/media/enrichment";
-import { getModelConfig } from "../lib/media/db";
 import { createLogger, LogComponent } from "../lib/logger";
 
-import { runWithRequestId } from "../lib/request-context";
 import { S3ErrorType } from "../lib/media/s3-errors";
 import { login, clearCredentials, loadCredentials, refreshSession, resolveApiConfig } from "../lib/auth/cli-auth";
-import type { SupabaseClient } from "@supabase/supabase-js";
-
-/** Create an authenticated Supabase client using stored CLI credentials. */
-async function getClient(): Promise<SupabaseClient> {
-  const { url, anonKey } = resolveApiConfig();
-  const client = getUserClient({ url, anonKey });
-
-  const creds = await refreshSession();
-  if (!creds) {
-    cliError("Not logged in. Run 'smgr login' first.", EXIT.USER);
-  }
-
-  const { error } = await client.auth.setSession({
-    access_token: creds.access_token,
-    refresh_token: creds.refresh_token,
-  });
-  if (error) {
-    cliError(`Session invalid: ${error.message}. Run 'smgr login'.`, EXIT.USER);
-  }
-
-  return client;
-}
 
 const logger = createLogger(LogComponent.CLI);
 
@@ -82,6 +45,55 @@ type ExitCode = typeof EXIT[keyof typeof EXIT];
 
 let verboseMode = false;
 let modelConfig: ModelConfig | undefined;
+
+// ── API fetch helper ────────────────────────────────────────────
+
+/**
+ * Make an authenticated request to the web API.
+ * Automatically refreshes the session and attaches the Bearer token.
+ */
+async function apiFetch(
+  path: string,
+  options: RequestInit = {},
+): Promise<Response> {
+  const creds = await refreshSession();
+  if (!creds) {
+    cliError("Not logged in. Run 'smgr login' first.", EXIT.USER);
+  }
+
+  const { webUrl } = resolveApiConfig();
+  const url = `${webUrl}${path}`;
+  const headers = new Headers(options.headers);
+  headers.set("Authorization", `Bearer ${creds.access_token}`);
+  if (!headers.has("Content-Type") && options.body) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  return fetch(url, { ...options, headers });
+}
+
+/** Convenience: GET + parse JSON, throw on error */
+async function apiGet<T = unknown>(path: string): Promise<T> {
+  const res = await apiFetch(path);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(body.error ?? `API error ${res.status}`);
+  }
+  return res.json();
+}
+
+/** Convenience: POST + parse JSON, throw on error */
+async function apiPost<T = unknown>(path: string, body: unknown): Promise<T> {
+  const res = await apiFetch(path, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(data.error ?? `API error ${res.status}`);
+  }
+  return res.json();
+}
 
 // ── Shared S3 CLI options ───────────────────────────────────────
 const s3Options = {
@@ -159,50 +171,56 @@ async function cmdQuery(args: string[]) {
   });
 
   if (values.verbose) verboseMode = true;
-  const userId = requireUserId();
-  const client = await getClient();
-  const { data, count, error } = await queryEvents(client, {
-    userId,
-    search: values.search,
-    type: values.type,
-    since: values.since,
-    until: values.until,
-    device: values.device,
-    limit: parseInt(values.limit!, 10),
-    offset: parseInt(values.offset!, 10),
-  });
-  if (error) cliError(`Query failed: ${(error as Error).message ?? error}`, EXIT.SERVICE);
+  requireUserId();
 
-  if (values.format === "json") {
-    printJson({ data, count });
-  } else {
-    const events = (data ?? []) as Record<string, unknown>[];
-    console.log();
-    console.log(
-      "ID".padEnd(28) +
-        "Date".padEnd(22) +
-        "Type".padEnd(8) +
-        "Path/Key"
+  const params = new URLSearchParams();
+  if (values.search) params.set("search", values.search);
+  if (values.type) params.set("type", values.type);
+  if (values.since) params.set("since", values.since);
+  if (values.until) params.set("until", values.until);
+  if (values.device) params.set("device", values.device);
+  params.set("limit", values.limit!);
+  params.set("offset", values.offset!);
+
+  try {
+    const result = await apiGet<{ data: Record<string, unknown>[]; count: number }>(
+      `/api/events?${params}`,
     );
-    console.log("─".repeat(100));
+    const { data, count } = result;
 
-    for (const evt of events) {
-      const ts = String(evt.timestamp ?? "").slice(0, 19).replace("T", " ");
-      const meta = (evt.metadata as Record<string, unknown>) ?? {};
-      const path =
-        (evt.local_path as string) ??
-        (evt.remote_path as string) ??
-        (meta.s3_key as string) ??
-        "";
-      const display = path.length > 40 ? "..." + path.slice(-37) : path;
+    if (values.format === "json") {
+      printJson({ data, count });
+    } else {
+      const events = data ?? [];
+      console.log();
       console.log(
-        String(evt.id).padEnd(28) +
-          ts.padEnd(22) +
-          String(evt.content_type ?? "").padEnd(8) +
-          display
+        "ID".padEnd(28) +
+          "Date".padEnd(22) +
+          "Type".padEnd(8) +
+          "Path/Key"
       );
+      console.log("\u2500".repeat(100));
+
+      for (const evt of events) {
+        const ts = String(evt.timestamp ?? "").slice(0, 19).replace("T", " ");
+        const meta = (evt.metadata as Record<string, unknown>) ?? {};
+        const path =
+          (evt.local_path as string) ??
+          (evt.remote_path as string) ??
+          (meta.s3_key as string) ??
+          "";
+        const display = path.length > 40 ? "..." + path.slice(-37) : path;
+        console.log(
+          String(evt.id).padEnd(28) +
+            ts.padEnd(22) +
+            String(evt.content_type ?? "").padEnd(8) +
+            display
+        );
+      }
+      console.log(`\nShowing ${events.length} of ${count ?? 0} events`);
     }
-    console.log(`\nShowing ${events.length} of ${count ?? 0} events`);
+  } catch (err) {
+    cliError(`Query failed: ${(err as Error).message ?? err}`, EXIT.SERVICE);
   }
 }
 
@@ -210,20 +228,26 @@ async function cmdShow(args: string[]) {
   const eventId = args[0];
   if (!eventId) cliError("Usage: smgr show <event_id>");
 
-  const userId = requireUserId();
-  const client = await getClient();
-  const { data: event, error } = await showEvent(client, eventId, userId);
-  if (error) cliError(`Show failed: ${(error as Error).message ?? error}`, EXIT.SERVICE);
-  if (!event) cliError(`Event not found: ${eventId}`);
+  requireUserId();
 
-  printJson(event);
+  try {
+    const { data: event } = await apiGet<{ data: unknown }>(`/api/events/${eventId}`);
+    if (!event) cliError(`Event not found: ${eventId}`);
+    printJson(event);
+  } catch (err) {
+    cliError(`Show failed: ${(err as Error).message ?? err}`, EXIT.SERVICE);
+  }
 }
 
 async function cmdStats() {
-  const client = await getClient();
-  const { data: stats, error } = await getStats(client, { userId: requireUserId() });
-  if (error) cliError(`Stats failed: ${(error as Error).message ?? error}`, EXIT.SERVICE);
-  printJson(stats);
+  requireUserId();
+
+  try {
+    const { data: stats } = await apiGet<{ data: unknown }>("/api/stats");
+    printJson(stats);
+  } catch (err) {
+    cliError(`Stats failed: ${(err as Error).message ?? err}`, EXIT.SERVICE);
+  }
 }
 
 async function cmdEnrich(args: string[]) {
@@ -244,20 +268,25 @@ async function cmdEnrich(args: string[]) {
   const concurrency = Math.max(1, parseInt(values.concurrency ?? "3", 10));
   const dryRun = values["dry-run"] ?? false;
 
-  const userId = requireUserId();
-  const client = await getClient();
+  requireUserId();
 
   if (values.status) {
-    const { data: status, error } = await getEnrichStatus(client, userId);
-    if (error) cliError(`Enrich status failed: ${(error as Error).message ?? error}`, EXIT.SERVICE);
-    printJson(status);
+    try {
+      const { data: status } = await apiGet<{ data: unknown }>("/api/enrichments/status");
+      printJson(status);
+    } catch (err) {
+      cliError(`Enrich status failed: ${(err as Error).message ?? err}`, EXIT.SERVICE);
+    }
     return;
   }
 
   if (dryRun) {
-    const { data: pending, error } = await getPendingEnrichments(client, userId);
-    if (error) cliError(`Pending enrichments failed: ${(error as Error).message ?? error}`, EXIT.SERVICE);
-    console.log(JSON.stringify({ pending: (pending ?? []).length, items: (pending ?? []).map((e) => e.id) }, null, 2));
+    try {
+      const { data: pending } = await apiGet<{ data: Array<{ id: string }> }>("/api/enrichments/pending");
+      console.log(JSON.stringify({ pending: (pending ?? []).length, items: (pending ?? []).map((e) => e.id) }, null, 2));
+    } catch (err) {
+      cliError(`Pending enrichments failed: ${(err as Error).message ?? err}`, EXIT.SERVICE);
+    }
     return;
   }
 
@@ -265,93 +294,93 @@ async function cmdEnrich(args: string[]) {
 
   if (eventId) {
     // Enrich a specific event
-    const { data: event, error: showErr } = await showEvent(client, eventId, userId);
-    if (showErr) cliError(`Show failed: ${(showErr as Error).message ?? showErr}`, EXIT.SERVICE);
-    if (!event) cliError(`Event not found: ${eventId}`);
-
-    const meta = (event.metadata as Record<string, unknown>) ?? {};
-    const remotePath = event.remote_path as string | null;
-    const s3Key = (meta.s3_key as string) ?? null;
-
-    if (!remotePath && !s3Key) cliError("Event has no S3 path to download from");
-
-    const bucket = process.env.SMGR_S3_BUCKET;
-    if (!bucket) cliError("Set SMGR_S3_BUCKET to download images for enrichment");
-
-    const key = s3Key ?? remotePath!.replace(`s3://${bucket}/`, "");
-    const s3 = createS3Client();
-
     try {
+      const { data: event } = await apiGet<{ data: Record<string, unknown> }>(`/api/events/${eventId}`);
+      if (!event) cliError(`Event not found: ${eventId}`);
+
+      const meta = (event.metadata as Record<string, unknown>) ?? {};
+      const remotePath = event.remote_path as string | null;
+      const s3Key = (meta.s3_key as string) ?? null;
+
+      if (!remotePath && !s3Key) cliError("Event has no S3 path to download from");
+
+      const bucket = process.env.SMGR_S3_BUCKET;
+      if (!bucket) cliError("Set SMGR_S3_BUCKET to download images for enrichment");
+
+      const key = s3Key ?? remotePath!.replace(`s3://${bucket}/`, "");
+      const s3 = createS3Client();
+
       const imageBytes = await downloadS3Object(s3, bucket, key);
       const mime = (meta.mime_type as string) ?? getMimeType(key);
 
       console.error(`Enriching event ${eventId}...`);
       const result = await enrichImage(imageBytes, mime, modelConfig);
-      const { error: enrichErr } = await insertEnrichment(client, eventId, result, userId);
-      if (enrichErr) cliError(`Failed to save enrichment: ${(enrichErr as Error).message ?? enrichErr}`, EXIT.SERVICE);
+      await apiPost("/api/enrichments", { event_id: eventId, result });
       console.error("Done.");
     } catch (err) {
-      cliError(`Failed to download ${key}: ${err}`, exitCodeForS3Error(err), String(err));
+      cliError(`Failed: ${(err as Error).message ?? err}`, exitCodeForS3Error(err), String(err));
     }
     return;
   }
 
   if (values.pending) {
-    const { data: pending, error: pendErr } = await getPendingEnrichments(client, userId);
-    if (pendErr) cliError(`Pending enrichments failed: ${(pendErr as Error).message ?? pendErr}`, EXIT.SERVICE);
-    if (!pending || pending.length === 0) {
-      console.log(JSON.stringify({ enriched: 0, failed: 0, skipped: 0, total: 0 }, null, 2));
-      return;
+    try {
+      const { data: pending } = await apiGet<{ data: Array<Record<string, unknown>> }>("/api/enrichments/pending");
+      if (!pending || pending.length === 0) {
+        console.log(JSON.stringify({ enriched: 0, failed: 0, skipped: 0, total: 0 }, null, 2));
+        return;
+      }
+
+      const bucket = process.env.SMGR_S3_BUCKET;
+      if (!bucket) cliError("Set SMGR_S3_BUCKET to download images for enrichment");
+
+      const s3 = createS3Client();
+      const limit = pLimit(concurrency);
+      let done = 0;
+      let failed = 0;
+      let skipped = 0;
+      const total = pending.length;
+
+      console.error(`Found ${total} items pending enrichment (concurrency: ${concurrency}).`);
+
+      const tasks = pending.map((event, i) =>
+        limit(async () => {
+          const meta = (event.metadata as Record<string, unknown>) ?? {};
+          const s3Key =
+            (meta.s3_key as string) ??
+            (event.remote_path
+              ? String(event.remote_path).replace(`s3://${bucket}/`, "")
+              : null);
+
+          if (!s3Key) {
+            skipped++;
+            console.error(`[${i + 1}/${total}] ${event.id} \u2014 no S3 key, skipping`);
+            return;
+          }
+
+          console.error(`[${i + 1}/${total}] Enriching ${event.id}...`);
+          try {
+            const imageBytes = await downloadS3Object(s3, bucket, s3Key);
+            const mime = (meta.mime_type as string) ?? getMimeType(s3Key);
+            const result = await enrichImage(imageBytes, mime, modelConfig);
+            await apiPost("/api/enrichments", { event_id: event.id, result });
+            done++;
+          } catch (err) {
+            failed++;
+            logger.error("enrich item failed", { event_id: event.id, error: String(err) });
+            console.error(`  Failed: ${err}`);
+          }
+        }),
+      );
+
+      await Promise.all(tasks);
+
+      const summary = { enriched: done, failed, skipped, total };
+      console.log(JSON.stringify(summary, null, 2));
+      logger.info("enrich batch complete", summary);
+    } catch (err) {
+      cliError(`Pending enrichments failed: ${(err as Error).message ?? err}`, EXIT.SERVICE);
     }
-
-    const bucket = process.env.SMGR_S3_BUCKET;
-    if (!bucket) cliError("Set SMGR_S3_BUCKET to download images for enrichment");
-
-    const s3 = createS3Client();
-    const limit = pLimit(concurrency);
-    let done = 0;
-    let failed = 0;
-    let skipped = 0;
-    const total = pending.length;
-
-    console.error(`Found ${total} items pending enrichment (concurrency: ${concurrency}).`);
-
-    const tasks = pending.map((event, i) =>
-      limit(async () => {
-        const meta = (event.metadata as Record<string, unknown>) ?? {};
-        const s3Key =
-          (meta.s3_key as string) ??
-          (event.remote_path
-            ? String(event.remote_path).replace(`s3://${bucket}/`, "")
-            : null);
-
-        if (!s3Key) {
-          skipped++;
-          console.error(`[${i + 1}/${total}] ${event.id} — no S3 key, skipping`);
-          return;
-        }
-
-        console.error(`[${i + 1}/${total}] Enriching ${event.id}...`);
-        try {
-          const imageBytes = await downloadS3Object(s3, bucket, s3Key);
-          const mime = (meta.mime_type as string) ?? getMimeType(s3Key);
-          const result = await enrichImage(imageBytes, mime, modelConfig);
-          const { error: eErr } = await insertEnrichment(client, event.id, result, userId);
-          if (eErr) throw eErr;
-          done++;
-        } catch (err) {
-          failed++;
-          logger.error("enrich item failed", { event_id: event.id, error: String(err) });
-          console.error(`  Failed: ${err}`);
-        }
-      }),
-    );
-
-    await Promise.all(tasks);
-
-    const summary = { enriched: done, failed, skipped, total };
-    console.log(JSON.stringify(summary, null, 2));
-    logger.info("enrich batch complete", summary);
     return;
   }
 
@@ -377,7 +406,7 @@ async function cmdWatch(args: string[]) {
 
   const { bucket, deviceId, s3 } = resolveS3Args(values);
 
-  const userId = requireUserId();
+  requireUserId();
   const prefix = (values.prefix as string) ?? process.env.SMGR_S3_PREFIX ?? "";
   const intervalSecs = parseInt(
     (values.interval as string) ?? process.env.SMGR_WATCH_INTERVAL ?? "60",
@@ -387,7 +416,6 @@ async function cmdWatch(args: string[]) {
   const autoEnrich = values["no-auto-enrich"]
     ? false
     : values["auto-enrich"] ?? (process.env.SMGR_AUTO_ENRICH ?? "true").toLowerCase() !== "false";
-  const client = await getClient();
 
   console.error(`Watching s3://${bucket}/${prefix}`);
   console.error(`Poll interval: ${intervalSecs}s | Auto-enrich: ${autoEnrich} | Max errors: ${maxErrors}`);
@@ -406,8 +434,8 @@ async function cmdWatch(args: string[]) {
     try {
       const objects = await listS3Objects(s3, bucket, prefix);
       const mediaObjects = objects.filter((o) => isMediaKey(o.key));
-      const { data: watchedData, error: watchedErr } = await getWatchedKeys(client, userId);
-      if (watchedErr) throw watchedErr;
+
+      const { data: watchedData } = await apiGet<{ data: Array<{ s3_key: string }> }>("/api/watched-keys");
       const seenKeys = new Set((watchedData ?? []).map((r) => r.s3_key));
       const newObjects = mediaObjects.filter((o) => !seenKeys.has(o.key));
 
@@ -421,11 +449,16 @@ async function cmdWatch(args: string[]) {
             const imageBytes = await downloadS3Object(s3, bucket, obj.key);
             const contentHash = sha256Bytes(imageBytes);
 
-            const { data: existingEvent, error: hashErr } = await findEventByHash(client, contentHash, userId);
-            if (hashErr) logger.warn("findEventByHash failed", { error: String(hashErr) });
+            const { data: existingEvent } = await apiGet<{ data: { id: string } | null }>(
+              `/api/events/by-hash/${encodeURIComponent(contentHash)}`,
+            );
             if (existingEvent?.id) {
-              const { error: upErr } = await upsertWatchedKey(client, obj.key, existingEvent.id, obj.etag, obj.size, userId);
-              if (upErr) logger.warn("upsertWatchedKey failed", { key: obj.key, error: String(upErr) });
+              await apiPost("/api/watched-keys", {
+                s3_key: obj.key,
+                event_id: existingEvent.id,
+                etag: obj.etag,
+                size_bytes: obj.size,
+              });
               console.error(`    Already indexed (hash match)`);
               continue;
             }
@@ -435,7 +468,7 @@ async function cmdWatch(args: string[]) {
             const meta = s3Metadata(obj.key, obj.size, obj.etag);
             const remotePath = `s3://${bucket}/${obj.key}`;
 
-            const { error: insErr } = await insertEvent(client, {
+            await apiPost("/api/events", {
               id: eventId,
               device_id: deviceId,
               type: "create",
@@ -445,11 +478,14 @@ async function cmdWatch(args: string[]) {
               remote_path: remotePath,
               metadata: meta,
               parent_id: null,
-              user_id: userId,
             });
-            if (insErr) throw insErr;
-            const { error: upErr2 } = await upsertWatchedKey(client, obj.key, eventId, obj.etag, obj.size, userId);
-            if (upErr2) logger.warn("upsertWatchedKey failed", { key: obj.key, error: String(upErr2) });
+
+            await apiPost("/api/watched-keys", {
+              s3_key: obj.key,
+              event_id: eventId,
+              etag: obj.etag,
+              size_bytes: obj.size,
+            });
             console.error(`    Created event ${eventId}`);
 
             if (autoEnrich && contentType === "photo") {
@@ -458,8 +494,7 @@ async function cmdWatch(args: string[]) {
                 console.error("    Enriching...");
                 try {
                   const result = await enrichImage(imageBytes, mime, modelConfig);
-                  const { error: eErr } = await insertEnrichment(client, eventId, result, userId);
-                  if (eErr) throw eErr;
+                  await apiPost("/api/enrichments", { event_id: eventId, result });
                   console.error("    Enriched.");
                 } catch (err) {
                   console.error(`    Enrichment failed: ${err}`);
@@ -468,8 +503,16 @@ async function cmdWatch(args: string[]) {
             }
           } catch (err) {
             console.error(`    Error: ${err}`);
-            const { error: upErr3 } = await upsertWatchedKey(client, obj.key, null, obj.etag, obj.size, userId);
-            if (upErr3) logger.warn("upsertWatchedKey failed", { key: obj.key, error: String(upErr3) });
+            try {
+              await apiPost("/api/watched-keys", {
+                s3_key: obj.key,
+                event_id: null,
+                etag: obj.etag,
+                size_bytes: obj.size,
+              });
+            } catch (upErr) {
+              logger.warn("upsertWatchedKey failed", { key: obj.key, error: String(upErr) });
+            }
           }
         }
       }
@@ -529,7 +572,7 @@ async function cmdAdd(args: string[]) {
 
   const { bucket, deviceId, s3 } = resolveS3Args(values);
 
-  const userId = requireUserId();
+  requireUserId();
 
   const absPath = resolve(filePath);
   const stat = statSync(absPath);
@@ -541,14 +584,17 @@ async function cmdAdd(args: string[]) {
   const contentType = detectContentType(fileName);
   const mimeType = getMimeType(fileName);
 
-  const client = await getClient();
-
   // Check for duplicates
-  const { data: existingEvent, error: hashErr } = await findEventByHash(client, contentHash, userId);
-  if (hashErr) logger.warn("findEventByHash failed", { error: String(hashErr) });
-  if (existingEvent?.id) {
-    console.log(`File already indexed (event ${existingEvent.id}), skipping.`);
-    return;
+  try {
+    const { data: existingEvent } = await apiGet<{ data: { id: string } | null }>(
+      `/api/events/by-hash/${encodeURIComponent(contentHash)}`,
+    );
+    if (existingEvent?.id) {
+      console.log(`File already indexed (event ${existingEvent.id}), skipping.`);
+      return;
+    }
+  } catch (err) {
+    logger.warn("findEventByHash failed", { error: String(err) });
   }
 
   // Upload to S3
@@ -568,23 +614,33 @@ async function cmdAdd(args: string[]) {
     original_path: absPath,
   };
 
-  const { error: insErr } = await insertEvent(client, {
-    id: eventId,
-    device_id: deviceId,
-    type: "create",
-    content_type: contentType,
-    content_hash: contentHash,
-    local_path: absPath,
-    remote_path: remotePath,
-    metadata: meta,
-    parent_id: null,
-    user_id: userId,
-  });
-  if (insErr) cliError(`Failed to insert event: ${(insErr as Error).message ?? insErr}`, EXIT.SERVICE);
+  try {
+    await apiPost("/api/events", {
+      id: eventId,
+      device_id: deviceId,
+      type: "create",
+      content_type: contentType,
+      content_hash: contentHash,
+      local_path: absPath,
+      remote_path: remotePath,
+      metadata: meta,
+      parent_id: null,
+    });
+  } catch (err) {
+    cliError(`Failed to insert event: ${(err as Error).message ?? err}`, EXIT.SERVICE);
+  }
 
   // Track as watched key
-  const { error: upErr } = await upsertWatchedKey(client, s3Key, eventId, "", stat.size, userId);
-  if (upErr) logger.warn("upsertWatchedKey failed", { key: s3Key, error: String(upErr) });
+  try {
+    await apiPost("/api/watched-keys", {
+      s3_key: s3Key,
+      event_id: eventId,
+      etag: "",
+      size_bytes: stat.size,
+    });
+  } catch (err) {
+    logger.warn("upsertWatchedKey failed", { key: s3Key, error: String(err) });
+  }
 
   console.error(`Created event ${eventId}`);
 
@@ -593,8 +649,7 @@ async function cmdAdd(args: string[]) {
     console.error("Enriching...");
     try {
       const result = await enrichImage(Buffer.from(fileBytes), mimeType, modelConfig);
-      const { error: eErr } = await insertEnrichment(client, eventId, result, userId);
-      if (eErr) throw eErr;
+      await apiPost("/api/enrichments", { event_id: eventId, result });
       console.error("Enriched.");
     } catch (err) {
       console.error(`Enrichment failed: ${err}`);
@@ -652,7 +707,7 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
 };
 
 if (!command || !(command in commands)) {
-  console.log(`smgr — S3-event-driven media indexer
+  console.log(`smgr \u2014 S3-event-driven media indexer
 
 Usage:
   smgr login                    Authenticate via browser (device code flow)
@@ -700,8 +755,7 @@ Exit codes:
   3  Internal error (unexpected exception)
 
 Environment:
-  SMGR_API_URL           Backend API URL (required)
-  SMGR_API_KEY           Backend public key (required)
+  SMGR_WEB_URL           Web API URL (required, e.g. http://localhost:3000)
   SMGR_S3_BUCKET         S3 bucket name
   SMGR_S3_ENDPOINT       Custom S3 endpoint (for Supabase Storage)
   SMGR_S3_REGION         S3 region (default: us-east-1)
@@ -712,29 +766,33 @@ Environment:
   process.exit(command ? 1 : 0);
 }
 
-const requestId = crypto.randomUUID();
-runWithRequestId(requestId, async () => {
-  // Load model config once at startup if a user ID is available
-  const creds = loadCredentials();
-  const userId = creds?.user_id;
-  if (userId) {
-    const client = await getClient();
-    const { data: configRow, error: configErr } = await getModelConfig(client, userId);
-    if (configErr) {
-      logger.warn("failed to load model config", { error: String(configErr) });
-    } else if (configRow) {
-      modelConfig = {
-        provider: configRow.provider,
-        baseUrl: configRow.base_url,
-        model: configRow.model,
-        apiKey: configRow.api_key_encrypted,
-      };
-      logger.info("loaded model config", { provider: configRow.provider, model: configRow.model });
-    }
-  }
-
+// Load model config once at startup if a user ID is available
+const creds = loadCredentials();
+if (creds?.user_id) {
+  apiGet<{ data: { provider: string; base_url: string | null; model: string; api_key_encrypted: string | null } | null }>("/api/model-config")
+    .then(({ data: configRow }) => {
+      if (configRow) {
+        modelConfig = {
+          provider: configRow.provider,
+          baseUrl: configRow.base_url,
+          model: configRow.model,
+          apiKey: configRow.api_key_encrypted,
+        };
+        logger.info("loaded model config", { provider: configRow.provider, model: configRow.model });
+      }
+    })
+    .catch((err) => {
+      logger.warn("failed to load model config", { error: String(err) });
+    })
+    .finally(() => {
+      commands[command](rest).catch((err) => {
+        logger.error("unhandled command error", { error: String(err), stack: err?.stack });
+        cliError(err.message ?? String(err), EXIT.INTERNAL);
+      });
+    });
+} else {
   commands[command](rest).catch((err) => {
     logger.error("unhandled command error", { error: String(err), stack: err?.stack });
     cliError(err.message ?? String(err), EXIT.INTERNAL);
   });
-});
+}
