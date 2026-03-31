@@ -162,7 +162,6 @@ When running autonomously (via `/plan-next`, triggers, or background sessions), 
 - "Where should implementation code be written?" → current working directory (`/home/user/sitemgr`)
 - "Is there existing code I should research first?" → Yes, research the codebase
 - "No external LLMs configured. How should plan review be handled?" → Use Claude Opus for review
-- "Plan review" → Done reviewing (auto-proceed)
 - "Allow Claude to web search?" → Allow (always permit web search during research/planning)
 
 **Stop and report (don't guess):**
