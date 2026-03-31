@@ -231,13 +231,16 @@ async function cmdShow(args: string[]) {
 
   requireUserId();
 
-  try {
-    const { data: event } = await apiGet<{ data: unknown }>(`/api/events/${eventId}`);
-    if (!event) cliError(`Event not found: ${eventId}`);
-    printJson(event);
-  } catch (err) {
-    cliError(`Show failed: ${(err as Error).message ?? err}`, EXIT.SERVICE);
+  const res = await apiFetch(`/api/events/${eventId}`);
+  if (res.status === 404) {
+    cliError(`Event not found: ${eventId}`, EXIT.USER);
   }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    cliError(`Show failed: ${body.error ?? res.statusText}`, EXIT.SERVICE);
+  }
+  const { data: event } = await res.json();
+  printJson(event);
 }
 
 async function cmdStats() {
