@@ -233,7 +233,8 @@ async function cmdShow(args: string[]) {
 
   const res = await apiFetch(`/api/events/${eventId}`);
   if (res.status === 404) {
-    cliError(`Event not found: ${eventId}`, EXIT.USER);
+    printJson({ data: null });
+    return;
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));

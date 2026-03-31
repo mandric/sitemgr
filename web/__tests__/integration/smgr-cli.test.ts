@@ -306,10 +306,11 @@ describe("smgr show", () => {
     expect(result.stderr).toContain("Usage");
   });
 
-  it("should fail with exit 1 for nonexistent event ID", async () => {
+  it("should return null data for nonexistent event ID", async () => {
     const result = await runCli(["show", "nonexistent-id-12345"]);
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("not found");
+    expect(result.exitCode).toBe(0);
+    const parsed = JSON.parse(result.stdout);
+    expect(parsed.data).toBeNull();
   });
 });
 
