@@ -158,6 +158,13 @@ When running autonomously (via `/plan-next`, triggers, or background sessions), 
 - Context/compaction — never prompt about context management. If compaction happens, follow the Compaction Recovery protocol below
 - Plugin workflow pauses — if a plugin skill (e.g. `/deep-implement`) has optional "wait for user" checkpoints, skip them during autonomous operation unless there's a genuine decision that requires human judgment
 
+**Plugin prompt defaults (never ask, always use these):**
+- "Where should implementation code be written?" → current working directory (`/home/user/sitemgr`)
+- "Is there existing code I should research first?" → Yes, research the codebase
+- "No external LLMs configured. How should plan review be handled?" → Use Claude Opus for review
+- "Plan review" → Done reviewing (auto-proceed)
+- "Allow Claude to web search?" → Allow (always permit web search during research/planning)
+
 **Stop and report (don't guess):**
 - Database schema changes (new migrations, RLS policy changes)
 - Changes to auth flows or security-sensitive code
