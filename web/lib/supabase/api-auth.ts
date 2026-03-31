@@ -5,12 +5,12 @@
  * a Supabase client authenticated with that JWT so RLS policies apply.
  */
 
-import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient as createSupabaseClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 
 export interface AuthenticatedContext {
   supabase: SupabaseClient;
-  user: { id: string; email?: string };
+  user: User;
 }
 
 /**
@@ -52,7 +52,7 @@ export async function authenticateRequest(
     );
   }
 
-  return { supabase, user: { id: user.id, email: user.email } };
+  return { supabase, user };
 }
 
 /**

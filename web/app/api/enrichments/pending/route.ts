@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await getPendingEnrichments(auth.supabase, auth.user.id);
 
   if (error) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+    return NextResponse.json({ error }, { status: 500 });
   }
 
   return NextResponse.json({ data });

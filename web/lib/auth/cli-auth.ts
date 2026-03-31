@@ -179,9 +179,9 @@ export async function refreshSession(): Promise<StoredCredentials | null> {
   try {
     ({ webUrl } = resolveApiConfig());
   } catch {
-    // Can't refresh without web URL
-    clearCredentials();
-    return null;
+    // Can't refresh without web URL — return stale creds rather than
+    // destroying them (a missing env var shouldn't delete credentials)
+    return creds;
   }
 
   const res = await fetch(`${webUrl}/api/auth/refresh`, {
