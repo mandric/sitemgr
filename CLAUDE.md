@@ -234,6 +234,13 @@ This is the end-to-end process for implementing any spec. It runs without stoppi
 
 **Keep the PR description current** — update it after each chunk of work. The description is the living record for human reviewers and future agents.
 
+### After Pushing to a PR
+
+Whenever you push commits to a branch that has an open PR:
+
+1. **Update the PR description** to reflect the current state — what's been implemented, what changed since the last push, and any open questions.
+2. **Subscribe to PR activity** using `subscribe_pr_activity` to monitor CI results and review comments. If already subscribed, skip this step.
+
 ### Compaction Recovery
 
 If context compaction occurs mid-task, **immediately re-orient before continuing:**
