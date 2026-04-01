@@ -7,37 +7,31 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import pLimit from "p-limit";
 import { AGENT_SYSTEM_PROMPT, WHATSAPP_PLANNER_PROMPT } from "./system-prompt";
 import {
   queryEvents,
   showEvent,
   getStats,
   getEnrichStatus,
-  insertEvent,
-  insertEnrichment,
-  upsertWatchedKey,
-  getWatchedKeys,
 } from "@/lib/media/db";
 import {
   encryptSecretVersioned,
-  decryptSecretVersioned,
   getEncryptionVersion,
-  needsMigration,
 } from "@/lib/crypto/encryption-versioned";
 import {
   createS3Client,
   listS3Objects,
-  downloadS3Object,
 } from "@/lib/media/s3";
 import {
-  newEventId,
   detectContentType,
-  getMimeType,
-  s3Metadata,
 } from "@/lib/media/utils";
-import { enrichImage } from "@/lib/media/enrichment";
-import { ListObjectsV2Command, ListObjectsCommand } from "@aws-sdk/client-s3";
+import {
+  getBucketConfig,
+  createS3ClientFromConfig,
+  testBucketConnectivity,
+  scanBucket,
+} from "@/lib/media/bucket-service";
+import type { BucketConfig } from "@/lib/media/bucket-service";
 import { runWithRequestId } from "@/lib/request-context";
 import { createLogger, LogComponent } from "@/lib/logger";
 
@@ -274,7 +268,7 @@ export async function executeAction(
         }
 
         case "test_bucket":
-          result = await verifyBucketConfig(
+          result = await verifyBucketConfigAction(
             client,
             phoneNumber,
             plan.params?.bucket_name as string,
@@ -304,7 +298,7 @@ export async function executeAction(
           break;
 
         case "index_bucket":
-          result = await indexBucket(
+          result = await indexBucketAction(
             client,
             phoneNumber,
             plan.params?.bucket_name as string,
@@ -492,21 +486,7 @@ async function removeBucket(
   });
 }
 
-// ── S3 bucket operations ────────────────────────────────────────
-
-type BucketConfig = {
-  id: string;
-  endpoint_url: string;
-  region?: string;
-  access_key_id: string;
-  secret_access_key: string;
-  [key: string]: unknown;
-};
-type BucketConfigResult = {
-  exists: boolean;
-  config?: BucketConfig;
-  error?: Error;
-};
+// ── S3 bucket operations (delegated to bucket-service) ──────────
 
 type S3ClientResult =
   | {
@@ -528,7 +508,13 @@ async function requireS3Client(
       errorJson: errorResponse("bucket_name is required", "validation_error"),
     };
 
-  const result = await getBucketConfig(client, phoneNumber, bucketName, userId);
+  if (!userId)
+    return {
+      ok: false,
+      errorJson: errorResponse("Could not resolve user", "not_found"),
+    };
+
+  const result = await getBucketConfig(client, userId, bucketName);
   if (!result.exists)
     return {
       ok: false,
@@ -546,96 +532,12 @@ async function requireS3Client(
   }
 
   const config = result.config!;
-  const s3client = createS3Client({
-    endpoint: config.endpoint_url,
-    region: config.region ?? undefined,
-    accessKeyId: config.access_key_id,
-    secretAccessKey: config.secret_access_key,
-  });
+  const s3client = createS3ClientFromConfig(config);
 
   return { ok: true, client: s3client, config };
 }
 
-async function getBucketConfig(
-  client: SupabaseClient,
-  phoneNumber: string,
-  bucketName: string,
-  userId?: string | null,
-): Promise<BucketConfigResult> {
-  if (!bucketName) return { exists: false };
-
-  if (!userId) return { exists: false };
-
-  const { data, error } = await client
-    .from("bucket_configs")
-    .select("*")
-    .eq("bucket_name", bucketName)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (error || !data) return { exists: false };
-
-  try {
-    // Use versioned decryption (supports both old and new encryption keys)
-    const decryptedSecret = await decryptSecretVersioned(
-      data.secret_access_key,
-    );
-
-    // Lazy migration: Re-encrypt with current version if needed
-    if (needsMigration(data.secret_access_key)) {
-      const newCiphertext = await encryptSecretVersioned(decryptedSecret);
-      const newVersion = getEncryptionVersion(newCiphertext);
-
-      // Update in background (non-blocking, fire-and-forget)
-      void (async () => {
-        try {
-          const { error } = await client
-            .from("bucket_configs")
-            .update({
-              secret_access_key: newCiphertext,
-              encryption_key_version: newVersion,
-            })
-            .eq("id", data.id);
-
-          if (error) {
-            logger.error("lazy migration failed", {
-              bucket: bucketName,
-              error: error.message,
-            });
-          } else {
-            logger.info("lazy migration complete", {
-              bucket: bucketName,
-              new_version: newVersion,
-            });
-          }
-        } catch (err) {
-          logger.error("lazy migration exception", {
-            bucket: bucketName,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      })();
-    }
-
-    return {
-      exists: true,
-      config: { ...data, secret_access_key: decryptedSecret },
-    };
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error("cannot decrypt bucket config", {
-      bucket: bucketName,
-      phone: phoneNumber,
-      error: error.message,
-    });
-    return {
-      exists: true,
-      error,
-    };
-  }
-}
-
-async function verifyBucketConfig(
+async function verifyBucketConfigAction(
   client: SupabaseClient,
   phoneNumber: string,
   bucketName: string,
@@ -644,40 +546,8 @@ async function verifyBucketConfig(
   const s3 = await requireS3Client(client, phoneNumber, bucketName, userId);
   if (!s3.ok) return s3.errorJson;
 
-  try {
-    // Try listing up to 1 object to verify read access
-    try {
-      const response = await s3.client.send(
-        new ListObjectsV2Command({ Bucket: bucketName, MaxKeys: 1 }),
-      );
-      const count = response.KeyCount ?? 0;
-      return JSON.stringify({
-        success: true,
-        message: `Read access confirmed for "${bucketName}"`,
-        has_objects: count > 0,
-      });
-    } catch {
-      // Fallback to v1 for providers that don't support v2
-      const response = await s3.client.send(
-        new ListObjectsCommand({ Bucket: bucketName, MaxKeys: 1 }),
-      );
-      const count = (response.Contents ?? []).length;
-      return JSON.stringify({
-        success: true,
-        message: `Read access confirmed for "${bucketName}" (v1 API)`,
-        has_objects: count > 0,
-      });
-    }
-  } catch (err) {
-    logger.info("bucket verification failed", {
-      bucket: bucketName,
-      error: (err as Error).message,
-    });
-    return JSON.stringify({
-      success: false,
-      error: `Cannot read bucket "${bucketName}": ${(err as Error).message}`,
-    });
-  }
+  const result = await testBucketConnectivity(s3.client, bucketName);
+  return JSON.stringify(result);
 }
 
 async function listObjects(
@@ -727,7 +597,6 @@ async function countObjects(
   try {
     const allObjects = await listS3Objects(s3.client, bucketName, prefix ?? "");
 
-    // Group by content type
     const byType: Record<string, number> = {};
     for (const obj of allObjects) {
       const ct = detectContentType(obj.key);
@@ -748,27 +617,7 @@ async function countObjects(
   }
 }
 
-const IMAGE_MIME_PREFIXES = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-];
-
-type ObjectStatus = "enriched" | "indexed" | "enrich_failed" | "error";
-
-interface IndexBucketResult {
-  bucket: string;
-  total_objects: number;
-  already_indexed: number;
-  remaining: number;
-  batch_size: number;
-  batch_indexed: number;
-  batch_enriched: number;
-  per_object: Array<{ key: string; status: ObjectStatus; error?: string }>;
-}
-
-async function indexBucket(
+async function indexBucketAction(
   client: SupabaseClient,
   phoneNumber: string,
   bucketName: string,
@@ -780,116 +629,23 @@ async function indexBucket(
   if (!s3.ok) return s3.errorJson;
 
   try {
-    // List all objects in bucket
-    const allObjects = await listS3Objects(s3.client, bucketName, prefix ?? "");
-
-    // Get already-watched keys to find new ones
-    const watchedResult = await getWatchedKeys(client, userId ?? undefined);
-    if (watchedResult.error) {
-      return errorResponse(`Failed to fetch watched keys: ${(watchedResult.error as Error).message ?? watchedResult.error}`, "internal");
-    }
-    const watchedKeys = new Set((watchedResult.data ?? []).map((r: { s3_key: string }) => r.s3_key));
-    const newObjects = allObjects.filter((o) => !watchedKeys.has(o.key));
-
-    // Take only batch_size items
-    const batch = newObjects.slice(0, batchSize);
-
-    const limit = pLimit(3);
-
-    const perObject = await Promise.all(
-      batch.map((obj) =>
-        limit(async (): Promise<{ key: string; status: ObjectStatus; error?: string }> => {
-          try {
-            const eventId = newEventId();
-            const contentType = detectContentType(obj.key);
-            const mimeType = getMimeType(obj.key);
-
-            // Create event
-            const insertResult = await insertEvent(client, {
-              id: eventId,
-              device_id: `whatsapp:${phoneNumber}`,
-              type: "create",
-              content_type: contentType,
-              content_hash: `etag:${obj.etag}`,
-              local_path: null,
-              remote_path: `s3://${bucketName}/${obj.key}`,
-              metadata: s3Metadata(obj.key, obj.size, obj.etag),
-              parent_id: null,
-              bucket_config_id: s3.config.id,
-              user_id: userId!,
-            });
-            if (insertResult.error) throw insertResult.error;
-
-            // Track watched key
-            const upsertResult = await upsertWatchedKey(client, obj.key, eventId, obj.etag, obj.size, userId ?? undefined, s3.config.id);
-            if (upsertResult.error) {
-              logger.warn("upsertWatchedKey failed", {
-                key: obj.key,
-                error: (upsertResult.error as Error).message ?? String(upsertResult.error),
-              });
-            }
-
-            // Enrich if it's an image we can analyze
-            if (IMAGE_MIME_PREFIXES.includes(mimeType)) {
-              try {
-                const imageBytes = await downloadS3Object(
-                  s3.client,
-                  bucketName,
-                  obj.key,
-                );
-                const result = await enrichImage(imageBytes, mimeType);
-                const enrichInsert = await insertEnrichment(client, eventId, result, userId ?? undefined);
-                if (enrichInsert.error) throw enrichInsert.error;
-                return { key: obj.key, status: "enriched" };
-              } catch (enrichErr) {
-                logger.warn("enrichment failed", {
-                  key: obj.key,
-                  error: enrichErr instanceof Error ? enrichErr.message : String(enrichErr),
-                });
-                return {
-                  key: obj.key,
-                  status: "enrich_failed",
-                  error: enrichErr instanceof Error ? enrichErr.message : String(enrichErr),
-                };
-              }
-            }
-
-            return { key: obj.key, status: "indexed" };
-          } catch (err) {
-            return {
-              key: obj.key,
-              status: "error",
-              error: err instanceof Error ? err.message : String(err),
-            };
-          }
-        }),
-      ),
-    );
-
-    const batchIndexed = perObject.filter(
-      (r) => r.status === "indexed" || r.status === "enriched" || r.status === "enrich_failed",
-    ).length;
-    const batchEnriched = perObject.filter((r) => r.status === "enriched").length;
-
-    const result: IndexBucketResult = {
-      bucket: bucketName,
-      total_objects: allObjects.length,
-      already_indexed: allObjects.length - newObjects.length,
-      remaining: Math.max(0, newObjects.length - batch.length),
-      batch_size: batch.length,
-      batch_indexed: batchIndexed,
-      batch_enriched: batchEnriched,
-      per_object: perObject,
-    };
-
-    logger.info("indexBucket complete", {
-      bucket: bucketName,
-      batch_indexed: batchIndexed,
-      batch_enriched: batchEnriched,
-      errors: perObject.filter((r) => r.status === "error").length,
+    const result = await scanBucket(client, s3.client, s3.config, userId!, {
+      prefix,
+      batch_size: batchSize,
+      auto_enrich: true,
+      device_id: `whatsapp:${phoneNumber}`,
     });
 
-    return JSON.stringify(result);
+    return JSON.stringify({
+      bucket: result.bucket,
+      total_objects: result.total_objects,
+      already_indexed: result.already_indexed,
+      remaining: Math.max(0, result.new_objects - result.per_object.length),
+      batch_size: result.per_object.length,
+      batch_indexed: result.created_events,
+      batch_enriched: result.batch_enriched,
+      per_object: result.per_object,
+    });
   } catch (err) {
     return errorResponse(
       `Failed to index bucket: ${(err as Error).message}`,

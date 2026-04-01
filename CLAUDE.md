@@ -209,19 +209,19 @@ This is the end-to-end process for implementing any spec. It runs without stoppi
 1. Push to `claude/*` branch.
 2. Create or update the PR with a summary of what was built.
 
-**Phase 3: Code Review**
+**Phase 3: CI**
+1. Wait for CI checks on the PR to complete.
+2. If CI fails, enter the fix loop — read the failure logs, fix, push, wait for re-run.
+3. Once CI passes, proceed to code review. Running CI first avoids wasted review cycles on code that doesn't build or pass tests.
+
+**Phase 4: Code Review**
 1. Run `/code-review` on the PR.
 2. Review findings are trusted. For each finding:
    - Clear bug or correctness issue → fix, commit, push.
    - Convention/style violation → fix, commit, push.
    - Subjective or architectural suggestion → note it, don't act on it.
-3. If fixes were made, re-run all checks (full suite since code changed).
+3. If fixes were made, re-run all checks (full suite since code changed) and wait for CI to pass.
 4. Update the PR description to reflect fixes made.
-
-**Phase 4: CI**
-1. Check CI status on the PR using `gh pr checks <pr-number>`.
-2. If CI fails, enter the fix loop — read the failure logs, fix, push, wait for re-run.
-3. If CI passes, proceed.
 
 **Phase 5: Present**
 1. Present to the human with:
@@ -240,6 +240,8 @@ Whenever you push commits to a branch that has an open PR:
 
 1. **Update the PR description** to reflect the current state — what's been implemented, what changed since the last push, and any open questions.
 2. **Subscribe to PR activity** using `subscribe_pr_activity` to monitor CI results and review comments. If already subscribed, skip this step.
+3. **Wait for CI to pass before pushing more commits.** Don't stack up commits while CI is running — if an earlier commit broke the pipeline, subsequent pushes make it harder to identify the cause. The only exception is a targeted fix for a known CI failure.
+4. **When CI fails, investigate immediately** — read the failure logs, determine if it's caused by your changes or pre-existing, and fix before pushing unrelated work.
 
 ### Compaction Recovery
 
@@ -252,6 +254,27 @@ If context compaction occurs mid-task, **immediately re-orient before continuing
 5. **Read CLAUDE.md** — it's already reloaded, but re-read the autonomous process to know what phase you're in
 
 Then resume where you left off. If the current section's work is uncommitted and unclear, redo it — the cost is small. Do NOT proceed with degraded understanding; take 30 seconds to rebuild context from artifacts.
+
+### Test Philosophy
+
+**Real code paths first.** Default to integration tests that exercise real services (Supabase, S3, API routes). Only mock at true external boundaries — services that can't run locally (Anthropic API, Twilio). Supabase and S3 are free to run locally via `supabase start`.
+
+**Unit tests are for pure logic only.** Hash functions, content type detection, argument parsing, encryption math, retry logic — things with no I/O dependencies. If a test needs to mock Supabase or S3 to work, it should be an integration test hitting the real service instead.
+
+**Don't write mock-heavy unit tests.** A test that mocks `createS3Client`, `listS3Objects`, `insertEvent`, `encryptSecretVersioned` etc. verifies that functions are called in order — it doesn't catch wrong column names, RLS violations, encryption roundtrip failures, or S3 API incompatibilities. When a mocked test breaks, the fix is usually "update the mock" — that's maintaining test infrastructure, not catching bugs.
+
+**When writing new tests:** If the code touches Supabase, S3, or API routes, write an integration test. If it's pure logic, write a unit test. Never add a new mock-heavy unit test for code that could be tested against real services.
+
+**Test tiers:**
+
+| Tier | What | Entry point | When to use |
+|------|------|-------------|-------------|
+| **Unit** | Pure logic, no services | Direct function call | Hash, parse, validate, encrypt — no I/O |
+| **Integration** | Real services, no user interface | Direct function/API call against Supabase, S3, API routes | DB queries, S3 ops, route handlers, RLS, schema |
+| **E2E (CLI)** | Full stack via CLI | `smgr` subprocess | Arg parsing, exit codes, output formatting, credential handling |
+| **E2E (Web)** | Full stack via browser | Playwright | UI flows, form submissions, navigation, auth redirects |
+
+The distinction between integration and E2E: **does it go through a user-facing interface?** Integration tests call functions and API routes directly. E2E tests go through the same interface a user would (CLI binary or browser).
 
 ### Test Infrastructure
 
@@ -273,6 +296,8 @@ Integration and E2E tests are **not optional**. If infra isn't ready, fix the in
 - Local Supabase running (`supabase start`)
 - Next.js dev server running (globalSetup auto-spawns it)
 - Chromium installed (session-start hook runs `npx playwright install --with-deps chromium`)
+
+**Note:** CLI subprocess tests (`smgr-cli.test.ts`, `smgr-e2e.test.ts`) are currently in the integration suite but are conceptually E2E — they exercise the system through the user-facing CLI binary. See spec 20 for planned reclassification.
 
 **Infrastructure notes:**
 - The session-start hook starts Supabase automatically. The minimum version constant (`SUPABASE_MIN_VERSION`) and install/start helpers live in `scripts/lib.sh`.

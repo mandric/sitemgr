@@ -1,0 +1,41 @@
+{
+  "spec_path": "specs/15-cli-bucket-config/spec.md",
+  "sections_dir": "specs/15-cli-bucket-config/sections",
+  "sections": [
+    {
+      "id": "01-bucket-service",
+      "title": "Extract Shared Bucket Service",
+      "file": "01-bucket-service.md",
+      "status": "pending",
+      "commit_hash": null
+    },
+    {
+      "id": "02-bucket-crud-api",
+      "title": "Bucket CRUD API Routes",
+      "file": "02-bucket-crud-api.md",
+      "status": "pending",
+      "commit_hash": null
+    },
+    {
+      "id": "03-server-s3-operations",
+      "title": "Server-Side S3 Operation Routes",
+      "file": "03-server-s3-operations.md",
+      "status": "pending",
+      "commit_hash": null
+    },
+    {
+      "id": "04-cli-updates",
+      "title": "CLI Updates",
+      "file": "04-cli-updates.md",
+      "status": "pending",
+      "commit_hash": null
+    },
+    {
+      "id": "05-api-filters-and-cleanup",
+      "title": "API Filters, Env Var Cleanup, and Integration Tests",
+      "file": "05-api-filters-and-cleanup.md",
+      "status": "pending",
+      "commit_hash": null
+    }
+  ]
+}

@@ -354,15 +354,11 @@ describe("smgr enrich --dry-run", () => {
     if (error) throw error;
   });
 
-  it("should list pending enrichment items without calling API", async () => {
+  it("should fail without bucket name", async () => {
     const result = await runCli(["enrich", "--dry-run"]);
-    expect(result.exitCode).toBe(0);
-
-    const parsed = JSON.parse(result.stdout);
-    expect(parsed).toHaveProperty("pending");
-    expect(parsed).toHaveProperty("items");
-    expect(parsed.pending).toBeGreaterThanOrEqual(1);
-    expect(parsed.items).toContain(unenrichedEventId);
+    // Now requires a bucket name as first positional arg
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Usage");
   });
 });
 
@@ -372,7 +368,7 @@ describe("smgr enrich error cases", () => {
   it("should fail with exit 1 when no subcommand flag is given", async () => {
     const result = await runCli(["enrich"]);
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("Specify");
+    expect(result.stderr).toContain("Usage");
   });
 });
 

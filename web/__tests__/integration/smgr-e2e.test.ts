@@ -93,15 +93,9 @@ const S3_PREFIX = `test-e2e-${Date.now()}`;
 // ── Extra env vars for all e2e CLI calls ─────────────────────
 
 const s3Config = getS3Config();
-const E2E_ENV: Record<string, string> = {
-  SMGR_S3_BUCKET: "media",
-  SMGR_S3_PREFIX: S3_PREFIX + "/",
-  SMGR_AUTO_ENRICH: "false",
-  SMGR_S3_ENDPOINT: s3Config.endpoint,
-  SMGR_S3_REGION: s3Config.region,
-  S3_ACCESS_KEY_ID: s3Config.accessKeyId,
-  S3_SECRET_ACCESS_KEY: s3Config.secretAccessKey,
-};
+// CLI no longer needs S3 env vars — all S3 ops go through the web API.
+// Only SMGR_WEB_URL and SMGR_DEVICE_ID are needed (set by cliEnv).
+const E2E_ENV: Record<string, string> = {};
 
 // ── Tests ────────────────────────────────────────────────────
 
@@ -165,8 +159,20 @@ describe("smgr e2e pipeline", () => {
       );
     }
 
-    // 5. Upload fixture images to S3
-    const s3Config = getS3Config();
+    // 5. Create bucket config via CLI so watch/enrich can use it
+    const addResult = await runCli([
+      "bucket", "add",
+      "--bucket-name", "media",
+      "--endpoint-url", s3Config.endpoint,
+      "--region", s3Config.region,
+      "--access-key-id", s3Config.accessKeyId,
+      "--secret-access-key", s3Config.secretAccessKey,
+    ], E2E_ENV);
+    if (addResult.exitCode !== 0) {
+      throw new Error(`Failed to add bucket config: ${addResult.stderr}`);
+    }
+
+    // 6. Upload fixture images to S3 (still uses S3 client directly for setup)
     const s3 = createS3Client({
       endpoint: s3Config.endpoint,
       region: s3Config.region,
@@ -198,8 +204,9 @@ describe("smgr e2e pipeline", () => {
       await admin.storage.from("media").remove(uploadedKeys);
     }
 
-    // 2. Clean up model_configs + all user data
+    // 2. Clean up bucket_configs, model_configs + all user data
     if (userId) {
+      await admin.from("bucket_configs").delete().eq("user_id", userId);
       await admin.from("model_configs").delete().eq("user_id", userId);
       await cleanupUserData(admin, userId);
     }
@@ -223,8 +230,8 @@ describe("smgr e2e pipeline", () => {
 
   it("watch --once discovers uploaded images", async () => {
     const result = await runCli(
-      ["watch", "--once"],
-      { ...E2E_ENV, SMGR_S3_BUCKET: "media" },
+      ["watch", "media", "--once", "--prefix", S3_PREFIX + "/", "--no-auto-enrich"],
+      E2E_ENV,
       60_000,
     );
     expect(result.exitCode).toBe(0);
@@ -266,22 +273,18 @@ describe("smgr e2e pipeline", () => {
   // ── Test 2: enrich --dry-run lists all pending ────────────
 
   it("enrich --dry-run lists all pending", async () => {
-    const result = await runCli(["enrich", "--dry-run"], E2E_ENV);
+    const result = await runCli(["enrich", "media", "--dry-run"], E2E_ENV);
     expect(result.exitCode).toBe(0);
 
     const parsed = JSON.parse(result.stdout);
-    expect(parsed.pending).toBeGreaterThanOrEqual(3);
-
-    for (const [, eventId] of eventIds) {
-      expect(parsed.items).toContain(eventId);
-    }
+    expect(parsed.total).toBeGreaterThanOrEqual(3);
   }, 30_000);
 
   // ── Test 3: enrich --pending processes all images ─────────
 
   it("enrich --pending processes all images", async () => {
     // moondream on CPU can take 60-90s per image; allow 5 min for 3 images
-    const result = await runCli(["enrich", "--pending", "--concurrency", "1"], E2E_ENV, 300_000);
+    const result = await runCli(["enrich", "media", "--pending", "--concurrency", "1"], E2E_ENV, 300_000);
     expect(result.exitCode).toBe(0);
 
     const parsed = JSON.parse(result.stdout);
@@ -321,8 +324,11 @@ describe("smgr e2e pipeline", () => {
         "above", "under", "other", "every", "while", "during", "before",
         "through", "against", "having", "because", "itself", "might",
       ]);
-      const words = desc.split(/\s+/)
-        .map((w: string) => w.replace(/[^a-z]/gi, "").toLowerCase())
+      // Split on any non-alpha character (whitespace, hyphens, punctuation)
+      // so "computer-generated" becomes ["computer", "generated"] not ["computergenerated"].
+      // Postgres FTS tokenizes on these boundaries too, so the search term must match.
+      const words = desc.split(/[^a-zA-Z]+/)
+        .map((w: string) => w.toLowerCase())
         .filter((w: string) => w.length > 4 && !STOPWORDS.has(w));
       if (words.length === 0) continue; // skip if description is too short
 
