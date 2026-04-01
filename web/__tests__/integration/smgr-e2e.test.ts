@@ -324,8 +324,11 @@ describe("smgr e2e pipeline", () => {
         "above", "under", "other", "every", "while", "during", "before",
         "through", "against", "having", "because", "itself", "might",
       ]);
-      const words = desc.split(/\s+/)
-        .map((w: string) => w.replace(/[^a-z]/gi, "").toLowerCase())
+      // Split on any non-alpha character (whitespace, hyphens, punctuation)
+      // so "computer-generated" becomes ["computer", "generated"] not ["computergenerated"].
+      // Postgres FTS tokenizes on these boundaries too, so the search term must match.
+      const words = desc.split(/[^a-zA-Z]+/)
+        .map((w: string) => w.toLowerCase())
         .filter((w: string) => w.length > 4 && !STOPWORDS.has(w));
       if (words.length === 0) continue; // skip if description is too short
 
