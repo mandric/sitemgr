@@ -209,19 +209,19 @@ This is the end-to-end process for implementing any spec. It runs without stoppi
 1. Push to `claude/*` branch.
 2. Create or update the PR with a summary of what was built.
 
-**Phase 3: Code Review**
+**Phase 3: CI**
+1. Wait for CI checks on the PR to complete.
+2. If CI fails, enter the fix loop — read the failure logs, fix, push, wait for re-run.
+3. Once CI passes, proceed to code review. Running CI first avoids wasted review cycles on code that doesn't build or pass tests.
+
+**Phase 4: Code Review**
 1. Run `/code-review` on the PR.
 2. Review findings are trusted. For each finding:
    - Clear bug or correctness issue → fix, commit, push.
    - Convention/style violation → fix, commit, push.
    - Subjective or architectural suggestion → note it, don't act on it.
-3. If fixes were made, re-run all checks (full suite since code changed).
+3. If fixes were made, re-run all checks (full suite since code changed) and wait for CI to pass.
 4. Update the PR description to reflect fixes made.
-
-**Phase 4: CI**
-1. Check CI status on the PR using `gh pr checks <pr-number>`.
-2. If CI fails, enter the fix loop — read the failure logs, fix, push, wait for re-run.
-3. If CI passes, proceed.
 
 **Phase 5: Present**
 1. Present to the human with:
