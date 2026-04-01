@@ -20,6 +20,14 @@
     "section-02-dedup-rpc": {
       "status": "complete",
       "commit_hash": "ce9100f"
+    },
+    "section-03-dedup-api": {
+      "status": "complete",
+      "commit_hash": "5c85a7f"
+    },
+    "section-04-cli-dedup": {
+      "status": "complete",
+      "commit_hash": "902c762"
     }
   },
   "pre_commit": {
