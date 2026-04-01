@@ -12,13 +12,7 @@ The DB integration tests (schema-contract, tenant-isolation, media-lifecycle) ar
 
 ## Philosophy: Real Code Paths First
 
-**Default to integration tests against real services.** Supabase runs locally for free (`supabase start`). S3 storage comes with it. The dev server is already needed for development. Test the actual code path: HTTP request → API route → Supabase query → S3 operation → response.
-
-**Only mock at true external boundaries** — services you can't run locally (Anthropic API, Twilio). Everything else runs real.
-
-**Unit tests only for pure logic** — hash functions, content type detection, argument parsing, encryption math, retry logic. Things with no I/O that benefit from fast, isolated testing.
-
-**Delete mock-heavy tests that duplicate integration coverage.** If an integration test exercises the same code path with real dependencies, the mocked unit test adds maintenance cost without adding confidence. When a mocked test breaks, the fix is usually "update the mock" — that's not catching bugs, that's maintaining test infrastructure.
+See CLAUDE.md "Test Philosophy" section — this spec implements that philosophy across the existing test suite.
 
 ## Current State
 

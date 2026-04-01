@@ -253,6 +253,16 @@ If context compaction occurs mid-task, **immediately re-orient before continuing
 
 Then resume where you left off. If the current section's work is uncommitted and unclear, redo it — the cost is small. Do NOT proceed with degraded understanding; take 30 seconds to rebuild context from artifacts.
 
+### Test Philosophy
+
+**Real code paths first.** Default to integration tests that exercise real services (Supabase, S3, API routes). Only mock at true external boundaries — services that can't run locally (Anthropic API, Twilio). Supabase and S3 are free to run locally via `supabase start`.
+
+**Unit tests are for pure logic only.** Hash functions, content type detection, argument parsing, encryption math, retry logic — things with no I/O dependencies. If a test needs to mock Supabase or S3 to work, it should be an integration test hitting the real service instead.
+
+**Don't write mock-heavy unit tests.** A test that mocks `createS3Client`, `listS3Objects`, `insertEvent`, `encryptSecretVersioned` etc. verifies that functions are called in order — it doesn't catch wrong column names, RLS violations, encryption roundtrip failures, or S3 API incompatibilities. When a mocked test breaks, the fix is usually "update the mock" — that's maintaining test infrastructure, not catching bugs.
+
+**When writing new tests:** If the code touches Supabase, S3, or API routes, write an integration test. If it's pure logic, write a unit test. Never add a new mock-heavy unit test for code that could be tested against real services.
+
 ### Test Infrastructure
 
 **All checks run from the `web/` directory.** Test tiers (all mandatory before pushing):
