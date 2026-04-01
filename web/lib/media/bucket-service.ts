@@ -107,7 +107,11 @@ export async function getBucketConfig(
     .eq("user_id", userId)
     .maybeSingle();
 
-  if (error || !data) return { exists: false };
+  if (error) {
+    logger.error("bucket config lookup failed", { bucket: bucketNameOrId, error: error.message });
+    return { exists: true, error: new Error(error.message) };
+  }
+  if (!data) return { exists: false };
 
   try {
     const decryptedSecret = await decryptSecretVersioned(data.secret_access_key);
@@ -231,7 +235,7 @@ export async function scanBucket(
   // Get already-watched keys to find new ones
   const watchedResult = await getWatchedKeys(client, userId);
   if (watchedResult.error) {
-    throw new Error(`Failed to fetch watched keys: ${(watchedResult.error as Error).message ?? watchedResult.error}`);
+    throw watchedResult.error;
   }
   const watchedKeys = new Set(
     (watchedResult.data ?? []).map((r: { s3_key: string }) => r.s3_key),
@@ -350,7 +354,7 @@ export async function enrichBucketPending(
   // Get pending enrichments for this user, filtered by bucket
   const { data: pending, error } = await getPendingEnrichments(client, userId);
   if (error) {
-    throw new Error(`Failed to fetch pending enrichments: ${(error as Error).message ?? error}`);
+    throw error;
   }
 
   // Filter to events that belong to this bucket

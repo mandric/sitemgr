@@ -219,7 +219,11 @@ async function cmdBucketRemove(args: string[]) {
 
   try {
     const id = await resolveBucketId(name);
-    await apiFetch(`/api/buckets/${id}`, { method: "DELETE" });
+    const res = await apiFetch(`/api/buckets/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ error: res.statusText }));
+      cliError(`Delete failed: ${body.error ?? res.statusText}`, EXIT.SERVICE);
+    }
     console.log(`Bucket "${name}" removed.`);
   } catch (err) {
     cliError(`Failed to remove bucket: ${(err as Error).message ?? err}`, EXIT.SERVICE);
