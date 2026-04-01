@@ -388,22 +388,30 @@ describe("downloadS3Object", () => {
 describe("uploadS3Object", () => {
   it("sends PutObjectCommand with correct params and calls send", async () => {
     const { uploadS3Object, createS3Client } = await import("@/lib/media/s3");
-    mockSend.mockResolvedValueOnce({});
+    mockSend.mockResolvedValueOnce({ ETag: '"abc123"' });
     const body = Buffer.from("test");
-    await uploadS3Object(createS3Client({}), "bucket", "key.jpg", body, "image/jpeg");
+    const etag = await uploadS3Object(createS3Client({}), "bucket", "key.jpg", body, "image/jpeg");
     expect(mockSend).toHaveBeenCalledOnce();
     const cmd = mockSend.mock.calls[0][0];
     expect(cmd.input).toEqual({
       Bucket: "bucket", Key: "key.jpg", Body: body, ContentType: "image/jpeg",
     });
+    expect(etag).toBe("abc123");
   });
 
   it("omits ContentType when not provided", async () => {
     const { uploadS3Object, createS3Client } = await import("@/lib/media/s3");
-    mockSend.mockResolvedValueOnce({});
+    mockSend.mockResolvedValueOnce({ ETag: '"def456"' });
     await uploadS3Object(createS3Client({}), "b", "k", Buffer.from("x"));
     const cmd = mockSend.mock.calls[0][0];
     expect(cmd.input.ContentType).toBeUndefined();
+  });
+
+  it("throws when ETag is missing from response", async () => {
+    const { uploadS3Object, createS3Client } = await import("@/lib/media/s3");
+    mockSend.mockResolvedValueOnce({});
+    await expect(uploadS3Object(createS3Client({}), "b", "k", Buffer.from("x")))
+      .rejects.toThrow("S3 PutObject response missing ETag");
   });
 
   it("propagates error when upload fails", async () => {
