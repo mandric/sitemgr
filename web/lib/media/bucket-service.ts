@@ -414,7 +414,8 @@ export async function enrichBucketPending(
         const imageBytes = await downloadS3Object(s3, config.bucket_name, s3Key);
         const mime = (meta.mime_type as string) ?? getMimeType(s3Key);
         const result = await enrichImage(imageBytes, mime, modelConfig);
-        await insertEnrichment(client, event.id, result, userId);
+        const enrichInsert = await insertEnrichment(client, event.id, result, userId);
+        if (enrichInsert.error) throw enrichInsert.error;
         enriched++;
       } catch (err) {
         failed++;
