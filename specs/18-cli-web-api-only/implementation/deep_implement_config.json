@@ -1,0 +1,12 @@
+{
+  "spec_path": "specs/18-cli-web-api-only/spec.md",
+  "sections_dir": "specs/18-cli-web-api-only/sections",
+  "status": "complete",
+  "sections": [
+    {"id": "01-bearer-auth", "title": "Bearer Token Auth Helper", "status": "complete"},
+    {"id": "02-auth-routes", "title": "Auth API Routes", "status": "complete"},
+    {"id": "03-data-routes", "title": "Data API Routes", "status": "complete"},
+    {"id": "04-cli-updates", "title": "Update CLI to Use Web API", "status": "complete"},
+    {"id": "05-env-cleanup", "title": "Clean Up Env Vars", "status": "complete"}
+  ]
+}
