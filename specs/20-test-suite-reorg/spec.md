@@ -2,106 +2,158 @@
 
 ## Problem
 
-The integration and E2E test suites have overlapping concerns. `smgr-cli.test.ts` and `smgr-e2e.test.ts` both spawn CLI subprocesses, both require the Next.js dev server, and both test overlapping commands (query, stats, enrich). The distinction between them is unclear, leading to:
+Two related issues:
 
-- Tests in the wrong tier (CLI argument parsing tests that need a running server)
-- Missing coverage for new API routes (bucket CRUD, test, scan have no direct tests)
-- Expensive infrastructure requirements for tests that could run cheaper
-- Confusion about where to add new tests
+1. **Overlap and confusion** — `smgr-cli.test.ts` and `smgr-e2e.test.ts` both spawn CLI subprocesses, both require Next.js + Supabase, and test overlapping commands. It's unclear where new tests belong.
+
+2. **Over-mocking** — Many "unit" tests mock Supabase, S3, and encryption so heavily that they test mock wiring rather than real behavior. A test that mocks `createS3Client`, `listS3Objects`, `downloadS3Object`, `insertEvent`, `upsertWatchedKey`, `encryptSecretVersioned`, and `decryptSecretVersioned` verifies that functions are called in order — it doesn't catch wrong column names, RLS violations, encryption roundtrip failures, or S3 API incompatibilities.
+
+The DB integration tests (schema-contract, tenant-isolation, media-lifecycle) are the most valuable tests in the suite because they hit real Supabase and catch real problems. The mock-heavy unit tests are the least valuable because they mostly verify mock wiring.
+
+## Philosophy: Real Code Paths First
+
+**Default to integration tests against real services.** Supabase runs locally for free (`supabase start`). S3 storage comes with it. The dev server is already needed for development. Test the actual code path: HTTP request → API route → Supabase query → S3 operation → response.
+
+**Only mock at true external boundaries** — services you can't run locally (Anthropic API, Twilio). Everything else runs real.
+
+**Unit tests only for pure logic** — hash functions, content type detection, argument parsing, encryption math, retry logic. Things with no I/O that benefit from fast, isolated testing.
+
+**Delete mock-heavy tests that duplicate integration coverage.** If an integration test exercises the same code path with real dependencies, the mocked unit test adds maintenance cost without adding confidence. When a mocked test breaks, the fix is usually "update the mock" — that's not catching bugs, that's maintaining test infrastructure.
 
 ## Current State
 
-| Suite | What it tests | Requires |
-|-------|--------------|----------|
-| Unit (`npm run test`) | Pure logic, mocked deps | Nothing |
-| `smgr-cli.test.ts` | CLI commands via subprocess → API → Supabase | Supabase + Next.js + credentials |
-| `smgr-e2e.test.ts` | Full pipeline: S3 upload → watch → enrich → search | Supabase + Next.js + S3 + Ollama |
-| DB integration tests | Schema, RLS, tenant isolation, lifecycle | Supabase only |
-| `media-storage.test.ts` | S3 client operations directly | Supabase (S3 storage) |
+| Suite | What it tests | Requires | Value |
+|-------|--------------|----------|-------|
+| Unit (`npm run test`) | Logic + mock wiring | Nothing | Mixed — pure logic tests are high value, mock-heavy tests are low value |
+| `smgr-cli.test.ts` | CLI via subprocess → API → DB | Supabase + Next.js | Medium — tests real paths but through CLI subprocess overhead |
+| `smgr-e2e.test.ts` | Full pipeline: S3 → watch → enrich → search | Supabase + Next.js + S3 + Ollama | High — exercises the real user journey |
+| DB integration tests | Schema, RLS, tenant isolation | Supabase only | High — catches real DB issues |
+| `media-storage.test.ts` | S3 operations directly | Supabase S3 | High — real S3 calls |
 
-The problem: `smgr-cli.test.ts` tests things like "stats returns JSON" and "query filters by device" — these are really testing the API route, not the CLI. The CLI is just a pass-through HTTP client. Testing it via subprocess adds CLI startup time, credential file setup, and dev server dependency for what's fundamentally an API test.
+### Mock-heavy unit tests to evaluate for deletion
+
+These tests mock most of their dependencies and primarily verify call ordering:
+
+- `s3-actions.test.ts` — mocks S3, Supabase, encryption. Tests agent action dispatch.
+- `agent-core.test.ts` — mocks S3, Supabase, encryption. Tests indexBucket flow.
+- `agent-actions.test.ts` — mocks Anthropic, Supabase. Tests plan/execute.
+- `encryption-lifecycle.test.ts` — mocks Supabase. Tests encrypt/decrypt roundtrip with real crypto (this one has value).
+- `health-route.test.ts` — mocks Supabase. Tests response shape.
+- `device-*.test.ts` — mocks Supabase, auth. Tests route handlers.
+- `whatsapp-route.test.ts` — mocks everything.
+
+### Unit tests to keep (pure logic, no mocking)
+
+- `media-utils.test.ts` — pure functions
+- `encryption.test.ts` / `encryption-versioned.test.ts` — real crypto, no DB
+- `validation.test.ts` — pure validation
+- `logger.test.ts` — pure formatting
+- `retry.test.ts` — pure retry logic
+- `request-context.test.ts` — async context
+- `supabase-client.test.ts` — client construction
+- `smgr-cli-auth.test.ts` — credential file parsing (pure I/O)
 
 ## Goal
 
-Clear test tiers where each test runs at the cheapest level that validates the behavior:
+Two test tiers that exercise real code:
 
-1. **Unit tests** — pure logic, mocked deps (unchanged)
-2. **API route tests** — test HTTP routes directly against running Next.js + Supabase. No CLI, no S3 for CRUD routes.
-3. **CLI tests** — test CLI-specific behavior only (arg parsing, help text, exit codes, output formatting). Mock API calls.
-4. **DB integration tests** — schema, RLS, tenant isolation (unchanged)
-5. **E2E pipeline test** — full happy path with real S3 + enrichment (keep `smgr-e2e.test.ts`, trim to one pipeline test)
+### Tier 1: Unit (fast, no services)
+
+Pure logic only. No mocks of Supabase, S3, or other services. If a function needs a Supabase client to test, it belongs in Tier 2.
+
+```bash
+npm run test          # < 3 seconds, no docker needed
+```
+
+### Tier 2: Integration (real services)
+
+Everything that touches Supabase, S3, API routes, or the CLI. All tests hit real local services.
+
+```bash
+npm run test:integration   # requires: supabase start + next dev
+```
+
+Sub-categories within Tier 2 (organized by what they need, not by separate commands):
+
+**DB tests** (Supabase only — no dev server):
+- Schema validation, RLS, tenant isolation, media lifecycle
+- Direct Supabase client queries
+- Existing tests, keep as-is
+
+**API route tests** (Supabase + Next.js):
+- `fetch()` directly against running dev server
+- Bucket CRUD, test connectivity, scan, upload, enrich
+- Events/stats filtering by bucket_config_id
+- Auth: 401 without token, user isolation
+- Replaces mock-heavy route unit tests
+
+**CLI tests** (Supabase + Next.js):
+- Spawn `smgr` subprocess against real API
+- Focus on CLI-specific behavior: argument parsing, output formatting, exit codes, `bucket` subcommand group
+- Trim to avoid duplicating API route coverage
+
+**E2E pipeline** (Supabase + Next.js + S3 + Ollama):
+- One test: upload → watch → enrich → search → stats
+- The expensive smoke test that validates the full journey
 
 ## Key Changes
 
-### 1. New: API route integration tests
+### 1. Audit and delete mock-heavy unit tests
 
-Create `__tests__/integration/api-routes.test.ts` (or split by domain):
+For each test file that mocks Supabase/S3:
+1. Check if the same code path is covered by an existing integration test
+2. If yes → delete the unit test
+3. If no → write an integration test that covers it, then delete the unit test
+4. If the test covers pure logic mixed with I/O → extract the pure logic into a testable function, unit test that, integration test the rest
 
-**Bucket CRUD:**
-- `POST /api/buckets` — create bucket config, verify no secrets in response
-- `GET /api/buckets` — list buckets
-- `DELETE /api/buckets/[id]` — remove bucket
-- `POST /api/buckets/[id]/test` — test connectivity (needs S3)
-- 401 on all routes without auth
+### 2. New API route integration tests
 
-**Bucket operations:**
-- `POST /api/buckets/[id]/scan` — scan with real S3
-- `POST /api/buckets/[id]/upload` — multipart upload with real S3
-- 404 when bucket doesn't exist
+`__tests__/integration/api-bucket-routes.test.ts`:
+- Create test user, get access token
+- Test all bucket CRUD operations against real Supabase
+- Test bucket connectivity against real S3
+- Test scan, upload against real S3
+- Test 401/404 error cases
 
-**Events/Stats filtering:**
-- `GET /api/events?bucket_config_id=X` — filters correctly
-- `GET /api/stats?bucket_config_id=X` — filters correctly
+`__tests__/integration/api-events-routes.test.ts`:
+- Test bucket_config_id filtering on events and stats
+- Test event CRUD
 
-These tests call `fetch()` directly against the dev server with a Bearer token. No CLI subprocess overhead.
+These use `fetch()` directly — no CLI subprocess.
 
-### 2. Slim down `smgr-cli.test.ts`
+### 3. Slim down CLI integration tests
 
-Keep only CLI-specific tests:
-- Help text and usage (no server needed — these already work without auth)
-- Exit codes for missing credentials
-- `--verbose` flag behavior
-- Output formatting (table vs JSON) — can mock the API response
+`smgr-cli.test.ts` keeps:
+- Help/usage output (no server needed)
+- Exit codes for auth errors
+- `bucket list/add/remove/test` via subprocess
+- Output formatting verification
 
-Move to API route tests:
-- "stats returns valid JSON" → test the route directly
-- "query filters by device" → test the route directly
-- "show returns event" → test the route directly
-- "enrich --status returns counts" → test the route directly
+Removes tests that just verify API responses through the CLI wrapper.
 
-### 3. Slim down `smgr-e2e.test.ts`
+### 4. Keep E2E pipeline as-is
 
-Keep as the one expensive pipeline test:
-- Upload fixtures to S3
-- Create bucket config
-- `watch --once` discovers images
-- `enrich --pending` processes images
-- FTS search finds enriched content
-- Stats reflect final state
+`smgr-e2e.test.ts` is already the right shape — one sequential pipeline test. No changes needed beyond what spec 15 already did.
 
-Remove anything that's covered by API route tests (individual command behavior).
+## Migration Strategy
 
-### 4. Test infrastructure helpers
+Do this incrementally, not all at once:
 
-Create `__tests__/integration/helpers/api-client.ts`:
-```typescript
-/** Authenticated fetch against the running dev server */
-export async function apiFetch(path: string, opts?: RequestInit): Promise<Response>
-export async function apiGet<T>(path: string): Promise<T>
-export async function apiPost<T>(path: string, body: unknown): Promise<T>
-```
+1. **First pass:** Write API route integration tests for new bucket routes (spec 15 gap). Don't delete anything yet.
+2. **Second pass:** For each mock-heavy unit test, check if the new integration tests cover the same paths. Delete the unit test if covered.
+3. **Third pass:** Audit remaining unit tests. Extract pure logic where possible.
 
-This mirrors the CLI's `apiFetch` but runs in the test process — no subprocess, no credential file, faster.
+Each pass should leave all remaining tests green.
 
 ## Out of Scope
 
-- Changing the test runner (vitest stays)
-- Changing CI pipeline structure
-- Adding new test infrastructure (Playwright, etc.)
-- Changing how DB integration tests work
+- Changing vitest or CI pipeline structure
+- Adding Playwright or other browser testing
+- Rewriting the DB integration tests (they're already good)
+- Performance benchmarking of test suite
 
 ## Dependencies
 
 - Spec 15 (bucket API routes) — done
-- Running Supabase + Next.js dev server for API route tests
-- Existing test user creation helpers in `setup.ts`
+- Local Supabase + Next.js dev server for integration tests
+- Existing `setup.ts` helpers (createTestUser, getAdminClient, etc.)
