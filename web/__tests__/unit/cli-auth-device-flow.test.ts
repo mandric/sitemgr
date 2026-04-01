@@ -46,8 +46,6 @@ function mockFetchResponses(...responses: Array<{ status: number; body: unknown 
 
 describe("login() device code flow", () => {
   beforeEach(() => {
-    vi.stubEnv("SMGR_API_URL", "http://localhost:54321");
-    vi.stubEnv("SMGR_API_KEY", "test-anon-key");
     vi.stubEnv("SMGR_WEB_URL", "http://localhost:3000");
     vi.clearAllMocks();
 

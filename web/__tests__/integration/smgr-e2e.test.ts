@@ -20,7 +20,6 @@ import {
   getAdminClient,
   createTestUser,
   cleanupUserData,
-  getSupabaseConfig,
   getS3Config,
 } from "./setup";
 import {
@@ -47,15 +46,11 @@ const uploadedKeys: string[] = [];
 // ── CLI helpers (adapted from smgr-cli.test.ts) ──────────────
 
 function cliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
-  const cfg = getSupabaseConfig();
+  const port = process.env.WEB_PORT ?? "3000";
   return {
     ...process.env,
     HOME: tempHome,
-    SMGR_API_URL: cfg.url,
-    // CLI runs server-side with service role; use serviceKey for both
-    // so getUserClient() also bypasses RLS (no user JWT available in CLI)
-    SMGR_API_KEY: cfg.serviceKey,
-    SUPABASE_SERVICE_ROLE_KEY: cfg.serviceKey,
+    SMGR_WEB_URL: `http://localhost:${port}`,
     SMGR_DEVICE_ID: "test-e2e",
     NODE_NO_WARNINGS: "1",
     ...extra,

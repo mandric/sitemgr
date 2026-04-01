@@ -54,8 +54,6 @@ function makeRequest(body: Record<string, string>): NextRequest {
 
 describe("WhatsApp route", () => {
   beforeEach(() => {
-    vi.stubEnv("SMGR_API_URL", "http://localhost:54321");
-    vi.stubEnv("SMGR_API_KEY", "test-key");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://localhost:54321");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "test-anon-key");
     vi.stubEnv("WEBHOOK_SERVICE_ACCOUNT_EMAIL", "webhook@sitemgr.internal");
