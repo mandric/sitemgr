@@ -49,7 +49,7 @@ These tests mock most of their dependencies and primarily verify call ordering:
 
 ## Goal
 
-Two test tiers that exercise real code:
+Four test tiers aligned with the CLAUDE.md test philosophy and tier definitions:
 
 ### Tier 1: Unit (fast, no services)
 
@@ -59,15 +59,15 @@ Pure logic only. No mocks of Supabase, S3, or other services. If a function need
 npm run test          # < 3 seconds, no docker needed
 ```
 
-### Tier 2: Integration (real services)
+### Tier 2: Integration (real services, no user interface)
 
-Everything that touches Supabase, S3, API routes, or the CLI. All tests hit real local services.
+Tests that call functions, API routes, and DB queries directly against real local services. Entry point is a direct function/API call, not a user-facing interface.
 
 ```bash
 npm run test:integration   # requires: supabase start + next dev
 ```
 
-Sub-categories within Tier 2 (organized by what they need, not by separate commands):
+Sub-categories (organized by infra needs, run as one suite):
 
 **DB tests** (Supabase only — no dev server):
 - Schema validation, RLS, tenant isolation, media lifecycle
@@ -75,20 +75,39 @@ Sub-categories within Tier 2 (organized by what they need, not by separate comma
 - Existing tests, keep as-is
 
 **API route tests** (Supabase + Next.js):
-- `fetch()` directly against running dev server
+- `fetch()` directly against running dev server with Bearer token
 - Bucket CRUD, test connectivity, scan, upload, enrich
 - Events/stats filtering by bucket_config_id
 - Auth: 401 without token, user isolation
 - Replaces mock-heavy route unit tests
 
-**CLI tests** (Supabase + Next.js):
-- Spawn `smgr` subprocess against real API
-- Focus on CLI-specific behavior: argument parsing, output formatting, exit codes, `bucket` subcommand group
-- Trim to avoid duplicating API route coverage
+### Tier 3: E2E — CLI (full stack via CLI binary)
 
-**E2E pipeline** (Supabase + Next.js + S3 + Ollama):
-- One test: upload → watch → enrich → search → stats
-- The expensive smoke test that validates the full journey
+Tests that spawn `smgr` as a subprocess — the same way a user runs it. Goes through the full stack: CLI arg parsing → HTTP request → API route → Supabase/S3 → response → stdout.
+
+```bash
+npm run test:e2e:cli   # requires: supabase start + next dev + S3
+```
+
+Tests CLI-specific behavior that can't be tested via direct API calls:
+- Argument parsing, help text, `bucket` subcommand routing
+- Exit codes for auth errors, missing args, service failures
+- Output formatting (table vs JSON)
+- Credential file handling
+- Full pipeline: `bucket add` → `watch --once` → `enrich --pending` → `query`
+
+### Tier 4: E2E — Web (full stack via browser)
+
+Tests that drive a browser via Playwright — the same way a user interacts with the web UI.
+
+```bash
+npm run test:e2e   # requires: supabase start + next dev + chromium
+```
+
+- UI flows, form submissions, navigation
+- Auth redirects, session handling
+- Bucket management page
+- Media grid, search
 
 ## Key Changes
 
@@ -115,19 +134,19 @@ For each test file that mocks Supabase/S3:
 
 These use `fetch()` directly — no CLI subprocess.
 
-### 3. Slim down CLI integration tests
+### 3. Reclassify CLI tests as E2E
 
-`smgr-cli.test.ts` keeps:
-- Help/usage output (no server needed)
-- Exit codes for auth errors
-- `bucket list/add/remove/test` via subprocess
-- Output formatting verification
+Rename/move `smgr-cli.test.ts` and `smgr-e2e.test.ts` into an E2E CLI tier:
+- These spawn subprocesses — they test the system through the user-facing CLI interface
+- That makes them E2E, not integration
+- Merge overlapping coverage between the two files
+- Keep CLI-specific tests (arg parsing, exit codes, output formatting)
+- Keep the full pipeline test (watch → enrich → search)
+- Remove tests that just verify API responses through the CLI wrapper (covered by Tier 2 API route tests)
 
-Removes tests that just verify API responses through the CLI wrapper.
+### 4. Web E2E stays as-is
 
-### 4. Keep E2E pipeline as-is
-
-`smgr-e2e.test.ts` is already the right shape — one sequential pipeline test. No changes needed beyond what spec 15 already did.
+Playwright tests are already correctly classified as E2E. No changes needed.
 
 ## Migration Strategy
 
@@ -141,10 +160,11 @@ Each pass should leave all remaining tests green.
 
 ## Out of Scope
 
-- Changing vitest or CI pipeline structure
-- Adding Playwright or other browser testing
+- Changing vitest as test runner
+- Writing new Playwright web E2E tests (existing ones stay)
 - Rewriting the DB integration tests (they're already good)
 - Performance benchmarking of test suite
+- CI pipeline restructuring (may need a follow-up to add `test:e2e:cli` as a separate CI job)
 
 ## Dependencies
 
