@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
     since: params.get("since") ?? undefined,
     until: params.get("until") ?? undefined,
     device: params.get("device") ?? undefined,
+    bucketConfigId: params.get("bucket_config_id") ?? undefined,
     limit: params.has("limit") ? parseInt(params.get("limit")!, 10) : undefined,
     offset: params.has("offset") ? parseInt(params.get("offset")!, 10) : undefined,
   });

@@ -10,8 +10,10 @@ export async function GET(request: NextRequest) {
   const auth = await authenticateRequest(request);
   if (!isAuthenticated(auth)) return auth;
 
+  const params = request.nextUrl.searchParams;
   const { data, error } = await getStats(auth.supabase, {
     userId: auth.user.id,
+    bucketConfigId: params.get("bucket_config_id") ?? undefined,
   });
 
   if (error) {

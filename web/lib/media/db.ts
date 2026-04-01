@@ -96,6 +96,7 @@ export interface QueryOptions {
   since?: string;
   until?: string;
   device?: string;
+  bucketConfigId?: string;
   limit?: number;
   offset?: number;
 }
@@ -146,6 +147,7 @@ export async function queryEvents(client: SupabaseClient, opts: QueryOptions) {
   if (opts.since) query = query.gte("timestamp", opts.since);
   if (opts.until) query = query.lte("timestamp", opts.until);
   if (opts.device) query = query.eq("device_id", opts.device);
+  if (opts.bucketConfigId) query = query.eq("bucket_config_id", opts.bucketConfigId);
 
   const { data, count, error } = await query;
 
@@ -199,8 +201,9 @@ export async function showEvent(client: SupabaseClient, eventId: string, userId?
 
 // ── Stats ──────────────────────────────────────────────────────
 
-export async function getStats(client: SupabaseClient, opts?: { userId?: string; deviceId?: string }) {
+export async function getStats(client: SupabaseClient, opts?: { userId?: string; deviceId?: string; bucketConfigId?: string }) {
   const userId = opts?.userId;
+  const bucketConfigId = opts?.bucketConfigId;
 
   let eventsQuery = client.from("events").select("*", { count: "exact", head: true });
   let enrichmentsQuery = client.from("enrichments").select("*", { count: "exact", head: true });
@@ -210,6 +213,10 @@ export async function getStats(client: SupabaseClient, opts?: { userId?: string;
     eventsQuery = eventsQuery.eq("user_id", userId);
     enrichmentsQuery = enrichmentsQuery.eq("user_id", userId);
     watchedQuery = watchedQuery.eq("user_id", userId);
+  }
+  if (bucketConfigId) {
+    eventsQuery = eventsQuery.eq("bucket_config_id", bucketConfigId);
+    watchedQuery = watchedQuery.eq("bucket_config_id", bucketConfigId);
   }
 
   const [byContentType, byEventType, totalRes, enrichedRes, watchedRes] =

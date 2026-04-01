@@ -158,7 +158,7 @@ describe("S3 action handlers", () => {
       );
       const parsed = JSON.parse(result);
       expect(parsed.success).toBe(false);
-      expect(parsed.error).toContain("Access Denied");
+      expect(parsed.message).toContain("Access Denied");
     });
   });
 
