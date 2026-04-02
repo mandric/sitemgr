@@ -2,11 +2,11 @@
  * Integration tests for /api/enrichments routes.
  * Tests enrichment status and pending endpoints via real Supabase.
  */
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   createTestUserWithToken,
   cleanupUserData,
   getAdminClient,
-  seedUserData,
   assertInsert,
 } from "./setup";
 import { CONTENT_TYPE_PHOTO } from "../../lib/media/constants";

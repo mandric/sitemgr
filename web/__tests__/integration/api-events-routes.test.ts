@@ -2,12 +2,12 @@
  * Integration tests for /api/events routes.
  * Tests event query, show, by-hash via fetch() with Bearer tokens.
  */
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   createTestUserWithToken,
   cleanupUserData,
   getAdminClient,
   seedUserData,
-  assertInsert,
 } from "./setup";
 
 const BASE_URL = `http://localhost:${process.env.WEB_PORT ?? "3000"}`;

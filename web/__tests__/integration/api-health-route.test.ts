@@ -2,6 +2,7 @@
  * Integration test for GET /api/health
  * No auth needed — validates dev server + Supabase connectivity.
  */
+import { describe, it, expect } from "vitest";
 
 const BASE_URL = `http://localhost:${process.env.WEB_PORT ?? "3000"}`;
 

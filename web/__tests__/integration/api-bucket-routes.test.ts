@@ -2,6 +2,7 @@
  * Integration tests for /api/buckets routes.
  * Tests bucket CRUD via fetch() with Bearer tokens against real Next.js + Supabase.
  */
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createTestUserWithToken, cleanupUserData, getAdminClient } from "./setup";
 
 const BASE_URL = `http://localhost:${process.env.WEB_PORT ?? "3000"}`;

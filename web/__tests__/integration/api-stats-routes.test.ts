@@ -2,6 +2,7 @@
  * Integration tests for GET /api/stats.
  * Tests aggregate event/enrichment statistics via real Supabase.
  */
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   createTestUserWithToken,
   cleanupUserData,
