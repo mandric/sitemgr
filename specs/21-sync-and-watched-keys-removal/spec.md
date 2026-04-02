@@ -129,25 +129,27 @@ CREATE TABLE watched_keys (
 
 Change `scanBucket()` from "create events for new S3 objects" to "report what's in S3 vs what has events." Scan no longer writes to the database.
 
+**Scan compares S3 vs events for *reporting* purposes only.** This is the one place we query events — not to decide what to upload (that's sync's job, comparing local vs S3), but to show the user which S3 objects have been processed and which haven't.
+
 **New scan behavior:**
 ```
-1. listS3Objects(bucket)  →  all S3 objects (key, etag, size)
+1. listS3Objects(bucket)  →  S3 source of truth (key, etag, size)
 2. Query events: SELECT remote_path, content_hash 
    WHERE user_id=$1 AND bucket_config_id=$2 AND op = 's3:put'
 3. Build a map: remote_path → latest content_hash
 4. For each S3 object:
    - Build remote_path = s3://{bucket}/{key}
-   - If remote_path not in events → report as "untracked"
-   - If remote_path in events but etag differs → report as "modified"
-   - If remote_path in events and etag matches → report as "synced"
-5. Return the diff report (no events created, no watched_keys upserted)
+   - If remote_path not in events → "untracked" (in S3 but no event)
+   - If remote_path in events but etag differs → "modified" (S3 changed since last event)
+   - If remote_path in events and etag matches → "synced" (S3 matches last event)
+5. Return the diff report (no events created, no database writes)
 ```
 
 **Scan output:**
 ```
 Bucket: my-photos
   Synced:     847 files
-  Untracked:  12 files (not yet uploaded via sync)
+  Untracked:  12 files (in S3 but no event recorded)
   Modified:   3 files (S3 content changed since last sync)
 
 Untracked:
@@ -160,7 +162,7 @@ Modified:
   ...
 ```
 
-This gives the user actionable information. They can then run `smgr sync` to upload local files, or investigate modifications.
+This is a diagnostic tool. It tells the user "here's what's in your bucket and whether we have events for it." It doesn't modify anything.
 
 ### Phase 3: Remove watched_keys from upload and scan
 
@@ -172,14 +174,16 @@ This gives the user actionable information. They can then run `smgr sync` to upl
 
 New CLI command: `smgr sync <local-dir> <bucket> [--prefix path/] [--dry-run]`
 
+**Sync compares local files against S3 — not the events database.** S3 is the source of truth for remote state. Events are a side effect of sync (the log of what happened), not an input to it.
+
 ```
-1. List local files recursively (path, size; compute MD5 for change detection)
-2. listS3Objects(bucket, prefix)  →  remote state
-3. Diff:
+1. List local files recursively (path, size, MD5 hash)
+2. listS3Objects(bucket, prefix)  →  S3 source of truth (key, etag, size)
+3. Diff local vs S3:
    - Local file not in S3 → needs upload
-   - Local file in S3 but different hash/size → needs upload (overwrite)
+   - Local file in S3 but different MD5/ETag → needs upload (overwrite)
    - S3 object not local → ignore (one-way sync, don't delete)
-4. Upload each file via POST /api/buckets/{id}/upload (creates s3:put events)
+4. Upload each file via POST /api/buckets/{id}/upload (creates s3:put events as side effect)
 5. Report: N uploaded, M skipped, K errors
 ```
 
