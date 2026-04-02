@@ -143,16 +143,12 @@ jobs:
             -d '{"id":"media","name":"media","public":false}' \
             || echo "Bucket may already exist"
 
-      - name: Run integration tests with coverage
-        run: cd web && npx vitest run --project integration --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.include='lib/**,app/api/**'
-
-      - name: Report integration test coverage on PR
-        if: always() && github.event_name == 'pull_request'
-        uses: davelosert/vitest-coverage-report-action@v2
-        with:
-          working-directory: web
-          name: Integration Tests
-          json-summary-path: coverage/coverage-summary.json
+      # NOTE: Integration tests use fetch() against a separate Next.js dev server
+      # process, so V8 coverage can't instrument the API route handlers. Coverage
+      # is only meaningful for unit tests (same-process). Integration tests verify
+      # correctness, not coverage metrics.
+      - name: Run integration tests
+        run: cd web && npm run test:integration
 
       - name: Stop Supabase
         if: always()
