@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   lint:
     name: Lint
@@ -58,8 +62,24 @@ jobs:
       - name: Install dependencies
         run: cd web && npm ci
 
-      - name: Run unit tests
-        run: cd web && npm test
+      - name: Run unit tests with coverage
+        run: cd web && npx vitest run --project unit --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=lcov --coverage.include='lib/**'
+
+      - name: Report unit test coverage on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          working-directory: web
+          name: Unit Tests
+          json-summary-path: coverage/coverage-summary.json
+
+      - name: Upload unit coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-coverage
+          path: web/coverage/
+          retention-days: 14
 
   integration-tests:
     name: Integration Tests (Supabase Local)
@@ -131,8 +151,28 @@ jobs:
             -d '{"id":"media","name":"media","public":false}' \
             || echo "Bucket may already exist"
 
-      - name: Run integration tests
-        run: cd web && npm run test:integration
+      # Coverage note: Only direct-function-call tests (schema-contract,
+      # media-storage, tenant-isolation, etc.) contribute coverage. The api-*
+      # tests use fetch() against a separate Next.js process and can't be
+      # instrumented by V8.
+      - name: Run integration tests with coverage
+        run: cd web && npx vitest run --project integration --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=lcov --coverage.include='lib/**'
+
+      - name: Report integration test coverage on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          working-directory: web
+          name: Integration Tests (direct-call only)
+          json-summary-path: coverage/coverage-summary.json
+
+      - name: Upload integration coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-coverage
+          path: web/coverage/
+          retention-days: 14
 
       - name: Stop Supabase
         if: always()

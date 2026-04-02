@@ -33,6 +33,17 @@ export function getAdminClient(): SupabaseClient {
   });
 }
 
+export async function createTestUserWithToken(
+  email?: string,
+): Promise<{ userId: string; client: SupabaseClient; accessToken: string }> {
+  const { userId, client } = await createTestUser(email);
+  const { data: { session } } = await client.auth.getSession();
+  if (!session) {
+    throw new Error("createTestUserWithToken: session is null — sign-in may have failed");
+  }
+  return { userId, client, accessToken: session.access_token };
+}
+
 export async function createTestUser(
   email?: string,
 ): Promise<{ userId: string; client: SupabaseClient }> {
