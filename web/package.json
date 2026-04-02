@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit",
     "setup:env": "bash -c 'source ../scripts/lib.sh && print_setup_env_vars > ../.env.local' && echo 'Generated .env.local from running Supabase instance'",
     "setup:supabase": "bash -c 'source ../scripts/lib.sh && install_supabase_cli && start_supabase'",
+    "test:e2e:cli": "vitest run --project e2e-cli",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test": "vitest run --project unit",

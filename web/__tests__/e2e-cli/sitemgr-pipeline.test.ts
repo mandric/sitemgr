@@ -21,7 +21,7 @@ import {
   createTestUser,
   cleanupUserData,
   getS3Config,
-} from "./setup";
+} from "../integration/setup";
 import {
   createS3Client,
   listS3Objects,

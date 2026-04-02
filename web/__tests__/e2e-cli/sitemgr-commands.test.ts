@@ -20,7 +20,7 @@ import {
   seedUserData,
   cleanupUserData,
   type SeedResult,
-} from "./setup";
+} from "../integration/setup";
 import { insertEvent, insertEnrichment } from "../../lib/media/db";
 
 const execFile = promisify(execFileCb);
