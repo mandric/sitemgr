@@ -58,9 +58,9 @@
     "deep-plan@local-plugins": true,
     "deep-implement@local-plugins": true,
     "code-review@local-plugins": true,
-    "frontend-design@local-plugins": true,
-    "feature-dev@local-plugins": true,
-    "ralph-wiggum@local-plugins": true
+    "frontend-design@local-plugins": false,
+    "feature-dev@local-plugins": false,
+    "ralph-wiggum@local-plugins": false
   },
   "extraKnownMarketplaces": {
     "local-plugins": {
