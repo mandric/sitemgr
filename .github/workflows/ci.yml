@@ -73,6 +73,12 @@ jobs:
           name: Unit Tests
           json-summary-path: coverage/coverage-summary.json
 
+      - name: Generate HTML coverage report
+        if: always()
+        run: |
+          sudo apt-get install -y -qq lcov > /dev/null
+          genhtml web/coverage/lcov.info -o web/coverage/html --quiet
+
       - name: Upload unit coverage artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -165,6 +171,12 @@ jobs:
           working-directory: web
           name: Integration Tests (direct-call only)
           json-summary-path: coverage/coverage-summary.json
+
+      - name: Generate HTML coverage report
+        if: always()
+        run: |
+          sudo apt-get install -y -qq lcov > /dev/null
+          genhtml web/coverage/lcov.info -o web/coverage/html --quiet
 
       - name: Upload integration coverage artifact
         if: always()
