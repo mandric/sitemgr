@@ -217,23 +217,23 @@ print_setup_env_vars() {
   local web_url="http://localhost:3000"
   if ! curl -sf --connect-timeout 2 "${web_url}/api/health" >/dev/null 2>&1; then
     echo "Warning: Next.js web app not running at ${web_url}. Start with: cd web && npm run dev" >&2
-    echo "         CLI 'smgr login' requires the web app. Other commands work without it." >&2
+    echo "         CLI 'sitemgr login' requires the web app. Other commands work without it." >&2
   fi
 
   cat <<EOF
 NEXT_PUBLIC_SUPABASE_URL=${api_url}
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${anon_key}
-SMGR_API_URL=${api_url}
-SMGR_API_KEY=${anon_key}
-SMGR_WEB_URL=http://localhost:3000
-SMGR_S3_ENDPOINT=${s3_url}
+SITEMGR_API_URL=${api_url}
+SITEMGR_API_KEY=${anon_key}
+SITEMGR_WEB_URL=http://localhost:3000
+SITEMGR_S3_ENDPOINT=${s3_url}
 S3_ENDPOINT_URL=${s3_url}
-SMGR_S3_BUCKET=media
-SMGR_S3_REGION=local
+SITEMGR_S3_BUCKET=media
+SITEMGR_S3_REGION=local
 S3_ACCESS_KEY_ID=${s3_key_id}
 S3_SECRET_ACCESS_KEY=${s3_key_secret}
-SMGR_DEVICE_ID=local-dev
-SMGR_AUTO_ENRICH=false
+SITEMGR_DEVICE_ID=local-dev
+SITEMGR_AUTO_ENRICH=false
 ENCRYPTION_KEY_CURRENT=${encryption_key}
 WEBHOOK_SERVICE_ACCOUNT_EMAIL=webhook@sitemgr.internal
 WEBHOOK_SERVICE_ACCOUNT_PASSWORD=unused-password-webhook-uses-service-token

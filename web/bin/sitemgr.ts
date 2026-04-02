@@ -1,15 +1,15 @@
 #!/usr/bin/env npx tsx
 /**
- * smgr CLI — talks to the web API (Next.js routes), not S3 directly.
+ * sitemgr CLI — talks to the web API (Next.js routes), not S3 directly.
  *
  * Usage:
- *   npx tsx bin/smgr.ts login
- *   npx tsx bin/smgr.ts bucket list
- *   npx tsx bin/smgr.ts bucket add --bucket-name B --endpoint-url URL --access-key-id K --secret-access-key S
- *   npx tsx bin/smgr.ts query --search "beach" --format json
- *   npx tsx bin/smgr.ts watch <bucket> --once
- *   npx tsx bin/smgr.ts add <bucket> <file>
- *   npx tsx bin/smgr.ts enrich <bucket> --pending
+ *   npx tsx bin/sitemgr.ts login
+ *   npx tsx bin/sitemgr.ts bucket list
+ *   npx tsx bin/sitemgr.ts bucket add --bucket-name B --endpoint-url URL --access-key-id K --secret-access-key S
+ *   npx tsx bin/sitemgr.ts query --search "beach" --format json
+ *   npx tsx bin/sitemgr.ts watch <bucket> --once
+ *   npx tsx bin/sitemgr.ts add <bucket> <file>
+ *   npx tsx bin/sitemgr.ts enrich <bucket> --pending
  */
 
 import { parseArgs } from "node:util";
@@ -42,7 +42,7 @@ async function apiFetch(
 ): Promise<Response> {
   const creds = await refreshSession();
   if (!creds) {
-    cliError("Not logged in. Run 'smgr login' first.", EXIT.USER);
+    cliError("Not logged in. Run 'sitemgr login' first.", EXIT.USER);
   }
 
   const { webUrl } = resolveApiConfig();
@@ -93,7 +93,7 @@ function requireUserId(): string {
   if (creds?.user_id) return creds.user_id;
 
   cliError(
-    "Not logged in. Run 'smgr login' to authenticate.",
+    "Not logged in. Run 'sitemgr login' to authenticate.",
     EXIT.USER,
   );
 }
@@ -128,10 +128,10 @@ async function cmdBucket(args: string[]) {
       return cmdBucketTest(subArgs);
     default:
       console.log(`Usage:
-  smgr bucket list                     List configured buckets
-  smgr bucket add [flags]              Add a bucket config
-  smgr bucket remove <name>            Remove a bucket config
-  smgr bucket test <name>              Test S3 connectivity`);
+  sitemgr bucket list                     List configured buckets
+  sitemgr bucket add [flags]              Add a bucket config
+  sitemgr bucket remove <name>            Remove a bucket config
+  sitemgr bucket test <name>              Test S3 connectivity`);
       process.exit(sub ? 1 : 0);
   }
 }
@@ -144,7 +144,7 @@ async function cmdBucketList() {
     const buckets = data ?? [];
 
     if (buckets.length === 0) {
-      console.log("No buckets configured. Use 'smgr bucket add' to add one.");
+      console.log("No buckets configured. Use 'sitemgr bucket add' to add one.");
       return;
     }
 
@@ -213,7 +213,7 @@ async function cmdBucketAdd(args: string[]) {
 
 async function cmdBucketRemove(args: string[]) {
   const name = args[0];
-  if (!name) cliError("Usage: smgr bucket remove <bucket-name>");
+  if (!name) cliError("Usage: sitemgr bucket remove <bucket-name>");
 
   requireUserId();
 
@@ -232,7 +232,7 @@ async function cmdBucketRemove(args: string[]) {
 
 async function cmdBucketTest(args: string[]) {
   const name = args[0];
-  if (!name) cliError("Usage: smgr bucket test <bucket-name>");
+  if (!name) cliError("Usage: sitemgr bucket test <bucket-name>");
 
   requireUserId();
 
@@ -336,7 +336,7 @@ async function cmdQuery(args: string[]) {
 
 async function cmdShow(args: string[]) {
   const eventId = args[0];
-  if (!eventId) cliError("Usage: smgr show <event_id>");
+  if (!eventId) cliError("Usage: sitemgr show <event_id>");
 
   requireUserId();
 
@@ -364,7 +364,7 @@ async function cmdDedup(args: string[]) {
   const { positionals } = parseArgs({ args, allowPositionals: true });
   const bucketName = positionals[0];
   if (!bucketName) {
-    cliError("Usage: smgr dedup <bucket>", EXIT.USER);
+    cliError("Usage: sitemgr dedup <bucket>", EXIT.USER);
   }
 
   requireUserId();
@@ -471,7 +471,7 @@ async function cmdEnrich(args: string[]) {
   const eventId = positionals[1]; // optional: specific event ID
 
   if (!bucketName && !eventId) {
-    cliError("Usage: smgr enrich <bucket> [--pending] [--dry-run] [--concurrency N]\n       smgr enrich <bucket> <event_id>\n       smgr enrich --status");
+    cliError("Usage: sitemgr enrich <bucket> [--pending] [--dry-run] [--concurrency N]\n       sitemgr enrich <bucket> <event_id>\n       sitemgr enrich --status");
   }
 
   if (bucketName) {
@@ -540,14 +540,14 @@ async function cmdWatch(args: string[]) {
   if (values.verbose) verboseMode = true;
 
   const bucketName = positionals[0];
-  if (!bucketName) cliError("Usage: smgr watch <bucket> [--once] [--prefix P] [--interval N]");
+  if (!bucketName) cliError("Usage: sitemgr watch <bucket> [--once] [--prefix P] [--interval N]");
 
   requireUserId();
 
   const bucketId = await resolveBucketId(bucketName);
   const prefix = (values.prefix as string) ?? "";
   const intervalSecs = parseInt(
-    (values.interval as string) ?? process.env.SMGR_WATCH_INTERVAL ?? "60",
+    (values.interval as string) ?? process.env.SITEMGR_WATCH_INTERVAL ?? "60",
     10,
   );
   const maxErrors = parseInt((values["max-errors"] as string) ?? "5", 10);
@@ -555,7 +555,7 @@ async function cmdWatch(args: string[]) {
     ? false
     : values["auto-enrich"] ?? true;
   const batchSize = parseInt((values["batch-size"] as string) ?? "100", 10);
-  const deviceId = (values["device-id"] as string) ?? process.env.SMGR_DEVICE_ID ?? "default";
+  const deviceId = (values["device-id"] as string) ?? process.env.SITEMGR_DEVICE_ID ?? "default";
 
   console.error(`Watching bucket "${bucketName}" (prefix: "${prefix}")`);
   console.error(`Poll interval: ${intervalSecs}s | Auto-enrich: ${autoEnrich} | Max errors: ${maxErrors}`);
@@ -630,7 +630,7 @@ async function cmdAdd(args: string[]) {
 
   const bucketName = positionals[0];
   const filePath = positionals[1];
-  if (!bucketName || !filePath) cliError("Usage: smgr add <bucket> <file> [--prefix path/]");
+  if (!bucketName || !filePath) cliError("Usage: sitemgr add <bucket> <file> [--prefix path/]");
 
   requireUserId();
 
@@ -685,7 +685,7 @@ async function cmdLogout() {
 async function cmdWhoami() {
   const creds = loadCredentials();
   if (!creds) {
-    console.log("Not logged in. Run 'smgr login' to authenticate.");
+    console.log("Not logged in. Run 'sitemgr login' to authenticate.");
     return;
   }
 
@@ -694,7 +694,7 @@ async function cmdWhoami() {
 
   console.log(`Email:   ${creds.email}`);
   console.log(`User ID: ${creds.user_id}`);
-  console.log(`Token:   ${expired ? "expired (run 'smgr login' to re-authenticate)" : "valid"}`);
+  console.log(`Token:   ${expired ? "expired (run 'sitemgr login' to re-authenticate)" : "valid"}`);
 }
 
 // ── Main ─────────────────────────────────────────────────────
@@ -718,30 +718,30 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
 };
 
 if (!command || !(command in commands)) {
-  console.log(`smgr \u2014 S3-event-driven media indexer
+  console.log(`sitemgr \u2014 S3-event-driven media indexer
 
 Usage:
-  smgr login                    Authenticate via browser (device code flow)
-  smgr logout                   Clear stored credentials
-  smgr whoami                   Show current session info
+  sitemgr login                    Authenticate via browser (device code flow)
+  sitemgr logout                   Clear stored credentials
+  sitemgr whoami                   Show current session info
 
-  smgr bucket list              List configured buckets
-  smgr bucket add [flags]       Add a bucket config
-  smgr bucket remove <name>     Remove a bucket config
-  smgr bucket test <name>       Test S3 connectivity
+  sitemgr bucket list              List configured buckets
+  sitemgr bucket add [flags]       Add a bucket config
+  sitemgr bucket remove <name>     Remove a bucket config
+  sitemgr bucket test <name>       Test S3 connectivity
 
-  smgr query [--search Q] [--type TYPE] [--format json] [--limit N] [--bucket B]
-  smgr show <event_id>
-  smgr stats [--bucket B]
-  smgr dedup <bucket>             Find duplicate files in a bucket
-  smgr enrich <bucket> [--pending] [--dry-run] [--concurrency N] [<event_id>]
-  smgr enrich --status
-  smgr watch <bucket> [--prefix P] [--once] [--interval N] [--max-errors N]
+  sitemgr query [--search Q] [--type TYPE] [--format json] [--limit N] [--bucket B]
+  sitemgr show <event_id>
+  sitemgr stats [--bucket B]
+  sitemgr dedup <bucket>             Find duplicate files in a bucket
+  sitemgr enrich <bucket> [--pending] [--dry-run] [--concurrency N] [<event_id>]
+  sitemgr enrich --status
+  sitemgr watch <bucket> [--prefix P] [--once] [--interval N] [--max-errors N]
              [--auto-enrich | --no-auto-enrich] [--batch-size N]
-  smgr add <bucket> <file> [--prefix path/]
+  sitemgr add <bucket> <file> [--prefix path/]
 
 Authentication:
-  Run 'smgr login' to authenticate. A browser window will open for you to approve
+  Run 'sitemgr login' to authenticate. A browser window will open for you to approve
   the device. Credentials are stored in ~/.sitemgr/credentials.json.
 
 Flags (all commands):
@@ -770,9 +770,9 @@ Exit codes:
   3  Internal error (unexpected exception)
 
 Environment:
-  SMGR_WEB_URL           Web API URL (required, e.g. http://localhost:3000)
-  SMGR_DEVICE_ID         Device identifier (default: default)
-  SMGR_WATCH_INTERVAL    Poll interval in seconds (default: 60)`);
+  SITEMGR_WEB_URL           Web API URL (required, e.g. http://localhost:3000)
+  SITEMGR_DEVICE_ID         Device identifier (default: default)
+  SITEMGR_WATCH_INTERVAL    Poll interval in seconds (default: 60)`);
   process.exit(command ? 1 : 0);
 }
 

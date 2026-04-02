@@ -8,8 +8,8 @@ import { CONTENT_TYPE_PHOTO } from "../../lib/media/constants";
 
 // Local Supabase — env vars are validated by globalSetup.ts before tests run.
 // These fallbacks are kept only for direct imports outside of vitest.
-const SUPABASE_URL = process.env.SMGR_API_URL ?? "http://127.0.0.1:54321";
-const SUPABASE_ANON_KEY = process.env.SMGR_API_KEY ?? "";
+const SUPABASE_URL = process.env.SITEMGR_API_URL ?? "http://127.0.0.1:54321";
+const SUPABASE_ANON_KEY = process.env.SITEMGR_API_KEY ?? "";
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
 export function getSupabaseConfig() {

@@ -13,8 +13,8 @@ COPY web/ ./
 # RUN npm run build
 
 # Default: run the watcher
-ENV SMGR_DEVICE_ID=docker
-ENV SMGR_S3_REGION=us-east-1
+ENV SITEMGR_DEVICE_ID=docker
+ENV SITEMGR_S3_REGION=us-east-1
 
 ENTRYPOINT ["npx", "tsx"]
-CMD ["bin/smgr.ts", "watch", "--once"]
+CMD ["bin/sitemgr.ts", "watch", "--once"]

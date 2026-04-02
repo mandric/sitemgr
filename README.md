@@ -15,7 +15,7 @@ cd web && npm run setup:supabase && npm run setup:env
 cd .. && source .env.local
 
 # 4. Run the CLI
-cd web && npm run smgr stats
+cd web && npm run sitemgr stats
 
 # 5. Run tests
 cd web && npm test
@@ -33,7 +33,7 @@ cd web && npm test
 ```
 sitemgr/
 ├── web/               # Next.js app + TypeScript CLI
-│   ├── bin/smgr.ts   # CLI tool (query, watch, enrich, stats)
+│   ├── bin/sitemgr.ts   # CLI tool (query, watch, enrich, stats)
 │   ├── lib/media/    # Core media processing library
 │   ├── app/          # Next.js web UI
 │   └── __tests__/    # Unit tests (Vitest)
@@ -73,16 +73,16 @@ See [design/architecture.md](design/architecture.md) for details.
 cd web
 
 # Check database stats
-npm run smgr stats
+npm run sitemgr stats
 
 # Query events
-npm run smgr query -- --search "beach" --format json
+npm run sitemgr query -- --search "beach" --format json
 
 # Watch for new S3 objects
-npm run smgr watch
+npm run sitemgr watch
 
 # Enrich pending items
-npm run smgr enrich -- --pending
+npm run sitemgr enrich -- --pending
 ```
 
 ### Local Testing

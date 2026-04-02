@@ -271,7 +271,7 @@ Then resume where you left off. If the current section's work is uncommitted and
 |------|------|-------------|-------------|
 | **Unit** | Pure logic, no services | Direct function call | Hash, parse, validate, encrypt — no I/O |
 | **Integration** | Real services, no user interface | Direct function/API call against Supabase, S3, API routes | DB queries, S3 ops, route handlers, RLS, schema |
-| **E2E (CLI)** | Full stack via CLI | `smgr` subprocess | Arg parsing, exit codes, output formatting, credential handling |
+| **E2E (CLI)** | Full stack via CLI | `sitemgr` subprocess | Arg parsing, exit codes, output formatting, credential handling |
 | **E2E (Web)** | Full stack via browser | Playwright | UI flows, form submissions, navigation, auth redirects |
 
 The distinction between integration and E2E: **does it go through a user-facing interface?** Integration tests call functions and API routes directly. E2E tests go through the same interface a user would (CLI binary or browser).
@@ -297,7 +297,7 @@ Integration and E2E tests are **not optional**. If infra isn't ready, fix the in
 - Next.js dev server running (globalSetup auto-spawns it)
 - Chromium installed (session-start hook runs `npx playwright install --with-deps chromium`)
 
-**Note:** CLI subprocess tests (`smgr-cli.test.ts`, `smgr-e2e.test.ts`) are currently in the integration suite but are conceptually E2E — they exercise the system through the user-facing CLI binary. See spec 20 for planned reclassification.
+**Note:** CLI subprocess tests (`sitemgr-cli.test.ts`, `sitemgr-e2e.test.ts`) are currently in the integration suite but are conceptually E2E — they exercise the system through the user-facing CLI binary. See spec 20 for planned reclassification.
 
 **Infrastructure notes:**
 - The session-start hook starts Supabase automatically. The minimum version constant (`SUPABASE_MIN_VERSION`) and install/start helpers live in `scripts/lib.sh`.

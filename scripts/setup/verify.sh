@@ -23,10 +23,10 @@ check_var() {
 }
 
 check_api_reachable() {
-  local url="${SMGR_API_URL:-}"
-  local key="${SMGR_API_KEY:-}"
+  local url="${SITEMGR_API_URL:-}"
+  local key="${SITEMGR_API_KEY:-}"
   if [ -z "$url" ]; then
-    echo "  ✗ Supabase API reachable: SMGR_API_URL not set"
+    echo "  ✗ Supabase API reachable: SITEMGR_API_URL not set"
     failures=$((failures + 1))
     return
   fi
@@ -38,8 +38,8 @@ check_api_reachable() {
   fi
 }
 
-check_var "SMGR_API_URL"
-check_var "SMGR_API_KEY"
+check_var "SITEMGR_API_URL"
+check_var "SITEMGR_API_KEY"
 check_var "SUPABASE_SERVICE_ROLE_KEY"
 check_var "ENCRYPTION_KEY_CURRENT"
 check_var "S3_ACCESS_KEY_ID"

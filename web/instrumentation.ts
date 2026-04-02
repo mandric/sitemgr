@@ -26,10 +26,10 @@ export async function register() {
 
     if (missing.length > 0) {
       console.error(
-        `[smgr] WARNING: Missing environment variables: ${missing.join(", ")}`,
+        `[sitemgr] WARNING: Missing environment variables: ${missing.join(", ")}`,
       );
       console.error(
-        "[smgr] Some features will not work. Check your Vercel/hosting env var configuration.",
+        "[sitemgr] Some features will not work. Check your Vercel/hosting env var configuration.",
       );
     }
   }

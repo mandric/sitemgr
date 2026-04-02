@@ -46,7 +46,7 @@ function mockFetchResponses(...responses: Array<{ status: number; body: unknown 
 
 describe("login() device code flow", () => {
   beforeEach(() => {
-    vi.stubEnv("SMGR_WEB_URL", "http://localhost:3000");
+    vi.stubEnv("SITEMGR_WEB_URL", "http://localhost:3000");
     vi.clearAllMocks();
 
     // Suppress stderr output during tests
@@ -162,7 +162,7 @@ describe("login() device code flow", () => {
     expect(body.device_name).toBe("my-laptop");
   });
 
-  it("uses SMGR_WEB_URL for fetch calls, not SMGR_API_URL", async () => {
+  it("uses SITEMGR_WEB_URL for fetch calls, not SITEMGR_API_URL", async () => {
     const fetchSpy = mockFetchResponses(
       { status: 201, body: INITIATE_RESPONSE },
       { status: 200, body: APPROVED_SESSION_RESPONSE },

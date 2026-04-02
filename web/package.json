@@ -16,7 +16,7 @@
     "test:all": "vitest run",
     "test:watch": "vitest --project unit",
     "test:e2e:debug": "playwright test --debug",
-    "smgr": "tsx bin/smgr.ts"
+    "sitemgr": "tsx bin/sitemgr.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.78.0",
