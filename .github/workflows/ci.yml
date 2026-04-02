@@ -58,8 +58,16 @@ jobs:
       - name: Install dependencies
         run: cd web && npm ci
 
-      - name: Run unit tests
-        run: cd web && npm test
+      - name: Run unit tests with coverage
+        run: cd web && npx vitest run --project unit --coverage --coverage.reporter=text --coverage.reporter=json-summary
+
+      - name: Upload unit test coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-coverage
+          path: web/coverage/
+          retention-days: 14
 
   integration-tests:
     name: Integration Tests (Supabase Local)
@@ -131,8 +139,16 @@ jobs:
             -d '{"id":"media","name":"media","public":false}' \
             || echo "Bucket may already exist"
 
-      - name: Run integration tests
-        run: cd web && npm run test:integration
+      - name: Run integration tests with coverage
+        run: cd web && npx vitest run --project integration --coverage --coverage.reporter=text --coverage.reporter=json-summary
+
+      - name: Upload integration test coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-coverage
+          path: web/coverage/
+          retention-days: 14
 
       - name: Stop Supabase
         if: always()
