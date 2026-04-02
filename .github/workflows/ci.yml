@@ -63,15 +63,23 @@ jobs:
         run: cd web && npm ci
 
       - name: Run unit tests with coverage
-        run: cd web && npx vitest run --project unit --coverage --coverage.reporter=text --coverage.reporter=lcov --coverage.include='lib/**'
+        run: cd web && npx vitest run --project unit --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=lcov --coverage.include='lib/**'
 
-      - name: Upload unit test coverage to Codecov
-        if: always()
-        uses: codecov/codecov-action@v5
+      - name: Report unit test coverage on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: davelosert/vitest-coverage-report-action@v2
         with:
-          files: web/coverage/lcov.info
-          flags: unit
-          token: ${{ secrets.CODECOV_TOKEN }}
+          working-directory: web
+          name: Unit Tests
+          json-summary-path: coverage/coverage-summary.json
+
+      - name: Upload unit coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-coverage
+          path: web/coverage/
+          retention-days: 14
 
   integration-tests:
     name: Integration Tests (Supabase Local)
@@ -148,15 +156,23 @@ jobs:
       # tests use fetch() against a separate Next.js process and can't be
       # instrumented by V8.
       - name: Run integration tests with coverage
-        run: cd web && npx vitest run --project integration --coverage --coverage.reporter=text --coverage.reporter=lcov --coverage.include='lib/**'
+        run: cd web && npx vitest run --project integration --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=lcov --coverage.include='lib/**'
 
-      - name: Upload integration test coverage to Codecov
-        if: always()
-        uses: codecov/codecov-action@v5
+      - name: Report integration test coverage on PR
+        if: always() && github.event_name == 'pull_request'
+        uses: davelosert/vitest-coverage-report-action@v2
         with:
-          files: web/coverage/lcov.info
-          flags: integration
-          token: ${{ secrets.CODECOV_TOKEN }}
+          working-directory: web
+          name: Integration Tests (direct-call only)
+          json-summary-path: coverage/coverage-summary.json
+
+      - name: Upload integration coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-coverage
+          path: web/coverage/
+          retention-days: 14
 
       - name: Stop Supabase
         if: always()
