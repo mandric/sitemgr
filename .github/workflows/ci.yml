@@ -63,15 +63,15 @@ jobs:
         run: cd web && npm ci
 
       - name: Run unit tests with coverage
-        run: cd web && npx vitest run --project unit --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.include='lib/**'
+        run: cd web && npx vitest run --project unit --coverage --coverage.reporter=text --coverage.reporter=lcov --coverage.include='lib/**'
 
-      - name: Report unit test coverage on PR
-        if: always() && github.event_name == 'pull_request'
-        uses: davelosert/vitest-coverage-report-action@v2
+      - name: Upload unit test coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
         with:
-          working-directory: web
-          name: Unit Tests
-          json-summary-path: coverage/coverage-summary.json
+          files: web/coverage/lcov.info
+          flags: unit
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   integration-tests:
     name: Integration Tests (Supabase Local)
@@ -146,18 +146,17 @@ jobs:
       # Coverage note: Only direct-function-call tests (schema-contract,
       # media-storage, tenant-isolation, etc.) contribute coverage. The api-*
       # tests use fetch() against a separate Next.js process and can't be
-      # instrumented by V8. Coverage.include scopes to lib/ where the
-      # direct-call tests exercise real code paths.
+      # instrumented by V8.
       - name: Run integration tests with coverage
-        run: cd web && npx vitest run --project integration --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.include='lib/**'
+        run: cd web && npx vitest run --project integration --coverage --coverage.reporter=text --coverage.reporter=lcov --coverage.include='lib/**'
 
-      - name: Report integration test coverage on PR
-        if: always() && github.event_name == 'pull_request'
-        uses: davelosert/vitest-coverage-report-action@v2
+      - name: Upload integration test coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
         with:
-          working-directory: web
-          name: Integration Tests (direct-call only)
-          json-summary-path: coverage/coverage-summary.json
+          files: web/coverage/lcov.info
+          flags: integration
+          token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Stop Supabase
         if: always()
