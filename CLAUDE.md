@@ -114,6 +114,10 @@ The web app needs `ENCRYPTION_KEY_CURRENT` in `.env.local` because API routes en
 - App and DB deploy pipelines are decoupled (Vercel vs GitHub Actions) — works but fragile
 - No automated rollback if DB migration succeeds but app deploy fails (or vice versa)
 
+### GitHub Integration
+
+Use the `gh` CLI for all GitHub operations (PRs, issues, comments, CI status). The session-start hook configures `gh` auth automatically. Do **not** use the GitHub MCP server — it requires separate OAuth re-auth that is unreliable in web sessions.
+
 ### Planning Artifacts
 
 - `project-manifest.md` — Split structure, dependencies, and execution order
