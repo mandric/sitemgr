@@ -220,8 +220,8 @@ export async function uploadS3Object(
   key: string,
   body: Buffer,
   contentType?: string,
-): Promise<void> {
-  await client.send(
+): Promise<string> {
+  const response = await client.send(
     new PutObjectCommand({
       Bucket: bucket,
       Key: key,
@@ -229,4 +229,9 @@ export async function uploadS3Object(
       ...(contentType ? { ContentType: contentType } : {}),
     }),
   );
+  const etag = response.ETag;
+  if (!etag) {
+    throw new Error("S3 PutObject response missing ETag");
+  }
+  return etag.replace(/"/g, "");
 }

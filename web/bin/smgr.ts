@@ -353,6 +353,66 @@ async function cmdShow(args: string[]) {
   printJson(event);
 }
 
+interface DedupGroup {
+  content_hash: string;
+  copies: number;
+  event_ids: string[];
+  paths: string[];
+}
+
+async function cmdDedup(args: string[]) {
+  const { positionals } = parseArgs({ args, allowPositionals: true });
+  const bucketName = positionals[0];
+  if (!bucketName) {
+    cliError("Usage: smgr dedup <bucket>", EXIT.USER);
+  }
+
+  requireUserId();
+
+  try {
+    const bucketId = await resolveBucketId(bucketName);
+    const { data } = await apiGet<{
+      data: { groups: DedupGroup[]; total_duplicate_groups: number };
+    }>(`/api/dedup?bucket_config_id=${bucketId}`);
+
+    const groups = data.groups;
+    if (!groups || groups.length === 0) {
+      console.log("No duplicates found.");
+      return;
+    }
+
+    // Table output
+    const hashW = 34;
+    const copiesW = 8;
+    console.log(
+      `${"Hash".padEnd(hashW)}${"Copies".padEnd(copiesW)}Paths`,
+    );
+    console.log("─".repeat(60));
+
+    for (const g of groups) {
+      const shortPaths = g.paths.map((p) =>
+        p.replace(/^s3:\/\/[^/]+\//, ""),
+      );
+      for (let i = 0; i < shortPaths.length; i++) {
+        if (i === 0) {
+          console.log(
+            `${g.content_hash.padEnd(hashW)}${String(g.copies).padEnd(copiesW)}${shortPaths[i]}`,
+          );
+        } else {
+          console.log(`${"".padEnd(hashW)}${"".padEnd(copiesW)}${shortPaths[i]}`);
+        }
+      }
+    }
+
+    const extraCopies = groups.reduce((sum, g) => sum + (g.copies - 1), 0);
+    console.log(
+      `\n${groups.length} duplicate group${groups.length === 1 ? "" : "s"}, ${extraCopies} extra cop${extraCopies === 1 ? "y" : "ies"}`,
+    );
+  } catch (err) {
+    cliError(`Dedup failed: ${(err as Error).message ?? err}`, EXIT.SERVICE);
+  }
+}
+
 async function cmdStats(args: string[]) {
   const { values } = parseArgs({
     args,
@@ -651,6 +711,7 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   query: cmdQuery,
   show: cmdShow,
   stats: cmdStats,
+  dedup: cmdDedup,
   enrich: cmdEnrich,
   watch: cmdWatch,
   add: cmdAdd,
@@ -672,6 +733,7 @@ Usage:
   smgr query [--search Q] [--type TYPE] [--format json] [--limit N] [--bucket B]
   smgr show <event_id>
   smgr stats [--bucket B]
+  smgr dedup <bucket>             Find duplicate files in a bucket
   smgr enrich <bucket> [--pending] [--dry-run] [--concurrency N] [<event_id>]
   smgr enrich --status
   smgr watch <bucket> [--prefix P] [--once] [--interval N] [--max-errors N]

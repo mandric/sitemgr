@@ -11,7 +11,6 @@ import {
 import { uploadS3Object } from "@/lib/media/s3";
 import { insertEvent, upsertWatchedKey } from "@/lib/media/db";
 import {
-  sha256Bytes,
   newEventId,
   detectContentType,
   getMimeType,
@@ -54,13 +53,13 @@ export async function POST(
   const s3Key = prefix ? `${prefix}${fileName}` : fileName;
   const contentType = detectContentType(fileName);
   const mimeType = getMimeType(fileName);
-  const contentHash = sha256Bytes(fileBuffer);
 
   const config = result.config!;
   const s3 = createS3ClientFromConfig(config);
 
+  let etag: string;
   try {
-    await uploadS3Object(s3, config.bucket_name, s3Key, fileBuffer, mimeType);
+    etag = await uploadS3Object(s3, config.bucket_name, s3Key, fileBuffer, mimeType);
   } catch (err) {
     return NextResponse.json(
       { error: `S3 upload failed: ${err instanceof Error ? err.message : String(err)}` },
@@ -68,6 +67,7 @@ export async function POST(
     );
   }
 
+  const contentHash = `etag:${etag}`;
   const eventId = newEventId();
   const remotePath = `s3://${config.bucket_name}/${s3Key}`;
 
@@ -80,7 +80,7 @@ export async function POST(
     local_path: null,
     remote_path: remotePath,
     metadata: {
-      ...s3Metadata(s3Key, fileBuffer.length, ""),
+      ...s3Metadata(s3Key, fileBuffer.length, etag),
       mime_type: mimeType,
       source: "api-upload",
     },
@@ -94,7 +94,7 @@ export async function POST(
   }
 
   await upsertWatchedKey(
-    auth.supabase, s3Key, eventId, "", fileBuffer.length, auth.user.id, config.id,
+    auth.supabase, s3Key, eventId, etag, fileBuffer.length, auth.user.id, config.id,
   );
 
   return NextResponse.json(

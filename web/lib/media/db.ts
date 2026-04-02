@@ -404,6 +404,30 @@ export async function findEventByHash(client: SupabaseClient, hash: string, user
     .maybeSingle();
 }
 
+// ── Find Duplicate Groups ────────────────────────────────────
+
+export interface DuplicateGroup {
+  content_hash: string;
+  copies: number;
+  event_ids: string[];
+  paths: string[];
+}
+
+export async function findDuplicateGroups(
+  client: SupabaseClient,
+  userId: string,
+  bucketConfigId?: string,
+  limit = 100,
+  offset = 0,
+): Promise<{ data: DuplicateGroup[] | null; error: unknown }> {
+  return client.rpc("find_duplicate_groups", {
+    p_user_id: userId,
+    p_bucket_config_id: bucketConfigId ?? null,
+    p_limit: limit,
+    p_offset: offset,
+  });
+}
+
 // ── Get Pending Enrichments ───────────────────────────────────
 
 export async function getPendingEnrichments(client: SupabaseClient, userId?: string) {
