@@ -10,7 +10,8 @@ export async function GET(request: NextRequest) {
   const auth = await authenticateRequest(request);
   if (!isAuthenticated(auth)) return auth;
 
-  const bucketConfigId = request.nextUrl.searchParams.get("bucket_config_id");
+  const params = request.nextUrl.searchParams;
+  const bucketConfigId = params.get("bucket_config_id");
   if (!bucketConfigId) {
     return NextResponse.json(
       { error: "bucket_config_id query parameter is required" },
@@ -18,10 +19,15 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const limit = params.has("limit") ? parseInt(params.get("limit")!, 10) : 100;
+  const offset = params.has("offset") ? parseInt(params.get("offset")!, 10) : 0;
+
   const { data, error } = await findDuplicateGroups(
     auth.supabase,
     auth.user.id,
     bucketConfigId,
+    limit,
+    offset,
   );
 
   if (error) {

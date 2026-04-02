@@ -417,10 +417,14 @@ export async function findDuplicateGroups(
   client: SupabaseClient,
   userId: string,
   bucketConfigId?: string,
+  limit = 100,
+  offset = 0,
 ): Promise<{ data: DuplicateGroup[] | null; error: unknown }> {
   return client.rpc("find_duplicate_groups", {
     p_user_id: userId,
     p_bucket_config_id: bucketConfigId ?? null,
+    p_limit: limit,
+    p_offset: offset,
   });
 }
 

@@ -3,9 +3,18 @@
 -- SECURITY INVOKER (default) — RLS on events table enforces tenant isolation.
 -- Do NOT add SECURITY DEFINER.
 
+-- Partial composite index for the dedup GROUP BY query.
+-- Covers (user_id, content_hash) for create events with non-null hashes,
+-- so Postgres can scan just the relevant rows without a full table scan.
+CREATE INDEX IF NOT EXISTS idx_events_dedup
+    ON events(user_id, content_hash)
+    WHERE type = 'create' AND content_hash IS NOT NULL;
+
 CREATE OR REPLACE FUNCTION find_duplicate_groups(
     p_user_id UUID,
-    p_bucket_config_id UUID DEFAULT NULL
+    p_bucket_config_id UUID DEFAULT NULL,
+    p_limit INT DEFAULT 100,
+    p_offset INT DEFAULT 0
 )
 RETURNS TABLE(
     content_hash TEXT,
@@ -27,5 +36,7 @@ AS $$
       AND (p_bucket_config_id IS NULL OR e.bucket_config_id = p_bucket_config_id)
     GROUP BY e.content_hash
     HAVING count(*) > 1
-    ORDER BY copies DESC;
+    ORDER BY copies DESC
+    LIMIT p_limit
+    OFFSET p_offset;
 $$;
