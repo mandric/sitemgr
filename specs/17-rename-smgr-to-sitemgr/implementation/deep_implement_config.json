@@ -1,0 +1,26 @@
+{
+  "plugin_root": "/home/user/sitemgr/.claude/plugins/deep-implement",
+  "sections_dir": "/home/user/sitemgr/specs/17-rename-smgr-to-sitemgr/sections",
+  "target_dir": "/home/user/sitemgr",
+  "state_dir": "/home/user/sitemgr/specs/17-rename-smgr-to-sitemgr/implementation",
+  "git_root": "/home/user/sitemgr",
+  "commit_style": "conventional",
+  "test_command": "uv run pytest",
+  "sections": [
+    "section-01-cli-binary",
+    "section-02-lib-code",
+    "section-03-tests",
+    "section-04-scripts-ci-config",
+    "section-05-docs"
+  ],
+  "sections_state": {},
+  "pre_commit": {
+    "present": false,
+    "type": "none",
+    "config_file": null,
+    "native_hook": null,
+    "may_modify_files": false,
+    "detected_formatters": []
+  },
+  "created_at": "2026-04-02T03:51:04.490077+00:00"
+}
