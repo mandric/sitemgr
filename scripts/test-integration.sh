@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Starts all services required for smgr integration tests, then runs them.
+# Starts all services required for sitemgr integration tests, then runs them.
 #
 #   Supabase  — local Postgres, Auth, Storage (S3)
 #   Ollama    — local vision model for enrichment e2e tests
@@ -65,8 +65,8 @@ set -a
 source .env.local
 set +a
 
-if [ -z "${SMGR_API_URL:-}" ]; then
-  echo "ERROR: SMGR_API_URL is not set after sourcing .env.local." >&2
+if [ -z "${SITEMGR_API_URL:-}" ]; then
+  echo "ERROR: SITEMGR_API_URL is not set after sourcing .env.local." >&2
   echo "Re-generate it: cd web && npm run setup:env" >&2
   exit 1
 fi
@@ -110,7 +110,7 @@ echo ""
 
 cd web
 if [ "$SKIP_OLLAMA" = true ]; then
-  npx vitest run --project integration --reporter=verbose --exclude '__tests__/integration/smgr-e2e.test.ts'
+  npx vitest run --project integration --reporter=verbose --exclude '__tests__/integration/sitemgr-e2e.test.ts'
 else
   npx vitest run --project integration --reporter=verbose
 fi

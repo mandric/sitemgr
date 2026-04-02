@@ -1,7 +1,7 @@
 /**
- * End-to-end integration test for the smgr pipeline.
+ * End-to-end integration test for the sitemgr pipeline.
  *
- * Uploads real images to S3 → discovers them via `smgr watch --once` →
+ * Uploads real images to S3 → discovers them via `sitemgr watch --once` →
  * enriches with Ollama moondream:1.8b → verifies semantic search.
  *
  * Requires:
@@ -30,7 +30,7 @@ import {
 
 const execFile = promisify(execFileCb);
 
-const CLI_PATH = resolve(__dirname, "../../bin/smgr.ts");
+const CLI_PATH = resolve(__dirname, "../../bin/sitemgr.ts");
 const TSX_PATH = resolve(__dirname, "../../node_modules/.bin/tsx");
 const FIXTURES_DIR = resolve(__dirname, "fixtures");
 
@@ -43,15 +43,15 @@ let tempHome: string;
 const eventIds = new Map<string, string>(); // filename → event ID
 const uploadedKeys: string[] = [];
 
-// ── CLI helpers (adapted from smgr-cli.test.ts) ──────────────
+// ── CLI helpers (adapted from sitemgr-cli.test.ts) ──────────────
 
 function cliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   const port = process.env.WEB_PORT ?? "3000";
   return {
     ...process.env,
     HOME: tempHome,
-    SMGR_WEB_URL: `http://localhost:${port}`,
-    SMGR_DEVICE_ID: "test-e2e",
+    SITEMGR_WEB_URL: `http://localhost:${port}`,
+    SITEMGR_DEVICE_ID: "test-e2e",
     NODE_NO_WARNINGS: "1",
     ...extra,
   };
@@ -94,12 +94,12 @@ const S3_PREFIX = `test-e2e-${Date.now()}`;
 
 const s3Config = getS3Config();
 // CLI no longer needs S3 env vars — all S3 ops go through the web API.
-// Only SMGR_WEB_URL and SMGR_DEVICE_ID are needed (set by cliEnv).
+// Only SITEMGR_WEB_URL and SITEMGR_DEVICE_ID are needed (set by cliEnv).
 const E2E_ENV: Record<string, string> = {};
 
 // ── Tests ────────────────────────────────────────────────────
 
-describe("smgr e2e pipeline", () => {
+describe("sitemgr e2e pipeline", () => {
   beforeAll(async () => {
     // 1. Ollama health check
     const health = await fetch("http://localhost:11434/api/tags").catch(
@@ -120,7 +120,7 @@ describe("smgr e2e pipeline", () => {
     // 2b. Write credentials file so CLI can authenticate via loadCredentials()
     const { data: sessionData } = await userClient.auth.getSession();
     const session = sessionData.session!;
-    tempHome = mkdtempSync(resolve(tmpdir(), "smgr-e2e-test-"));
+    tempHome = mkdtempSync(resolve(tmpdir(), "sitemgr-e2e-test-"));
     const credsDir = resolve(tempHome, ".sitemgr");
     mkdirSync(credsDir, { mode: 0o700, recursive: true });
     writeFileSync(

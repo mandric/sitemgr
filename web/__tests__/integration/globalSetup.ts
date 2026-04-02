@@ -50,8 +50,8 @@ async function waitForReady(url: string, timeoutMs: number): Promise<void> {
 export async function setup(): Promise<void> {
   // 1. Validate required environment variables
   const required: Record<string, string | undefined> = {
-    SMGR_API_URL: process.env.SMGR_API_URL,
-    SMGR_API_KEY: process.env.SMGR_API_KEY,
+    SITEMGR_API_URL: process.env.SITEMGR_API_URL,
+    SITEMGR_API_KEY: process.env.SITEMGR_API_KEY,
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
   };
 
@@ -70,8 +70,8 @@ export async function setup(): Promise<void> {
   }
 
   // 2. Validate Supabase connectivity
-  const url = process.env.SMGR_API_URL!;
-  const anonKey = process.env.SMGR_API_KEY!;
+  const url = process.env.SITEMGR_API_URL!;
+  const anonKey = process.env.SITEMGR_API_KEY!;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
@@ -111,7 +111,7 @@ export async function setup(): Promise<void> {
     return;
   }
 
-  // Defensive fallback: map SMGR_* → NEXT_PUBLIC_* if NEXT_PUBLIC_* are not set.
+  // Defensive fallback: map SITEMGR_* → NEXT_PUBLIC_* if NEXT_PUBLIC_* are not set.
   // This equivalence is only valid for local Supabase instances where both sets
   // of vars point to the same http://127.0.0.1:54321 endpoint. Integration tests
   // always run against local Supabase, so this is safe.
@@ -119,10 +119,10 @@ export async function setup(): Promise<void> {
     ...process.env,
     PORT: String(port),
     NEXT_PUBLIC_SUPABASE_URL:
-      process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SMGR_API_URL,
+      process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SITEMGR_API_URL,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:
       process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
-      process.env.SMGR_API_KEY,
+      process.env.SITEMGR_API_KEY,
   };
 
   // Spawn Next.js dev server

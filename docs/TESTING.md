@@ -212,7 +212,7 @@ supabase db reset    # Wipes and replays all migrations
    ```bash
    source .env.local
    echo $SUPABASE_URL
-   echo $SMGR_S3_ENDPOINT
+   echo $SITEMGR_S3_ENDPOINT
    ```
 
 3. **Check environment health:**
@@ -281,7 +281,7 @@ As components stabilize, add unit tests for:
 
 | Component | Integration | Unit | Total |
 |-----------|-------------|------|-------|
-| smgr CLI (TypeScript) | 30% | 0% | 30% |
+| sitemgr CLI (TypeScript) | 30% | 0% | 30% |
 | API routes / webhooks | 10% | 0% | 10% |
 | Database / migrations | 40% | N/A | 40% |
 | **Overall** | **~20%** | **0%** | **~20%** |
@@ -290,7 +290,7 @@ As components stabilize, add unit tests for:
 
 | Component | Integration | Unit | Total |
 |-----------|-------------|------|-------|
-| smgr CLI (TypeScript) | 60% | 40% | 70% |
+| sitemgr CLI (TypeScript) | 60% | 40% | 70% |
 | API routes / webhooks | 40% | 30% | 50% |
 | Database / migrations | 70% | N/A | 70% |
 | **Overall** | **~55%** | **~25%** | **~65%** |

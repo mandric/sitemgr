@@ -1,7 +1,7 @@
 /**
- * Integration tests for smgr CLI commands.
+ * Integration tests for sitemgr CLI commands.
  *
- * Spawns `tsx bin/smgr.ts <command>` as a child process, seeds real data in
+ * Spawns `tsx bin/sitemgr.ts <command>` as a child process, seeds real data in
  * local Supabase, and asserts on stdout / stderr / exit codes.
  *
  * Requires `supabase start` to be running locally.
@@ -25,7 +25,7 @@ import { insertEvent, insertEnrichment } from "../../lib/media/db";
 
 const execFile = promisify(execFileCb);
 
-const CLI_PATH = resolve(__dirname, "../../bin/smgr.ts");
+const CLI_PATH = resolve(__dirname, "../../bin/sitemgr.ts");
 const TSX_PATH = resolve(__dirname, "../../node_modules/.bin/tsx");
 
 let admin: SupabaseClient;
@@ -40,8 +40,8 @@ function cliEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
   return {
     ...process.env,
     HOME: tempHome,
-    SMGR_WEB_URL: `http://localhost:${port}`,
-    SMGR_DEVICE_ID: "test-cli",
+    SITEMGR_WEB_URL: `http://localhost:${port}`,
+    SITEMGR_DEVICE_ID: "test-cli",
     // Prevent Node/tsx from dropping into interactive mode
     NODE_NO_WARNINGS: "1",
     ...extra,
@@ -54,7 +54,7 @@ interface CliResult {
   exitCode: number;
 }
 
-/** Run the smgr CLI with the given arguments. Resolves even on non-zero exit. */
+/** Run the sitemgr CLI with the given arguments. Resolves even on non-zero exit. */
 async function runCli(args: string[], extraEnv: Record<string, string> = {}): Promise<CliResult> {
   try {
     const { stdout, stderr } = await execFile(TSX_PATH, [CLI_PATH, ...args], {
@@ -84,7 +84,7 @@ beforeAll(async () => {
   const { data: sessionData } = await userClient.auth.getSession();
   const session = sessionData.session!;
 
-  tempHome = mkdtempSync(resolve(tmpdir(), "smgr-cli-test-"));
+  tempHome = mkdtempSync(resolve(tmpdir(), "sitemgr-cli-test-"));
   const credsDir = resolve(tempHome, ".sitemgr");
   mkdirSync(credsDir, { mode: 0o700, recursive: true });
   writeFileSync(
@@ -128,21 +128,21 @@ describe("help and usage", () => {
   it("should print usage and exit 0 when invoked with no command", async () => {
     const result = await runCli([]);
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("smgr — S3-event-driven media indexer");
-    expect(result.stdout).toContain("smgr query");
-    expect(result.stdout).toContain("smgr stats");
+    expect(result.stdout).toContain("sitemgr — S3-event-driven media indexer");
+    expect(result.stdout).toContain("sitemgr query");
+    expect(result.stdout).toContain("sitemgr stats");
   });
 
   it("should print usage and exit 1 for unknown command", async () => {
     const result = await runCli(["bogus"]);
     expect(result.exitCode).toBe(1);
-    expect(result.stdout).toContain("smgr — S3-event-driven media indexer");
+    expect(result.stdout).toContain("sitemgr — S3-event-driven media indexer");
   });
 });
 
 // ── stats ─────────────────────────────────────────────────────
 
-describe("smgr stats", () => {
+describe("sitemgr stats", () => {
   it("should output valid JSON with expected fields", async () => {
     const result = await runCli(["stats"]);
     expect(result.exitCode).toBe(0);
@@ -159,7 +159,7 @@ describe("smgr stats", () => {
   });
 
   it("should fail with exit 1 when not logged in", async () => {
-    const emptyHome = mkdtempSync(resolve(tmpdir(), "smgr-no-creds-"));
+    const emptyHome = mkdtempSync(resolve(tmpdir(), "sitemgr-no-creds-"));
     const result = await runCli(["stats"], { HOME: emptyHome });
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("Not logged in");
@@ -168,7 +168,7 @@ describe("smgr stats", () => {
 
 // ── query ─────────────────────────────────────────────────────
 
-describe("smgr query", () => {
+describe("sitemgr query", () => {
   it("should output table format by default", async () => {
     const result = await runCli(["query"]);
     expect(result.exitCode).toBe(0);
@@ -220,7 +220,7 @@ describe("smgr query", () => {
 
 // ── query --search (full-text search) ─────────────────────────
 
-describe("smgr query --search", () => {
+describe("sitemgr query --search", () => {
   const ftsEventId = "cli-fts-test-evt";
 
   beforeAll(async () => {
@@ -274,7 +274,7 @@ describe("smgr query --search", () => {
 
 // ── show ──────────────────────────────────────────────────────
 
-describe("smgr show", () => {
+describe("sitemgr show", () => {
   it("should display event details as JSON", async () => {
     const eventId = seed.eventIds[0];
     const result = await runCli(["show", eventId]);
@@ -316,7 +316,7 @@ describe("smgr show", () => {
 
 // ── enrich --status ───────────────────────────────────────────
 
-describe("smgr enrich --status", () => {
+describe("sitemgr enrich --status", () => {
   it("should output JSON enrichment status", async () => {
     const result = await runCli(["enrich", "--status"]);
     expect(result.exitCode).toBe(0);
@@ -333,7 +333,7 @@ describe("smgr enrich --status", () => {
 
 // ── enrich --dry-run ──────────────────────────────────────────
 
-describe("smgr enrich --dry-run", () => {
+describe("sitemgr enrich --dry-run", () => {
   let unenrichedEventId: string;
 
   beforeAll(async () => {
@@ -364,7 +364,7 @@ describe("smgr enrich --dry-run", () => {
 
 // ── enrich error cases ────────────────────────────────────────
 
-describe("smgr enrich error cases", () => {
+describe("sitemgr enrich error cases", () => {
   it("should fail with exit 1 when no subcommand flag is given", async () => {
     const result = await runCli(["enrich"]);
     expect(result.exitCode).toBe(1);
@@ -377,7 +377,7 @@ describe("smgr enrich error cases", () => {
 describe("exit codes", () => {
   it("should exit non-zero when not logged in (no credentials file)", async () => {
     // Use a fresh temp HOME with no credentials
-    const emptyHome = mkdtempSync(resolve(tmpdir(), "smgr-no-creds-"));
+    const emptyHome = mkdtempSync(resolve(tmpdir(), "sitemgr-no-creds-"));
     try {
       const result = await runCli(["stats"], { HOME: emptyHome });
       expect(result.exitCode).not.toBe(0);

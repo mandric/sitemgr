@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-describe("smgr.ts login command", () => {
+describe("sitemgr.ts login command", () => {
   const source = readFileSync(
-    resolve(__dirname, "../../bin/smgr.ts"),
+    resolve(__dirname, "../../bin/sitemgr.ts"),
     "utf-8",
   );
 

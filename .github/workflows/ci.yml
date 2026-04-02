@@ -94,13 +94,13 @@ jobs:
           source scripts/lib.sh
           print_setup_env_vars >> "$GITHUB_ENV"
           # CI-specific overrides
-          echo "SMGR_DEVICE_ID=ci-test" >> "$GITHUB_ENV"
-          echo "SMGR_AUTO_ENRICH=true" >> "$GITHUB_ENV"
-          echo "SMGR_OLLAMA_URL=http://localhost:11434" >> "$GITHUB_ENV"
-          echo "SMGR_VISION_MODEL=moondream:1.8b" >> "$GITHUB_ENV"
+          echo "SITEMGR_DEVICE_ID=ci-test" >> "$GITHUB_ENV"
+          echo "SITEMGR_AUTO_ENRICH=true" >> "$GITHUB_ENV"
+          echo "SITEMGR_OLLAMA_URL=http://localhost:11434" >> "$GITHUB_ENV"
+          echo "SITEMGR_VISION_MODEL=moondream:1.8b" >> "$GITHUB_ENV"
 
       - name: Create webhook service account
-        run: bash scripts/create-webhook-user.sh "${{ env.SMGR_API_URL }}" "${{ env.SUPABASE_SERVICE_ROLE_KEY }}"
+        run: bash scripts/create-webhook-user.sh "${{ env.SITEMGR_API_URL }}" "${{ env.SUPABASE_SERVICE_ROLE_KEY }}"
 
       - name: Install Ollama
         run: curl -fsSL https://ollama.com/install.sh | sh
@@ -125,7 +125,7 @@ jobs:
 
       - name: Create storage bucket
         run: |
-          curl -sf -X POST "${{ env.SMGR_API_URL }}/storage/v1/bucket" \
+          curl -sf -X POST "${{ env.SITEMGR_API_URL }}/storage/v1/bucket" \
             -H "Authorization: Bearer ${{ env.SUPABASE_SERVICE_ROLE_KEY }}" \
             -H "Content-Type: application/json" \
             -d '{"id":"media","name":"media","public":false}' \

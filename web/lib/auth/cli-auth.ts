@@ -75,11 +75,11 @@ export function openBrowser(url: string): void {
 
 /**
  * Resolves the web API URL for the CLI.
- * SMGR_WEB_URL — Next.js web app URL (e.g. http://localhost:3000)
+ * SITEMGR_WEB_URL — Next.js web app URL (e.g. http://localhost:3000)
  */
 export function resolveApiConfig(): { webUrl: string } {
-  const webUrl = process.env.SMGR_WEB_URL?.trim();
-  if (!webUrl) throw new Error("SMGR_WEB_URL is required (e.g. http://localhost:3000)");
+  const webUrl = process.env.SITEMGR_WEB_URL?.trim();
+  if (!webUrl) throw new Error("SITEMGR_WEB_URL is required (e.g. http://localhost:3000)");
   return { webUrl };
 }
 
@@ -116,7 +116,7 @@ export async function login(deviceName?: string): Promise<StoredCredentials> {
 
   while (true) {
     if (Date.now() > expiresAtMs) {
-      throw new Error("Device code expired. Please run 'smgr login' again.");
+      throw new Error("Device code expired. Please run 'sitemgr login' again.");
     }
 
     await new Promise((r) => setTimeout(r, pollInterval));
@@ -136,7 +136,7 @@ export async function login(deviceName?: string): Promise<StoredCredentials> {
     if (pollData.status === "pending") continue;
 
     if (pollData.status === "expired") {
-      throw new Error("Device code expired. Please run 'smgr login' again.");
+      throw new Error("Device code expired. Please run 'sitemgr login' again.");
     }
 
     if (pollData.status === "denied") {

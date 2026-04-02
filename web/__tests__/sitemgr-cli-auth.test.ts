@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 
-describe("smgr CLI security checks (static analysis)", () => {
-  const source = readFileSync("bin/smgr.ts", "utf-8");
+describe("sitemgr CLI security checks (static analysis)", () => {
+  const source = readFileSync("bin/sitemgr.ts", "utf-8");
 
   it("does not import or use getAdminClient", () => {
     expect(source).not.toContain("getAdminClient");
