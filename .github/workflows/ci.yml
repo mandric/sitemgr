@@ -261,28 +261,37 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download unit coverage
+        id: dl-unit
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: unit-coverage
           path: unit-coverage/
 
       - name: Download integration coverage
+        id: dl-integration
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: integration-coverage
           path: integration-coverage/
 
+      - name: Check artifacts available
+        if: steps.dl-unit.outcome == 'failure' && steps.dl-integration.outcome == 'failure'
+        run: |
+          echo "No coverage artifacts available — upstream jobs may have been cancelled."
+          exit 0
+
       - name: Merge and generate HTML report
+        if: steps.dl-unit.outcome == 'success' || steps.dl-integration.outcome == 'success'
         run: |
           sudo apt-get install -y -qq lcov > /dev/null
-          lcov -a unit-coverage/lcov.info -a integration-coverage/lcov.info -o combined.info
+          ARGS=""
+          [ -f unit-coverage/lcov.info ] && ARGS="$ARGS -a unit-coverage/lcov.info"
+          [ -f integration-coverage/lcov.info ] && ARGS="$ARGS -a integration-coverage/lcov.info"
+          lcov $ARGS -o combined.info
           cd web && genhtml ../combined.info -o coverage-html --quiet
           cp ../combined.info coverage-html/lcov.info
-
-          # Generate shields.io badge endpoint
-          LINES_PCT=$(lcov --summary ../combined.info 2>&1 | grep 'lines' | grep -oP '[\d.]+(?=%)')
-          COLOR=$(node -e "const p=$LINES_PCT; console.log(p>=80?'brightgreen':p>=60?'green':p>=40?'yellow':p>=20?'orange':'red')")
-          echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${LINES_PCT}%\",\"color\":\"${COLOR}\"}" > coverage-html/badge.json
 
       - name: Extract coverage summary
         id: coverage
@@ -330,6 +339,11 @@ jobs:
               return `| ${icon} | \`${name}\` | ${lp} | ${fp} | ${bp} |`;
             }).join("\n");
 
+            const linesPct = tl > 0 ? (tlh / tl * 100) : 0;
+            const color = linesPct >= 80 ? "brightgreen" : linesPct >= 60 ? "green" : linesPct >= 40 ? "yellow" : linesPct >= 20 ? "orange" : "red";
+            const badge = { schemaVersion: 1, label: "coverage", message: linesPct.toFixed(1) + "%", color };
+            fs.writeFileSync("web/coverage-html/badge.json", JSON.stringify(badge));
+
             const output = JSON.stringify({
               lines: pct(tlh, tl),
               functions: pct(tfh, tf),
@@ -351,7 +365,7 @@ jobs:
             const repo = context.repo.repo;
             const pagesUrl = `https://${owner}.github.io/${repo}/`;
             const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
-            const isMain = context.payload.pull_request?.base?.ref === 'main' && context.payload.pull_request?.head?.ref === 'main';
+            const isMain = context.payload.pull_request?.base?.ref === 'main';
             const reportLink = isMain
               ? `[View full report](${pagesUrl})`
               : `[View baseline report](${pagesUrl})`;

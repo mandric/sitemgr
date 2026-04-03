@@ -282,7 +282,7 @@ Every CI run uploads downloadable artifacts:
 - `integration-coverage` — LCOV + HTML report from integration tests
 - `combined-coverage` — Merged LCOV + HTML report
 
-Download and open `html/index.html` for a local browsable report.
+Download and open `index.html` for a local browsable report.
 
 ### What Can and Can't Be Measured
 
