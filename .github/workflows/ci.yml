@@ -357,6 +357,26 @@ jobs:
         run: cd web && npm run test:e2e
         env:
           CI: true
+          NODE_V8_COVERAGE: /tmp/v8-coverage-e2e-web
+
+      - name: Convert E2E web server coverage
+        if: always()
+        run: |
+          if [ -d /tmp/v8-coverage-e2e-web ] && ls /tmp/v8-coverage-e2e-web/*.json >/dev/null 2>&1; then
+            cd web && npx c8 report \
+              --temp-directory=/tmp/v8-coverage-e2e-web \
+              --src=. \
+              --reports-dir=coverage \
+              --reporter=lcov \
+              --all
+            if [ -s coverage/lcov.info ]; then
+              echo "E2E web server coverage: $(wc -l < coverage/lcov.info) lines"
+            else
+              rm -f coverage/lcov.info
+            fi
+          else
+            echo "No V8 coverage data from E2E web dev server"
+          fi
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -364,6 +384,15 @@ jobs:
           name: playwright-report
           path: web/playwright-report/
           retention-days: 30
+
+      - name: Upload e2e-web coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-web-coverage
+          path: web/coverage/
+          retention-days: 14
+          if-no-files-found: ignore
 
       - name: Stop Supabase
         if: always()
@@ -375,7 +404,7 @@ jobs:
 
   coverage-report:
     name: Combined Coverage Report
-    needs: [unit-tests, integration-tests, e2e-cli-tests]
+    needs: [unit-tests, integration-tests, e2e-cli-tests, e2e-tests]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -408,20 +437,29 @@ jobs:
           name: e2e-cli-coverage
           path: e2e-cli-coverage/
 
+      - name: Download e2e-web coverage
+        id: dl-e2e-web
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-web-coverage
+          path: e2e-web-coverage/
+
       - name: Check artifacts available
-        if: steps.dl-unit.outcome == 'failure' && steps.dl-integration.outcome == 'failure' && steps.dl-e2e-cli.outcome == 'failure'
+        if: steps.dl-unit.outcome == 'failure' && steps.dl-integration.outcome == 'failure' && steps.dl-e2e-cli.outcome == 'failure' && steps.dl-e2e-web.outcome == 'failure'
         run: |
           echo "No coverage artifacts available — upstream jobs may have been cancelled."
           exit 0
 
       - name: Merge coverage data
-        if: steps.dl-unit.outcome == 'success' || steps.dl-integration.outcome == 'success' || steps.dl-e2e-cli.outcome == 'success'
+        if: steps.dl-unit.outcome == 'success' || steps.dl-integration.outcome == 'success' || steps.dl-e2e-cli.outcome == 'success' || steps.dl-e2e-web.outcome == 'success'
         run: |
           sudo apt-get install -y -qq lcov > /dev/null
           ARGS=""
           [ -f unit-coverage/lcov.info ] && ARGS="$ARGS -a unit-coverage/lcov.info"
           [ -f integration-coverage/lcov.info ] && ARGS="$ARGS -a integration-coverage/lcov.info"
           [ -f e2e-cli-coverage/lcov.info ] && ARGS="$ARGS -a e2e-cli-coverage/lcov.info"
+          [ -f e2e-web-coverage/lcov.info ] && ARGS="$ARGS -a e2e-web-coverage/lcov.info"
           lcov $ARGS -o combined.info
 
       - name: Extract coverage summary
