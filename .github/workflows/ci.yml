@@ -380,12 +380,13 @@ jobs:
         run: |
           sudo apt-get install -y -qq lcov > /dev/null
           source scripts/lib.sh
-          merge_lcov combined.info \
-            unit-coverage/lcov.info \
-            integration-coverage/lcov.info \
-            e2e-cli-coverage/lcov.info \
-            e2e-web-coverage/lcov.info
-          if [ -f combined.info ]; then
+          ARGS=""
+          for f in unit-coverage integration-coverage e2e-cli-coverage e2e-web-coverage; do
+            [ -s "$f/lcov.info" ] && ARGS="$ARGS -a $f/lcov.info"
+          done
+          if [ -n "$ARGS" ]; then
+            # shellcheck disable=SC2086
+            merge_lcov combined.info $ARGS
             node scripts/coverage-summary.mjs combined.info pages-output
           fi
 

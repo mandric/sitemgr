@@ -97,23 +97,9 @@ convert_v8_coverage() {
 #   merge_lcov combined.info unit/lcov.info integration/lcov.info e2e/lcov.info
 # ---------------------------------------------------------------------------
 merge_lcov() {
-  local output="${1:?Usage: merge_lcov <output> <input1> [input2] ...}"
+  local output="${1:?Usage: merge_lcov <output> -a <input1> [-a <input2>] ...}"
   shift
-
-  local args=()
-  for f in "$@"; do
-    if [ -s "$f" ]; then
-      args+=(-a "$f")
-    fi
-  done
-
-  if [ ${#args[@]} -eq 0 ]; then
-    echo "No coverage files to merge"
-    return 0
-  fi
-
-  echo "Merging ${#args[@]} LCOV inputs..."
-  lcov "${args[@]}" -o "$output"
+  lcov "$@" -o "$output"
 }
 
 # ---------------------------------------------------------------------------
