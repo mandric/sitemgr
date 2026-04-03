@@ -24,8 +24,6 @@ This applies to error objects too — preserve the full object (`code`, `details
 - `ENCRYPTION_KEY_CURRENT` - Active key for new encryptions (required wherever the Next.js app runs: production, preview, local dev, E2E)
 - `ENCRYPTION_KEY_PREVIOUS` - Old key for decryption during rotation (optional in production)
 - `ENCRYPTION_KEY_NEXT` - Future key for gradual rollout (optional in production)
-- **DO NOT USE**: `ENCRYPTION_KEY`, `ENCRYPTION_KEY_V1`, `ENCRYPTION_KEY_V2`, `ENCRYPTION_KEY_V3` (legacy, removed)
-- **DO NOT USE**: `SUPABASE_SECRET_KEY` (renamed to `SUPABASE_SERVICE_ROLE_KEY`, removed from runtime)
 
 **Supabase Service Role Key (Test/Admin + Device Auth Exception):**
 - Application code (CLI, agent core, health endpoint, webhook handler) **never** uses the service role key
