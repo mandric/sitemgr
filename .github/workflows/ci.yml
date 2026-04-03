@@ -77,7 +77,7 @@ jobs:
         if: always()
         run: |
           sudo apt-get install -y -qq lcov > /dev/null
-          genhtml web/coverage/lcov.info -o web/coverage/html --quiet
+          cd web && genhtml coverage/lcov.info -o coverage/html --quiet
 
       - name: Upload unit coverage artifact
         if: always()
@@ -176,7 +176,7 @@ jobs:
         if: always()
         run: |
           sudo apt-get install -y -qq lcov > /dev/null
-          genhtml web/coverage/lcov.info -o web/coverage/html --quiet
+          cd web && genhtml coverage/lcov.info -o coverage/html --quiet
 
       - name: Upload integration coverage artifact
         if: always()
