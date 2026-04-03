@@ -65,7 +65,7 @@ jobs:
         run: cd web && npm ci
 
       - name: Run unit tests with coverage
-        run: cd web && npx vitest run --project unit --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=lcov --coverage.include='lib/**'
+        run: cd web && npx vitest run --project unit --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=json --coverage.reporter=lcov --coverage.include='lib/**'
 
       - name: Report unit test coverage on PR
         if: always() && github.event_name == 'pull_request'
@@ -74,6 +74,8 @@ jobs:
           working-directory: web
           name: Unit Tests
           json-summary-path: coverage/coverage-summary.json
+          json-final-path: coverage/coverage-final.json
+          file-coverage-mode: all
 
       - name: Generate HTML coverage report
         if: always()
@@ -164,7 +166,7 @@ jobs:
       # tests use fetch() against a separate Next.js process and can't be
       # instrumented by V8.
       - name: Run integration tests with coverage
-        run: cd web && npx vitest run --project integration --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=lcov --coverage.include='lib/**'
+        run: cd web && npx vitest run --project integration --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=json --coverage.reporter=lcov --coverage.include='lib/**'
 
       - name: Report integration test coverage on PR
         if: always() && github.event_name == 'pull_request'
@@ -173,6 +175,8 @@ jobs:
           working-directory: web
           name: Integration Tests (direct-call only)
           json-summary-path: coverage/coverage-summary.json
+          json-final-path: coverage/coverage-final.json
+          file-coverage-mode: all
 
       - name: Generate HTML coverage report
         if: always()
