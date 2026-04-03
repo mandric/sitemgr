@@ -32,7 +32,7 @@ const execFile = promisify(execFileCb);
 
 const CLI_PATH = resolve(__dirname, "../../bin/sitemgr.ts");
 const TSX_PATH = resolve(__dirname, "../../node_modules/.bin/tsx");
-const FIXTURES_DIR = resolve(__dirname, "../integration/fixtures");
+const FIXTURES_DIR = resolve(__dirname, "fixtures");
 
 // ── Shared state across sequential tests ─────────────────────
 
