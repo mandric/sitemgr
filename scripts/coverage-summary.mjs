@@ -161,7 +161,6 @@ if (jobSummaryFile) {
 
 ### Summary
 
-- **Sources:** ${sources.length > 0 ? sources.join(", ") : "all available"}
 - **Files:** ${sorted.length} total
 
 | Metric | Percentage | Covered / Total |
