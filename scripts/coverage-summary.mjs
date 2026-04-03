@@ -33,23 +33,17 @@ if (!lcovFile) {
 
 const lcov = readFileSync(lcovFile, "utf8");
 
-// Paths to exclude from the report (build artifacts, config files, test files)
-const EXCLUDE = [
-  /^\.next\//,
-  /node_modules\//,
-  /^e2e\//,
-  /^__tests__\//,
-  /\.config\.(ts|js|mjs)$/,
-  /^postcss\./,
-  /^eslint\./,
-  /^middleware\.ts$/,
-  /^instrumentation\.ts$/,
-  /^vitest\.config/,
-  /^playwright\.config/,
+// Paths to include in the report (app source code only)
+const INCLUDE = [
+  /^lib\//,
+  /^app\//,
+  /^components\//,
+  /^bin\//,
+  /^\.next\/.*\/app\/api\/.*route\.(js|ts)$/,  // compiled route handlers (server V8 coverage)
 ];
 
 function shouldInclude(path) {
-  return !EXCLUDE.some((re) => re.test(path));
+  return INCLUDE.some((re) => re.test(path));
 }
 
 // Parse LCOV into per-file stats
