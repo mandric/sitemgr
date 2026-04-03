@@ -283,25 +283,59 @@ jobs:
         run: |
           node -e '
             const fs = require("fs");
-            const unit = JSON.parse(fs.readFileSync("unit-coverage/coverage-summary.json"));
-            const integ = JSON.parse(fs.readFileSync("integration-coverage/coverage-summary.json"));
-            const u = unit.total, g = integ.total;
-            const merge = (a, b) => ({
-              total: Math.max(a.total, b.total),
-              covered: a.covered + b.covered - Math.min(a.covered, b.covered),
-              pct: 0
+            const lcov = fs.readFileSync("combined.info", "utf8");
+
+            // Parse LCOV into per-file stats
+            const files = {};
+            let current = null;
+            for (const line of lcov.split("\n")) {
+              if (line.startsWith("SF:")) {
+                current = line.slice(3);
+                files[current] = { linesHit: 0, linesTotal: 0, fnHit: 0, fnTotal: 0, brHit: 0, brTotal: 0 };
+              } else if (current && line.startsWith("LH:")) files[current].linesHit = +line.slice(3);
+              else if (current && line.startsWith("LF:")) files[current].linesTotal = +line.slice(3);
+              else if (current && line.startsWith("FNH:")) files[current].fnHit = +line.slice(4);
+              else if (current && line.startsWith("FNF:")) files[current].fnTotal = +line.slice(4);
+              else if (current && line.startsWith("BRH:")) files[current].brHit = +line.slice(4);
+              else if (current && line.startsWith("BRF:")) files[current].brTotal = +line.slice(4);
+              else if (line === "end_of_record") current = null;
+            }
+
+            // Totals
+            let tl = 0, tlh = 0, tf = 0, tfh = 0, tb = 0, tbh = 0;
+            for (const f of Object.values(files)) {
+              tl += f.linesTotal; tlh += f.linesHit;
+              tf += f.fnTotal; tfh += f.fnHit;
+              tb += f.brTotal; tbh += f.brHit;
+            }
+            const pct = (n, d) => d > 0 ? (n / d * 100).toFixed(1) + "%" : "N/A";
+
+            // Build file table rows sorted by line coverage ascending (worst first)
+            const sorted = Object.entries(files).sort((a, b) => {
+              const pa = a[1].linesTotal > 0 ? a[1].linesHit / a[1].linesTotal : 1;
+              const pb = b[1].linesTotal > 0 ? b[1].linesHit / b[1].linesTotal : 1;
+              return pa - pb;
             });
-            // For combined: use lcov summary for lines/functions (accurate merge),
-            // use max of individual json-summaries for statements/branches (approximation)
-            const fmt = (n) => n.toFixed(1) + "%";
-            const stmts = { total: u.statements.total, covered: Math.max(u.statements.covered, g.statements.covered) };
-            const branches = { total: u.branches.total, covered: Math.max(u.branches.covered, g.branches.covered) };
-            console.log("statements=" + fmt(stmts.covered / stmts.total * 100));
-            console.log("branches=" + fmt(branches.covered / branches.total * 100));
-          ' >> "$GITHUB_OUTPUT"
-          SUMMARY=$(lcov --summary combined.info 2>&1)
-          echo "lines=$(echo "$SUMMARY" | grep 'lines' | grep -oP '[\d.]+%')" >> "$GITHUB_OUTPUT"
-          echo "functions=$(echo "$SUMMARY" | grep 'functions' | grep -oP '[\d.]+%')" >> "$GITHUB_OUTPUT"
+            const rows = sorted.map(([name, f]) => {
+              const lp = pct(f.linesHit, f.linesTotal);
+              const fp = pct(f.fnHit, f.fnTotal);
+              const bp = pct(f.brHit, f.brTotal);
+              const icon = f.linesTotal === 0 ? "⚪" : f.linesHit / f.linesTotal >= 0.8 ? "🟢" : f.linesHit / f.linesTotal >= 0.5 ? "🟡" : "🔴";
+              return `| ${icon} | \`${name}\` | ${lp} | ${fp} | ${bp} |`;
+            }).join("\n");
+
+            const output = JSON.stringify({
+              lines: pct(tlh, tl),
+              functions: pct(tfh, tf),
+              branches: pct(tbh, tb),
+              fileTable: rows,
+              fileCount: sorted.length
+            });
+            fs.writeFileSync("coverage-summary.json", output);
+          '
+          echo "data<<COVERAGE_EOF" >> "$GITHUB_OUTPUT"
+          cat coverage-summary.json >> "$GITHUB_OUTPUT"
+          echo "COVERAGE_EOF" >> "$GITHUB_OUTPUT"
 
       - name: Post coverage comment on PR
         if: github.event_name == 'pull_request'
@@ -313,17 +347,26 @@ jobs:
             const pagesUrl = `https://${owner}.github.io/${repo}/`;
             const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
             const marker = '<!-- combined-coverage-report -->';
+            const data = ${{ steps.coverage.outputs.data }};
             const body = [
               '## Combined Coverage (Unit + Integration)',
               '',
               '| Metric | Coverage |',
               '|--------|----------|',
-              '| Lines | **${{ steps.coverage.outputs.lines }}** |',
-              '| Statements | **${{ steps.coverage.outputs.statements }}** |',
-              '| Functions | **${{ steps.coverage.outputs.functions }}** |',
-              '| Branches | **${{ steps.coverage.outputs.branches }}** |',
+              `| Lines | **${data.lines}** |`,
+              `| Functions | **${data.functions}** |`,
+              `| Branches | **${data.branches}** |`,
               '',
               `[View full report](${pagesUrl}) · [Download artifact](${runUrl}#artifacts)`,
+              '',
+              '<details>',
+              `<summary>File Coverage (${data.fileCount} files)</summary>`,
+              '',
+              '| | File | Lines | Functions | Branches |',
+              '|---|------|-------|-----------|----------|',
+              data.fileTable,
+              '',
+              '</details>',
               '',
               marker,
             ].join('\n');
