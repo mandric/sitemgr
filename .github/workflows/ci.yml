@@ -159,28 +159,55 @@ jobs:
             -d '{"id":"media","name":"media","public":false}' \
             || echo "Bucket may already exist"
 
-      # Coverage note: Only direct-function-call tests (schema-contract,
-      # media-storage, tenant-isolation, etc.) contribute coverage. The api-*
-      # tests use fetch() against a separate Next.js process and can't be
-      # instrumented by V8.
+      # Coverage: vitest collects in-process coverage (direct-call tests).
+      # The globalSetup spawns the Next.js dev server with NODE_V8_COVERAGE,
+      # so route handler coverage is captured when the server exits.
       - name: Run integration tests with coverage
         run: cd web && npx vitest run --project integration --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=json --coverage.reporter=lcov --coverage.include='lib/**' --coverage.include='components/**' --coverage.include='bin/**'
+
+      - name: Convert Next.js server coverage
+        if: always()
+        run: |
+          if [ -d /tmp/v8-coverage-nextjs ] && ls /tmp/v8-coverage-nextjs/*.json >/dev/null 2>&1; then
+            cd web && npx c8 report \
+              --temp-directory=/tmp/v8-coverage-nextjs \
+              --src=. \
+              --reports-dir=coverage-server \
+              --reporter=lcov \
+              --include='app/api/**' \
+              --include='lib/**' \
+              --exclude='node_modules/**'
+            echo "Server coverage written to web/coverage-server/lcov.info"
+          else
+            echo "No V8 coverage data from dev server (may not have been spawned by globalSetup)"
+          fi
+
+      - name: Merge vitest + server coverage
+        if: always()
+        run: |
+          sudo apt-get install -y -qq lcov > /dev/null
+          cd web
+          if [ -f coverage-server/lcov.info ]; then
+            lcov -a coverage/lcov.info -a coverage-server/lcov.info -o coverage/lcov-merged.info
+            mv coverage/lcov-merged.info coverage/lcov.info
+            echo "Merged vitest + server coverage"
+          else
+            echo "No server coverage to merge — using vitest coverage only"
+          fi
 
       - name: Report integration test coverage on PR
         if: always() && github.event_name == 'pull_request'
         uses: davelosert/vitest-coverage-report-action@v2
         with:
           working-directory: web
-          name: Integration Tests (direct-call only)
+          name: Integration Tests
           json-summary-path: coverage/coverage-summary.json
           json-final-path: coverage/coverage-final.json
           file-coverage-mode: all
 
       - name: Generate HTML coverage report
         if: always()
-        run: |
-          sudo apt-get install -y -qq lcov > /dev/null
-          cd web && genhtml coverage/lcov.info -o coverage/html --quiet
+        run: cd web && genhtml coverage/lcov.info -o coverage/html --quiet
 
       - name: Upload integration coverage artifact
         if: always()
