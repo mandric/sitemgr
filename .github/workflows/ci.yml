@@ -162,24 +162,8 @@ jobs:
       - name: Convert Next.js server coverage
         if: always()
         run: |
-          if [ -d /tmp/v8-coverage-nextjs ] && ls /tmp/v8-coverage-nextjs/*.json >/dev/null 2>&1; then
-            echo "V8 coverage files found:"
-            ls -la /tmp/v8-coverage-nextjs/
-            cd web && npx c8 report \
-              --temp-directory=/tmp/v8-coverage-nextjs \
-              --src=. \
-              --reports-dir=coverage-server \
-              --reporter=lcov \
-              --all
-            if [ -s coverage-server/lcov.info ]; then
-              echo "Server coverage: $(wc -l < coverage-server/lcov.info) lines"
-            else
-              echo "Server coverage LCOV is empty — V8 data may not map to source files"
-              rm -f coverage-server/lcov.info
-            fi
-          else
-            echo "No V8 coverage data from dev server (may not have been spawned by globalSetup)"
-          fi
+          source scripts/lib.sh
+          convert_v8_coverage /tmp/v8-coverage-nextjs coverage-server web
 
       - name: Merge vitest + server coverage
         if: always()
@@ -288,22 +272,8 @@ jobs:
       - name: Convert Next.js server coverage
         if: always()
         run: |
-          if [ -d /tmp/v8-coverage-nextjs ] && ls /tmp/v8-coverage-nextjs/*.json >/dev/null 2>&1; then
-            cd web && npx c8 report \
-              --temp-directory=/tmp/v8-coverage-nextjs \
-              --src=. \
-              --reports-dir=coverage \
-              --reporter=lcov \
-              --all
-            if [ -s coverage/lcov.info ]; then
-              echo "E2E CLI server coverage: $(wc -l < coverage/lcov.info) lines"
-            else
-              echo "E2E CLI server coverage LCOV is empty"
-              rm -f coverage/lcov.info
-            fi
-          else
-            echo "No V8 coverage data from dev server"
-          fi
+          source scripts/lib.sh
+          convert_v8_coverage /tmp/v8-coverage-nextjs coverage web
 
       - name: Upload e2e-cli coverage artifact
         if: always()
@@ -362,21 +332,8 @@ jobs:
       - name: Convert E2E web server coverage
         if: always()
         run: |
-          if [ -d /tmp/v8-coverage-e2e-web ] && ls /tmp/v8-coverage-e2e-web/*.json >/dev/null 2>&1; then
-            cd web && npx c8 report \
-              --temp-directory=/tmp/v8-coverage-e2e-web \
-              --src=. \
-              --reports-dir=coverage \
-              --reporter=lcov \
-              --all
-            if [ -s coverage/lcov.info ]; then
-              echo "E2E web server coverage: $(wc -l < coverage/lcov.info) lines"
-            else
-              rm -f coverage/lcov.info
-            fi
-          else
-            echo "No V8 coverage data from E2E web dev server"
-          fi
+          source scripts/lib.sh
+          convert_v8_coverage /tmp/v8-coverage-e2e-web coverage web
 
       - uses: actions/upload-artifact@v4
         if: always()
