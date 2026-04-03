@@ -282,6 +282,7 @@ jobs:
             node scripts/coverage-summary.mjs web/coverage/lcov.info web/coverage \
               --repo "${{ github.repository }}" \
               --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+              --title "E2E CLI Tests Coverage" \
               --job-summary "$GITHUB_STEP_SUMMARY"
           fi
 
@@ -372,6 +373,7 @@ jobs:
             node scripts/coverage-summary.mjs web/coverage/lcov-e2e-web-combined.info web/coverage \
               --repo "${{ github.repository }}" \
               --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+              --title "Web E2E Tests Coverage" \
               --job-summary "$GITHUB_STEP_SUMMARY"
           fi
 
@@ -433,6 +435,7 @@ jobs:
             node scripts/coverage-summary.mjs combined.info pages-output \
               --repo "${{ github.repository }}" \
               --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+              --title "Combined Coverage Report" \
               --job-summary "$GITHUB_STEP_SUMMARY"
           fi
 

@@ -20,9 +20,11 @@ const outputDir = args.filter(a => !a.startsWith("--"))[1] || ".";
 const repoFlag = args.indexOf("--repo");
 const shaFlag = args.indexOf("--sha");
 const summaryFlag = args.indexOf("--job-summary");
+const titleFlag = args.indexOf("--title");
 const repo = repoFlag >= 0 ? args[repoFlag + 1] : null;
 const sha = shaFlag >= 0 ? args[shaFlag + 1] : null;
 const jobSummaryFile = summaryFlag >= 0 ? args[summaryFlag + 1] : null;
+const title = titleFlag >= 0 ? args[titleFlag + 1] : "Combined Coverage Report";
 
 if (!lcovFile) {
   console.error("Usage: node scripts/coverage-summary.mjs <lcov-file> [output-dir] [--repo owner/repo] [--sha sha]");
@@ -192,7 +194,7 @@ if (jobSummaryFile) {
     return `<tr><td>${ref}</td><td>${lp}</td><td>${bp}</td><td>${fp}</td><td>${lp}</td><td></td></tr>`;
   }).join("\n");
 
-  const summary = `## Combined Coverage Report
+  const summary = `## ${title}
 
 ### Summary
 
