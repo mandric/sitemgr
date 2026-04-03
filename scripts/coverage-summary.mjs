@@ -11,7 +11,7 @@
  *   node scripts/coverage-summary.mjs combined.info pages-output
  *   node scripts/coverage-summary.mjs combined.info pages-output --repo mandric/sitemgr --sha abc123
  */
-import { readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 // Parse args
 const args = process.argv.slice(2);
@@ -145,40 +145,9 @@ const rows = sorted.map(([name, f]) => {
   return `| ${icon} | ${fileRef(name)} | ${lp} | ${fp} | ${lp} | ${uncovered} |`;
 }).join("\n");
 
-// Detect which input LCOV sources contributed (check for well-known artifact dirs)
-const sources = [];
-for (const dir of ["unit-coverage", "integration-coverage", "e2e-cli-coverage", "e2e-web-coverage", "e2e-web-client-coverage"]) {
-  try {
-    const entries = readdirSync(dir);
-    if (entries.includes("lcov.info")) {
-      sources.push(dir.replace("-coverage", ""));
-    }
-  } catch { /* dir doesn't exist */ }
-}
-
-// Badge
 const linesPct = tl > 0 ? (tlh / tl * 100) : 0;
-const color = linesPct >= 80 ? "brightgreen" : linesPct >= 60 ? "green" : linesPct >= 40 ? "yellow" : linesPct >= 20 ? "orange" : "red";
-
-// Write outputs
-mkdirSync(outputDir, { recursive: true });
-
-writeFileSync(`${outputDir}/badge.json`, JSON.stringify({
-  schemaVersion: 1, label: "coverage", message: linesPct.toFixed(1) + "%", color,
-}));
-
-writeFileSync(`${outputDir}/coverage-summary.json`, JSON.stringify({
-  lines: pct(tlh, tl),
-  functions: pct(tfh, tf),
-  branches: pct(tbh, tb),
-  fileTable: rows,
-  fileCount: sorted.length,
-  sources,
-}));
 
 console.log(`Coverage: ${linesPct.toFixed(1)}% lines (${tlh}/${tl}), ${sorted.length} files`);
-console.log(`Sources: ${sources.length > 0 ? sources.join(", ") : "unknown"}`);
-console.log(`Written: ${outputDir}/badge.json, ${outputDir}/coverage-summary.json`);
 
 // Job summary (for GitHub Actions $GITHUB_STEP_SUMMARY)
 if (jobSummaryFile) {

@@ -260,29 +260,21 @@ supabase db reset    # Wipes and replays all migrations
 
 ## Coverage Pipeline
 
-Coverage is collected from all test tiers — both server-side (Node.js) and client-side (browser) — merged, and published in three places:
+Coverage is collected from all test tiers — both server-side (Node.js) and client-side (browser) — merged, and visible on the CI workflow summary page.
 
-### PR Comments
+### Workflow Summary Page
 
-Every PR gets three coverage comments (auto-updated on each push):
-- **Unit Tests** — per-file coverage of `lib/` from unit tests
-- **Integration Tests (direct-call only)** — per-file coverage of `lib/` from integration tests
-- **Combined Coverage** — merged totals with a collapsible per-file breakdown
-
-### GitHub Pages
-
-On merge to `main`, the combined HTML report is deployed to `https://mandric.github.io/sitemgr/`. This is the canonical coverage report — browsable, line-by-line, file-by-file.
-
-A `badge.json` endpoint is published alongside for the README coverage badge.
+Each CI job writes a coverage summary to GitHub Actions' Job Summary. Click any workflow run to see per-job coverage tables with file-level detail and links to uncovered lines. The Combined Coverage Report job merges all sources into one view.
 
 ### Artifacts
 
-Every CI run uploads downloadable artifacts:
+Every CI run uploads downloadable LCOV artifacts:
 - `unit-coverage` — LCOV + HTML report from unit tests
 - `integration-coverage` — LCOV + HTML report from integration tests
-- `combined-coverage` — Merged LCOV + HTML report
-
-Download and open `index.html` for a local browsable report.
+- `e2e-cli-coverage` — LCOV from E2E CLI server coverage
+- `e2e-web-coverage` — LCOV from E2E Web server coverage
+- `e2e-web-client-coverage` — LCOV from E2E Web browser coverage
+- `combined-coverage` — Merged LCOV from all sources
 
 ### What Can and Can't Be Measured
 
@@ -315,7 +307,7 @@ Coverage numbers reflect "what percentage of our application code is exercised b
 
 ### CI Permissions
 
-The CI workflow follows least-privilege: `contents: read` and `pull-requests: write` at the workflow level. Only the `coverage-report` job elevates to `contents: write` (needed to push to `gh-pages`). This means lint, build, test, and e2e jobs cannot modify repository contents even if compromised.
+The CI workflow follows least-privilege: `contents: read` and `pull-requests: write` at the workflow level. No job needs elevated permissions — coverage is reported via job summaries (no git push needed).
 
 ### How the Merge Works
 
@@ -326,8 +318,7 @@ The CI workflow follows least-privilege: `contents: read` and `pull-requests: wr
 5. The Combined Coverage Report job downloads unit + integration artifacts
 6. `lcov -a unit.lcov -a integration.lcov -o combined.info` merges them
 7. `genhtml` produces the browsable HTML report
-8. A node script parses the combined LCOV for per-file stats and posts the PR comment
-9. On `main`, `peaceiris/actions-gh-pages` deploys the HTML to the `gh-pages` branch
+8. A node script parses the combined LCOV for per-file stats and writes a job summary
 
 ### How Dev Server Coverage Works
 

@@ -1,7 +1,6 @@
 # sitemgr
 
 [![CI](https://github.com/mandric/sitemgr/actions/workflows/ci.yml/badge.svg)](https://github.com/mandric/sitemgr/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/endpoint?url=https://mandric.github.io/sitemgr/badge.json)](https://mandric.github.io/sitemgr/)
 
 Media management system with LLM enrichment and WhatsApp bot interface.
 
