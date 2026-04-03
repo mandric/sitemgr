@@ -87,6 +87,38 @@ convert_v8_coverage() {
 }
 
 # ---------------------------------------------------------------------------
+# merge_lcov — merge multiple LCOV files into one
+#
+# Usage: merge_lcov <output_file> <input_file1> [input_file2] ...
+#
+# Skips input files that don't exist or are empty. Requires lcov CLI.
+#
+# Example:
+#   merge_lcov combined.info unit/lcov.info integration/lcov.info e2e/lcov.info
+# ---------------------------------------------------------------------------
+merge_lcov() {
+  local output="${1:?Usage: merge_lcov <output> <input1> [input2] ...}"
+  shift
+
+  local args=""
+  local count=0
+  for f in "$@"; do
+    if [ -s "$f" ]; then
+      args="$args -a $f"
+      count=$((count + 1))
+    fi
+  done
+
+  if [ "$count" -eq 0 ]; then
+    echo "No coverage files to merge"
+    return 0
+  fi
+
+  echo "Merging $count LCOV files..."
+  lcov $args -o "$output"
+}
+
+# ---------------------------------------------------------------------------
 # Supabase CLI version constants
 # ---------------------------------------------------------------------------
 # Minimum version with ES256 JWT fix (supabase/cli#4818)

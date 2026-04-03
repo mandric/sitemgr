@@ -370,124 +370,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download unit coverage
-        id: dl-unit
+      - name: Download coverage artifacts
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
-          name: unit-coverage
-          path: unit-coverage/
+          pattern: '*-coverage'
 
-      - name: Download integration coverage
-        id: dl-integration
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: integration-coverage
-          path: integration-coverage/
-
-      - name: Download e2e-cli coverage
-        id: dl-e2e-cli
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: e2e-cli-coverage
-          path: e2e-cli-coverage/
-
-      - name: Download e2e-web coverage
-        id: dl-e2e-web
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: e2e-web-coverage
-          path: e2e-web-coverage/
-
-      - name: Check artifacts available
-        if: steps.dl-unit.outcome == 'failure' && steps.dl-integration.outcome == 'failure' && steps.dl-e2e-cli.outcome == 'failure' && steps.dl-e2e-web.outcome == 'failure'
-        run: |
-          echo "No coverage artifacts available — upstream jobs may have been cancelled."
-          exit 0
-
-      - name: Merge coverage data
-        if: steps.dl-unit.outcome == 'success' || steps.dl-integration.outcome == 'success' || steps.dl-e2e-cli.outcome == 'success' || steps.dl-e2e-web.outcome == 'success'
+      - name: Merge coverage and generate summary
         run: |
           sudo apt-get install -y -qq lcov > /dev/null
-          ARGS=""
-          [ -f unit-coverage/lcov.info ] && ARGS="$ARGS -a unit-coverage/lcov.info"
-          [ -f integration-coverage/lcov.info ] && ARGS="$ARGS -a integration-coverage/lcov.info"
-          [ -f e2e-cli-coverage/lcov.info ] && ARGS="$ARGS -a e2e-cli-coverage/lcov.info"
-          [ -f e2e-web-coverage/lcov.info ] && ARGS="$ARGS -a e2e-web-coverage/lcov.info"
-          lcov $ARGS -o combined.info
-
-      - name: Extract coverage summary
-        id: coverage
-        run: |
-          node -e '
-            const fs = require("fs");
-            const lcov = fs.readFileSync("combined.info", "utf8");
-
-            // Parse LCOV into per-file stats
-            const files = {};
-            let current = null;
-            for (const line of lcov.split("\n")) {
-              if (line.startsWith("SF:")) {
-                current = line.slice(3);
-                files[current] = { linesHit: 0, linesTotal: 0, fnHit: 0, fnTotal: 0, brHit: 0, brTotal: 0 };
-              } else if (current && line.startsWith("LH:")) files[current].linesHit = +line.slice(3);
-              else if (current && line.startsWith("LF:")) files[current].linesTotal = +line.slice(3);
-              else if (current && line.startsWith("FNH:")) files[current].fnHit = +line.slice(4);
-              else if (current && line.startsWith("FNF:")) files[current].fnTotal = +line.slice(4);
-              else if (current && line.startsWith("BRH:")) files[current].brHit = +line.slice(4);
-              else if (current && line.startsWith("BRF:")) files[current].brTotal = +line.slice(4);
-              else if (line === "end_of_record") current = null;
-            }
-
-            // Totals
-            let tl = 0, tlh = 0, tf = 0, tfh = 0, tb = 0, tbh = 0;
-            for (const f of Object.values(files)) {
-              tl += f.linesTotal; tlh += f.linesHit;
-              tf += f.fnTotal; tfh += f.fnHit;
-              tb += f.brTotal; tbh += f.brHit;
-            }
-            const pct = (n, d) => d > 0 ? (n / d * 100).toFixed(1) + "%" : "N/A";
-
-            // Build file table rows sorted by line coverage ascending (worst first)
-            const sorted = Object.entries(files).sort((a, b) => {
-              const pa = a[1].linesTotal > 0 ? a[1].linesHit / a[1].linesTotal : 1;
-              const pb = b[1].linesTotal > 0 ? b[1].linesHit / b[1].linesTotal : 1;
-              return pa - pb;
-            });
-            const rows = sorted.map(([name, f]) => {
-              const lp = pct(f.linesHit, f.linesTotal);
-              const fp = pct(f.fnHit, f.fnTotal);
-              const bp = pct(f.brHit, f.brTotal);
-              const icon = f.linesTotal === 0 ? "⚪" : f.linesHit / f.linesTotal >= 0.8 ? "🟢" : f.linesHit / f.linesTotal >= 0.5 ? "🟡" : "🔴";
-              return `| ${icon} | \`${name}\` | ${lp} | ${fp} | ${bp} |`;
-            }).join("\n");
-
-            const linesPct = tl > 0 ? (tlh / tl * 100) : 0;
-            const color = linesPct >= 80 ? "brightgreen" : linesPct >= 60 ? "green" : linesPct >= 40 ? "yellow" : linesPct >= 20 ? "orange" : "red";
-            const badge = { schemaVersion: 1, label: "coverage", message: linesPct.toFixed(1) + "%", color };
-            fs.mkdirSync("pages-output", { recursive: true });
-            fs.writeFileSync("pages-output/badge.json", JSON.stringify(badge));
-
-            const output = JSON.stringify({
-              lines: pct(tlh, tl),
-              functions: pct(tfh, tf),
-              branches: pct(tbh, tb),
-              fileTable: rows,
-              fileCount: sorted.length
-            });
-            fs.writeFileSync("coverage-summary.json", output);
-          '
+          source scripts/lib.sh
+          merge_lcov combined.info \
+            unit-coverage/lcov.info \
+            integration-coverage/lcov.info \
+            e2e-cli-coverage/lcov.info \
+            e2e-web-coverage/lcov.info
+          if [ -f combined.info ]; then
+            node scripts/coverage-summary.mjs combined.info pages-output
+          fi
 
       - name: Post coverage comment on PR
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && hashFiles('pages-output/coverage-summary.json') != ''
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const data = JSON.parse(fs.readFileSync('coverage-summary.json', 'utf8'));
+            const data = JSON.parse(fs.readFileSync('pages-output/coverage-summary.json', 'utf8'));
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const pagesUrl = `https://${owner}.github.io/${repo}/`;
@@ -541,12 +449,13 @@ jobs:
             }
 
       - name: Upload combined coverage artifact
+        if: hashFiles('combined.info') != ''
         uses: actions/upload-artifact@v4
         with:
           name: combined-coverage
           path: |
             combined.info
-            coverage-summary.json
+            pages-output/
           retention-days: 14
 
       - name: Prepare GitHub Pages content
