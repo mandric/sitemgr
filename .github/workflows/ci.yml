@@ -163,21 +163,26 @@ jobs:
       # The globalSetup spawns the Next.js dev server with NODE_V8_COVERAGE,
       # so route handler coverage is captured when the server exits.
       - name: Run integration tests with coverage
-        run: cd web && npx vitest run --project integration --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=json --coverage.reporter=lcov --coverage.include='lib/**' --coverage.include='components/**' --coverage.include='bin/**'
+        run: cd web && npx vitest run --project integration --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=json --coverage.reporter=lcov --coverage.include='lib/**'
 
       - name: Convert Next.js server coverage
         if: always()
         run: |
           if [ -d /tmp/v8-coverage-nextjs ] && ls /tmp/v8-coverage-nextjs/*.json >/dev/null 2>&1; then
+            echo "V8 coverage files found:"
+            ls -la /tmp/v8-coverage-nextjs/
             cd web && npx c8 report \
               --temp-directory=/tmp/v8-coverage-nextjs \
               --src=. \
               --reports-dir=coverage-server \
               --reporter=lcov \
-              --include='app/api/**' \
-              --include='lib/**' \
-              --exclude='node_modules/**'
-            echo "Server coverage written to web/coverage-server/lcov.info"
+              --all
+            if [ -s coverage-server/lcov.info ]; then
+              echo "Server coverage: $(wc -l < coverage-server/lcov.info) lines"
+            else
+              echo "Server coverage LCOV is empty — V8 data may not map to source files"
+              rm -f coverage-server/lcov.info
+            fi
           else
             echo "No V8 coverage data from dev server (may not have been spawned by globalSetup)"
           fi
