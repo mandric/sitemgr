@@ -7,10 +7,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
-  pages: write
-  id-token: write
 
 jobs:
   lint:
@@ -256,6 +254,9 @@ jobs:
     needs: [unit-tests, integration-tests]
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      contents: write      # push to gh-pages branch
+      pull-requests: write  # post PR comments
     steps:
       - uses: actions/checkout@v4
 

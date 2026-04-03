@@ -296,6 +296,10 @@ Download and open `html/index.html` for a local browsable report.
 
 The coverage numbers reflect unit + direct-call integration tests only. Fetch-based and E2E tests verify correctness but don't contribute to coverage metrics.
 
+### CI Permissions
+
+The CI workflow follows least-privilege: `contents: read` and `pull-requests: write` at the workflow level. Only the `coverage-report` job elevates to `contents: write` (needed to push to `gh-pages`). This means lint, build, test, and e2e jobs cannot modify repository contents even if compromised.
+
 ### How the Merge Works
 
 1. Unit and integration jobs each run vitest with `--coverage` producing LCOV + json-summary
