@@ -275,6 +275,16 @@ jobs:
           source scripts/lib.sh
           convert_v8_coverage /tmp/v8-coverage-nextjs coverage web
 
+      - name: Generate E2E CLI coverage summary
+        if: always()
+        run: |
+          if [ -s web/coverage/lcov.info ]; then
+            node scripts/coverage-summary.mjs web/coverage/lcov.info web/coverage \
+              --repo "${{ github.repository }}" \
+              --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+              --job-summary "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Upload e2e-cli coverage artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -347,6 +357,23 @@ jobs:
         run: |
           source scripts/lib.sh
           convert_v8_coverage /tmp/v8-coverage-playwright-client coverage-client web
+
+      - name: Generate E2E Web coverage summary
+        if: always()
+        run: |
+          sudo apt-get install -y -qq lcov > /dev/null
+          source scripts/lib.sh
+          ARGS=""
+          [ -s web/coverage/lcov.info ] && ARGS="$ARGS -a web/coverage/lcov.info"
+          [ -s web/coverage-client/lcov.info ] && ARGS="$ARGS -a web/coverage-client/lcov.info"
+          if [ -n "$ARGS" ]; then
+            # shellcheck disable=SC2086
+            merge_lcov web/coverage/lcov-e2e-web-combined.info $ARGS
+            node scripts/coverage-summary.mjs web/coverage/lcov-e2e-web-combined.info web/coverage \
+              --repo "${{ github.repository }}" \
+              --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+              --job-summary "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload e2e-web server coverage
         if: always()
@@ -443,8 +470,8 @@ jobs:
               '<details>',
               `<summary>File Coverage (${data.fileCount} files)</summary>`,
               '',
-              '| | File | Lines | Functions | Branches |',
-              '|---|------|-------|-----------|----------|',
+              '| | File | Stmts | Functions | Lines | Uncovered Lines |',
+              '|---|------|-------|-----------|-------|-----------------|',
               data.fileTable,
               '',
               '</details>',

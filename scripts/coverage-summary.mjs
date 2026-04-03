@@ -59,7 +59,7 @@ for (const line of lcov.split("\n")) {
     const path = line.slice(3);
     if (shouldInclude(path)) {
       current = path;
-      files[current] = { linesHit: 0, linesTotal: 0, fnHit: 0, fnTotal: 0, brHit: 0, brTotal: 0 };
+      files[current] = { linesHit: 0, linesTotal: 0, fnHit: 0, fnTotal: 0, brHit: 0, brTotal: 0, uncoveredLines: [] };
       skip = false;
     } else {
       skip = true;
@@ -67,6 +67,9 @@ for (const line of lcov.split("\n")) {
     }
   } else if (skip && line === "end_of_record") {
     skip = false;
+  } else if (current && line.startsWith("DA:")) {
+    const parts = line.slice(3).split(",");
+    if (parts[1] === "0") files[current].uncoveredLines.push(+parts[0]);
   } else if (current && line.startsWith("LH:")) files[current].linesHit = +line.slice(3);
   else if (current && line.startsWith("LF:")) files[current].linesTotal = +line.slice(3);
   else if (current && line.startsWith("FNH:")) files[current].fnHit = +line.slice(4);
@@ -74,6 +77,36 @@ for (const line of lcov.split("\n")) {
   else if (current && line.startsWith("BRH:")) files[current].brHit = +line.slice(4);
   else if (current && line.startsWith("BRF:")) files[current].brTotal = +line.slice(4);
   else if (current && line === "end_of_record") current = null;
+}
+
+// Collapse consecutive line numbers into ranges: [1,2,3,5,7,8] → "1-3, 5, 7-8"
+function formatLineRanges(lines, repo, sha, filePath) {
+  if (lines.length === 0) return "";
+  const sorted = [...lines].sort((a, b) => a - b);
+  const ranges = [];
+  let start = sorted[0], end = sorted[0];
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i] === end + 1) {
+      end = sorted[i];
+    } else {
+      ranges.push([start, end]);
+      start = end = sorted[i];
+    }
+  }
+  ranges.push([start, end]);
+
+  // Limit to first 5 ranges to avoid huge cells
+  const display = ranges.slice(0, 5);
+  const more = ranges.length > 5 ? `, +${ranges.length - 5} more` : "";
+
+  return display.map(([s, e]) => {
+    const label = s === e ? `${s}` : `${s}-${e}`;
+    if (repo && sha) {
+      const path = filePath.startsWith("web/") ? filePath : `web/${filePath}`;
+      return `[${label}](https://github.com/${repo}/blob/${sha}/${path}#L${s}-L${e})`;
+    }
+    return label;
+  }).join(", ") + more;
 }
 
 // Totals
@@ -106,7 +139,8 @@ const rows = sorted.map(([name, f]) => {
   const fp = pct(f.fnHit, f.fnTotal);
   const bp = pct(f.brHit, f.brTotal);
   const icon = f.linesTotal === 0 ? "⚪" : f.linesHit / f.linesTotal >= 0.8 ? "🟢" : f.linesHit / f.linesTotal >= 0.5 ? "🟡" : "🔴";
-  return `| ${icon} | ${fileRef(name)} | ${lp} | ${fp} | ${bp} |`;
+  const uncovered = formatLineRanges(f.uncoveredLines, repo, sha, name);
+  return `| ${icon} | ${fileRef(name)} | ${lp} | ${fp} | ${lp} | ${uncovered} |`;
 }).join("\n");
 
 // Detect which input LCOV sources contributed (check for well-known artifact dirs)
@@ -174,8 +208,8 @@ if (jobSummaryFile) {
 <details>
 <summary>File Coverage</summary>
 
-| | File | Lines | Functions | Branches |
-|---|------|-------|-----------|----------|
+| | File | Stmts | Functions | Lines | Uncovered Lines |
+|---|------|-------|-----------|-------|-----------------|
 ${rows}
 
 </details>
