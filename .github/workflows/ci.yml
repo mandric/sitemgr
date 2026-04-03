@@ -278,6 +278,11 @@ jobs:
           cd web && genhtml ../combined.info -o coverage-html --quiet
           cp ../combined.info coverage-html/lcov.info
 
+          # Generate shields.io badge endpoint
+          LINES_PCT=$(lcov --summary ../combined.info 2>&1 | grep 'lines' | grep -oP '[\d.]+(?=%)')
+          COLOR=$(node -e "const p=$LINES_PCT; console.log(p>=80?'brightgreen':p>=60?'green':p>=40?'yellow':p>=20?'orange':'red')")
+          echo "{\"schemaVersion\":1,\"label\":\"coverage\",\"message\":\"${LINES_PCT}%\",\"color\":\"${COLOR}\"}" > coverage-html/badge.json
+
       - name: Extract coverage summary
         id: coverage
         run: |
