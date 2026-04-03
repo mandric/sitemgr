@@ -153,11 +153,17 @@ export async function teardown(): Promise<void> {
   const child = globalThis.__WEB_SERVER__;
   child.kill("SIGTERM");
 
-  // Wait for graceful exit. No force-kill — SIGKILL would prevent Node
-  // from flushing NODE_V8_COVERAGE data. CI job timeout handles the case
-  // where the server is truly stuck.
+  // Wait for graceful exit with a 15s fallback. If the server doesn't
+  // respond to SIGTERM, force-kill to avoid hanging CI for 20+ minutes.
   await new Promise<void>((resolve) => {
+    const forceKill = setTimeout(() => {
+      console.warn("[globalSetup] Dev server did not exit within 15s, sending SIGKILL");
+      child.kill("SIGKILL");
+      resolve();
+    }, 15000);
+
     child.once("exit", (code, signal) => {
+      clearTimeout(forceKill);
       console.log(`[globalSetup] Dev server exited (code=${code}, signal=${signal})`);
       resolve();
     });
