@@ -245,6 +245,38 @@ jobs:
   # in GitHub with VERCEL_TOKEN, VERCEL_PROJECT_ID, and VERCEL_TEAM_ID.
   # See wait_for_vercel_deployment and smoke_test in scripts/lib.sh.
 
+  coverage-report:
+    name: Combined Coverage Report
+    needs: [unit-tests, integration-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download unit coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: unit-coverage
+          path: unit-coverage/
+
+      - name: Download integration coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: integration-coverage
+          path: integration-coverage/
+
+      - name: Merge and generate HTML report
+        run: |
+          sudo apt-get install -y -qq lcov > /dev/null
+          lcov -a unit-coverage/lcov.info -a integration-coverage/lcov.info -o combined.info
+          genhtml combined.info -o coverage-html --quiet
+          cp combined.info coverage-html/lcov.info
+
+      - name: Upload combined coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-coverage
+          path: coverage-html/
+          retention-days: 14
+
   deploy:
     name: Deploy to Production
     needs: [lint, build, unit-tests, integration-tests, e2e-tests]
