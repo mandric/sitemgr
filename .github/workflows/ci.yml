@@ -216,6 +216,108 @@ jobs:
         if: always()
         run: supabase stop
 
+  e2e-cli-tests:
+    name: E2E CLI Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Read Supabase version from scripts/lib.sh
+        run: |
+          source scripts/lib.sh
+          echo "SUPABASE_PINNED_VERSION=$SUPABASE_PINNED_VERSION" >> "$GITHUB_ENV"
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: ${{ env.SUPABASE_PINNED_VERSION }}
+
+      - name: Install web dependencies
+        run: cd web && npm ci
+
+      - name: Start Supabase local environment
+        run: |
+          supabase start
+          echo "Supabase started successfully"
+
+      - name: Configure environment
+        run: |
+          source scripts/lib.sh
+          print_setup_env_vars >> "$GITHUB_ENV"
+          echo "SITEMGR_DEVICE_ID=ci-test" >> "$GITHUB_ENV"
+          echo "SITEMGR_AUTO_ENRICH=true" >> "$GITHUB_ENV"
+          echo "SITEMGR_OLLAMA_URL=http://localhost:11434" >> "$GITHUB_ENV"
+          echo "SITEMGR_VISION_MODEL=moondream:1.8b" >> "$GITHUB_ENV"
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Restore Ollama model cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-moondream-1.8b-${{ runner.os }}
+
+      - name: Start Ollama server
+        run: |
+          ollama serve &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:11434/api/tags > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -sf http://localhost:11434/api/tags > /dev/null 2>&1 || { echo "::error::Ollama server failed to start within 30s"; exit 1; }
+
+      - name: Pull moondream model
+        run: ollama pull moondream:1.8b
+
+      - name: Create storage bucket
+        run: |
+          curl -sf -X POST "${{ env.SITEMGR_API_URL }}/storage/v1/bucket" \
+            -H "Authorization: Bearer ${{ env.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"id":"media","name":"media","public":false}' \
+            || echo "Bucket may already exist"
+
+      - name: Run E2E CLI tests
+        run: cd web && npm run test:e2e:cli
+
+      - name: Convert Next.js server coverage
+        if: always()
+        run: |
+          if [ -d /tmp/v8-coverage-nextjs ] && ls /tmp/v8-coverage-nextjs/*.json >/dev/null 2>&1; then
+            cd web && npx c8 report \
+              --temp-directory=/tmp/v8-coverage-nextjs \
+              --src=. \
+              --reports-dir=coverage \
+              --reporter=lcov \
+              --all
+            if [ -s coverage/lcov.info ]; then
+              echo "E2E CLI server coverage: $(wc -l < coverage/lcov.info) lines"
+            else
+              echo "E2E CLI server coverage LCOV is empty"
+              rm -f coverage/lcov.info
+            fi
+          else
+            echo "No V8 coverage data from dev server"
+          fi
+
+      - name: Upload e2e-cli coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-cli-coverage
+          path: web/coverage/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop
+
   e2e-tests:
     name: Web E2E Tests
     runs-on: ubuntu-latest
@@ -273,7 +375,7 @@ jobs:
 
   coverage-report:
     name: Combined Coverage Report
-    needs: [unit-tests, integration-tests]
+    needs: [unit-tests, integration-tests, e2e-cli-tests]
     if: always()
     runs-on: ubuntu-latest
     permissions:
@@ -298,19 +400,28 @@ jobs:
           name: integration-coverage
           path: integration-coverage/
 
+      - name: Download e2e-cli coverage
+        id: dl-e2e-cli
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: e2e-cli-coverage
+          path: e2e-cli-coverage/
+
       - name: Check artifacts available
-        if: steps.dl-unit.outcome == 'failure' && steps.dl-integration.outcome == 'failure'
+        if: steps.dl-unit.outcome == 'failure' && steps.dl-integration.outcome == 'failure' && steps.dl-e2e-cli.outcome == 'failure'
         run: |
           echo "No coverage artifacts available — upstream jobs may have been cancelled."
           exit 0
 
       - name: Merge coverage data
-        if: steps.dl-unit.outcome == 'success' || steps.dl-integration.outcome == 'success'
+        if: steps.dl-unit.outcome == 'success' || steps.dl-integration.outcome == 'success' || steps.dl-e2e-cli.outcome == 'success'
         run: |
           sudo apt-get install -y -qq lcov > /dev/null
           ARGS=""
           [ -f unit-coverage/lcov.info ] && ARGS="$ARGS -a unit-coverage/lcov.info"
           [ -f integration-coverage/lcov.info ] && ARGS="$ARGS -a integration-coverage/lcov.info"
+          [ -f e2e-cli-coverage/lcov.info ] && ARGS="$ARGS -a e2e-cli-coverage/lcov.info"
           lcov $ARGS -o combined.info
 
       - name: Extract coverage summary
@@ -460,7 +571,7 @@ jobs:
 
   deploy:
     name: Deploy to Production
-    needs: [lint, build, unit-tests, integration-tests, e2e-tests]
+    needs: [lint, build, unit-tests, integration-tests, e2e-cli-tests, e2e-tests]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:
