@@ -43,14 +43,15 @@ source_dotenv() {
 }
 
 # ---------------------------------------------------------------------------
-# merge_lcov — merge multiple LCOV files into one
+# merge_lcov — thin wrapper around lcov for merging LCOV files
 #
-# Usage: merge_lcov <output_file> <input_file1> [input_file2] ...
+# Usage: merge_lcov <output> -a <input1> [-a <input2>] ...
 #
-# Skips input files that don't exist or are empty. Requires lcov CLI.
+# Passes all args after <output> directly to lcov. Callers are responsible
+# for checking that input files exist before passing them.
 #
 # Example:
-#   merge_lcov combined.info unit/lcov.info integration/lcov.info e2e/lcov.info
+#   merge_lcov combined.info -a unit/lcov.info -a integration/lcov.info
 # ---------------------------------------------------------------------------
 merge_lcov() {
   local output="${1:?Usage: merge_lcov <output> -a <input1> [-a <input2>] ...}"

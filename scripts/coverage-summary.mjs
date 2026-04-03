@@ -1,22 +1,19 @@
 #!/usr/bin/env node
 /**
- * Parse an LCOV file and generate:
- *   - coverage-summary.json (totals + per-file table for PR comments)
- *   - badge.json (shields.io endpoint)
+ * Parse an LCOV file and write a coverage job summary.
  *
  * Usage:
- *   node scripts/coverage-summary.mjs <lcov-file> [output-dir] [--repo owner/repo] [--sha commit-sha]
+ *   node scripts/coverage-summary.mjs <lcov-file> [--repo owner/repo] [--sha sha] [--title "..."] [--job-summary file]
  *
  * Examples:
- *   node scripts/coverage-summary.mjs combined.info pages-output
- *   node scripts/coverage-summary.mjs combined.info pages-output --repo mandric/sitemgr --sha abc123
+ *   node scripts/coverage-summary.mjs combined.info --job-summary /tmp/summary.md
+ *   node scripts/coverage-summary.mjs combined.info --repo mandric/sitemgr --sha abc123 --job-summary "$GITHUB_STEP_SUMMARY"
  */
 import { readFileSync, writeFileSync } from "node:fs";
 
 // Parse args
 const args = process.argv.slice(2);
 const lcovFile = args.find(a => !a.startsWith("--"));
-const outputDir = args.filter(a => !a.startsWith("--"))[1] || ".";
 const repoFlag = args.indexOf("--repo");
 const shaFlag = args.indexOf("--sha");
 const summaryFlag = args.indexOf("--job-summary");
@@ -27,7 +24,7 @@ const jobSummaryFile = summaryFlag >= 0 ? args[summaryFlag + 1] : null;
 const title = titleFlag >= 0 ? args[titleFlag + 1] : "Combined Coverage Report";
 
 if (!lcovFile) {
-  console.error("Usage: node scripts/coverage-summary.mjs <lcov-file> [output-dir] [--repo owner/repo] [--sha sha]");
+  console.error("Usage: node scripts/coverage-summary.mjs <lcov-file> [--repo owner/repo] [--sha sha] [--title title] [--job-summary file]");
   process.exit(1);
 }
 
@@ -117,7 +114,6 @@ const pct = (n, d) => d > 0 ? (n / d * 100).toFixed(1) + "%" : "N/A";
 // Build file link (GitHub blob URL if repo+sha provided, otherwise just code block)
 function fileRef(name) {
   if (repo && sha) {
-    // Files are relative to web/, so prefix with web/ for the GitHub URL
     const path = name.startsWith("web/") ? name : `web/${name}`;
     return `[\`${name}\`](https://github.com/${repo}/blob/${sha}/${path})`;
   }
@@ -136,7 +132,7 @@ const rows = sorted.map(([name, f]) => {
   const bp = pct(f.brHit, f.brTotal);
   const icon = f.linesTotal === 0 ? "⚪" : f.linesHit / f.linesTotal >= 0.8 ? "🟢" : f.linesHit / f.linesTotal >= 0.5 ? "🟡" : "🔴";
   const uncovered = formatLineRanges(f.uncoveredLines, repo, sha, name);
-  return `| ${icon} | ${fileRef(name)} | ${lp} | ${fp} | ${lp} | ${uncovered} |`;
+  return `| ${icon} | ${fileRef(name)} | ${lp} | ${bp} | ${fp} | ${uncovered} |`;
 }).join("\n");
 
 const linesPct = tl > 0 ? (tlh / tl * 100) : 0;
@@ -145,18 +141,6 @@ console.log(`Coverage: ${linesPct.toFixed(1)}% lines (${tlh}/${tl}), ${sorted.le
 
 // Job summary (for GitHub Actions $GITHUB_STEP_SUMMARY)
 if (jobSummaryFile) {
-  const fileRows = sorted.map(([name, f]) => {
-    const lp = pct(f.linesHit, f.linesTotal);
-    const fp = pct(f.fnHit, f.fnTotal);
-    const bp = pct(f.brHit, f.brTotal);
-    const ref = repo && sha
-      ? `<a href="https://github.com/${repo}/blob/${sha}/web/${name}">${name}</a>`
-      : name;
-    const uncovered = [];
-    // Note: LCOV line-level detail not available in summary, so just show percentages
-    return `<tr><td>${ref}</td><td>${lp}</td><td>${bp}</td><td>${fp}</td><td>${lp}</td><td></td></tr>`;
-  }).join("\n");
-
   const summary = `## ${title}
 
 ### Summary
@@ -172,8 +156,8 @@ if (jobSummaryFile) {
 <details>
 <summary>File Coverage</summary>
 
-| | File | Stmts | Functions | Lines | Uncovered Lines |
-|---|------|-------|-----------|-------|-----------------|
+| | File | Lines | Branches | Functions | Uncovered Lines |
+|---|------|-------|----------|-----------|-----------------|
 ${rows}
 
 </details>

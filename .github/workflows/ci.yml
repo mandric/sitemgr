@@ -338,7 +338,7 @@ jobs:
           if [ -n "$ARGS" ]; then
             # shellcheck disable=SC2086
             merge_lcov combined.info $ARGS
-            node scripts/coverage-summary.mjs combined.info pages-output \
+            node scripts/coverage-summary.mjs combined.info \
               --repo "${{ github.repository }}" \
               --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
               --title "Combined Coverage Report" \
