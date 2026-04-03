@@ -29,20 +29,49 @@ if (!lcovFile) {
 
 const lcov = readFileSync(lcovFile, "utf8");
 
+// Paths to exclude from the report (build artifacts, config files, test files)
+const EXCLUDE = [
+  /^\.next\//,
+  /node_modules\//,
+  /^e2e\//,
+  /^__tests__\//,
+  /\.config\.(ts|js|mjs)$/,
+  /^postcss\./,
+  /^eslint\./,
+  /^middleware\.ts$/,
+  /^instrumentation\.ts$/,
+  /^vitest\.config/,
+  /^playwright\.config/,
+];
+
+function shouldInclude(path) {
+  return !EXCLUDE.some((re) => re.test(path));
+}
+
 // Parse LCOV into per-file stats
 const files = {};
 let current = null;
+let skip = false;
 for (const line of lcov.split("\n")) {
   if (line.startsWith("SF:")) {
-    current = line.slice(3);
-    files[current] = { linesHit: 0, linesTotal: 0, fnHit: 0, fnTotal: 0, brHit: 0, brTotal: 0 };
+    const path = line.slice(3);
+    if (shouldInclude(path)) {
+      current = path;
+      files[current] = { linesHit: 0, linesTotal: 0, fnHit: 0, fnTotal: 0, brHit: 0, brTotal: 0 };
+      skip = false;
+    } else {
+      skip = true;
+      current = null;
+    }
+  } else if (skip && line === "end_of_record") {
+    skip = false;
   } else if (current && line.startsWith("LH:")) files[current].linesHit = +line.slice(3);
   else if (current && line.startsWith("LF:")) files[current].linesTotal = +line.slice(3);
   else if (current && line.startsWith("FNH:")) files[current].fnHit = +line.slice(4);
   else if (current && line.startsWith("FNF:")) files[current].fnTotal = +line.slice(4);
   else if (current && line.startsWith("BRH:")) files[current].brHit = +line.slice(4);
   else if (current && line.startsWith("BRF:")) files[current].brTotal = +line.slice(4);
-  else if (line === "end_of_record") current = null;
+  else if (current && line === "end_of_record") current = null;
 }
 
 // Totals
@@ -80,7 +109,7 @@ const rows = sorted.map(([name, f]) => {
 
 // Detect which input LCOV sources contributed (check for well-known artifact dirs)
 const sources = [];
-for (const dir of ["unit-coverage", "integration-coverage", "e2e-cli-coverage", "e2e-web-coverage"]) {
+for (const dir of ["unit-coverage", "integration-coverage", "e2e-cli-coverage", "e2e-web-coverage", "e2e-web-client-coverage"]) {
   try {
     const entries = readdirSync(dir);
     if (entries.includes("lcov.info")) {

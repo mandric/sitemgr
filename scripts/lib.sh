@@ -76,10 +76,7 @@ convert_v8_coverage() {
     --src=. \
     --reports-dir="$output_dir" \
     --reporter=lcov \
-    --include='lib/**' \
-    --include='app/api/**' \
-    --exclude='node_modules/**' \
-    --exclude='.next/**')
+    --exclude='node_modules/**')
 
   if [ -s "$src_dir/$output_dir/lcov.info" ]; then
     echo "Coverage written: $(wc -l < "$src_dir/$output_dir/lcov.info") lines"

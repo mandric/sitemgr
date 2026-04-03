@@ -397,6 +397,7 @@ jobs:
           source scripts/lib.sh
           ARGS=""
           for f in unit-coverage integration-coverage e2e-cli-coverage e2e-web-coverage e2e-web-client-coverage; do
+            echo "Checking $f/lcov.info: $([ -s "$f/lcov.info" ] && echo "$(wc -l < "$f/lcov.info") lines" || echo "missing/empty")"
             [ -s "$f/lcov.info" ] && ARGS="$ARGS -a $f/lcov.info"
           done
           if [ -n "$ARGS" ]; then
