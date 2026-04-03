@@ -307,6 +307,7 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const pagesUrl = `https://${owner}.github.io/${repo}/`;
+            const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
             const marker = '<!-- combined-coverage-report -->';
             const body = [
               '## Combined Coverage (Unit + Integration)',
@@ -318,7 +319,7 @@ jobs:
               '| Functions | **${{ steps.coverage.outputs.functions }}** |',
               '| Branches | **${{ steps.coverage.outputs.branches }}** |',
               '',
-              `[View full report](${pagesUrl}) · 📥 Download \`combined-coverage\` artifact`,
+              `[View full report](${pagesUrl}) · [Download artifact](${runUrl}#artifacts)`,
               '',
               marker,
             ].join('\n');
@@ -351,6 +352,7 @@ jobs:
           retention-days: 14
 
       - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
