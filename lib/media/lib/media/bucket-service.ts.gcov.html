@@ -1,0 +1,509 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - combined.info - lib/media/lib/media/bucket-service.ts</title>
+  <link rel="stylesheet" type="text/css" href="../../../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../../../index.html">top level</a> - <a href="index.html">lib/media/lib/media</a> - bucket-service.ts<span style="font-size: 80%;"> (source / <a href="bucket-service.ts.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">combined.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryLo">0.0&nbsp;%</td>
+            <td class="headerCovTableEntry">114</td>
+            <td class="headerCovTableEntry">0</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-04-03 03:00:32</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryLo">0.0&nbsp;%</td>
+            <td class="headerCovTableEntry">17</td>
+            <td class="headerCovTableEntry">0</td>
+          </tr>
+                  <tr><td><img src="../../../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">            Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>              : /**</span>
+<span id="L2"><span class="lineNum">       2</span>              :  * Shared bucket service — extracted from agent/core.ts for reuse by API routes.</span>
+<span id="L3"><span class="lineNum">       3</span>              :  *</span>
+<span id="L4"><span class="lineNum">       4</span>              :  * All functions take explicit dependencies (supabase, s3, userId) rather than</span>
+<span id="L5"><span class="lineNum">       5</span>              :  * relying on phone number resolution or env vars.</span>
+<span id="L6"><span class="lineNum">       6</span>              :  */</span>
+<span id="L7"><span class="lineNum">       7</span>              : </span>
+<span id="L8"><span class="lineNum">       8</span>              : import type { SupabaseClient } from &quot;@supabase/supabase-js&quot;;</span>
+<span id="L9"><span class="lineNum">       9</span>              : import type { S3Client } from &quot;@aws-sdk/client-s3&quot;;</span>
+<span id="L10"><span class="lineNum">      10</span>              : import { ListObjectsV2Command, ListObjectsCommand } from &quot;@aws-sdk/client-s3&quot;;</span>
+<span id="L11"><span class="lineNum">      11</span>              : import pLimit from &quot;p-limit&quot;;</span>
+<span id="L12"><span class="lineNum">      12</span>              : import {</span>
+<span id="L13"><span class="lineNum">      13</span>              :   encryptSecretVersioned,</span>
+<span id="L14"><span class="lineNum">      14</span>              :   decryptSecretVersioned,</span>
+<span id="L15"><span class="lineNum">      15</span>              :   getEncryptionVersion,</span>
+<span id="L16"><span class="lineNum">      16</span>              :   needsMigration,</span>
+<span id="L17"><span class="lineNum">      17</span>              : } from &quot;@/lib/crypto/encryption-versioned&quot;;</span>
+<span id="L18"><span class="lineNum">      18</span>              : import {</span>
+<span id="L19"><span class="lineNum">      19</span>              :   createS3Client,</span>
+<span id="L20"><span class="lineNum">      20</span>              :   listS3Objects,</span>
+<span id="L21"><span class="lineNum">      21</span>              :   downloadS3Object,</span>
+<span id="L22"><span class="lineNum">      22</span>              : } from &quot;@/lib/media/s3&quot;;</span>
+<span id="L23"><span class="lineNum">      23</span>              : import {</span>
+<span id="L24"><span class="lineNum">      24</span>              :   insertEvent,</span>
+<span id="L25"><span class="lineNum">      25</span>              :   insertEnrichment,</span>
+<span id="L26"><span class="lineNum">      26</span>              :   upsertWatchedKey,</span>
+<span id="L27"><span class="lineNum">      27</span>              :   getWatchedKeys,</span>
+<span id="L28"><span class="lineNum">      28</span>              :   getPendingEnrichments,</span>
+<span id="L29"><span class="lineNum">      29</span>              :   getModelConfig,</span>
+<span id="L30"><span class="lineNum">      30</span>              : } from &quot;@/lib/media/db&quot;;</span>
+<span id="L31"><span class="lineNum">      31</span>              : import {</span>
+<span id="L32"><span class="lineNum">      32</span>              :   newEventId,</span>
+<span id="L33"><span class="lineNum">      33</span>              :   detectContentType,</span>
+<span id="L34"><span class="lineNum">      34</span>              :   getMimeType,</span>
+<span id="L35"><span class="lineNum">      35</span>              :   s3Metadata,</span>
+<span id="L36"><span class="lineNum">      36</span>              : } from &quot;@/lib/media/utils&quot;;</span>
+<span id="L37"><span class="lineNum">      37</span>              : import { enrichImage } from &quot;@/lib/media/enrichment&quot;;</span>
+<span id="L38"><span class="lineNum">      38</span>              : import { createLogger, LogComponent } from &quot;@/lib/logger&quot;;</span>
+<span id="L39"><span class="lineNum">      39</span>              : </span>
+<span id="L40"><span class="lineNum">      40</span> <span class="tlaUNC tlaBgUNC">           0 : const logger = createLogger(LogComponent.S3);</span></span>
+<span id="L41"><span class="lineNum">      41</span>              : </span>
+<span id="L42"><span class="lineNum">      42</span>              : // ── Types ──────────────────────────────────────────────────────</span>
+<span id="L43"><span class="lineNum">      43</span>              : </span>
+<span id="L44"><span class="lineNum">      44</span>              : export type BucketConfig = {</span>
+<span id="L45"><span class="lineNum">      45</span>              :   id: string;</span>
+<span id="L46"><span class="lineNum">      46</span>              :   bucket_name: string;</span>
+<span id="L47"><span class="lineNum">      47</span>              :   endpoint_url: string;</span>
+<span id="L48"><span class="lineNum">      48</span>              :   region?: string;</span>
+<span id="L49"><span class="lineNum">      49</span>              :   access_key_id: string;</span>
+<span id="L50"><span class="lineNum">      50</span>              :   secret_access_key: string;</span>
+<span id="L51"><span class="lineNum">      51</span>              :   [key: string]: unknown;</span>
+<span id="L52"><span class="lineNum">      52</span>              : };</span>
+<span id="L53"><span class="lineNum">      53</span>              : </span>
+<span id="L54"><span class="lineNum">      54</span>              : export type BucketConfigResult = {</span>
+<span id="L55"><span class="lineNum">      55</span>              :   exists: boolean;</span>
+<span id="L56"><span class="lineNum">      56</span>              :   config?: BucketConfig;</span>
+<span id="L57"><span class="lineNum">      57</span>              :   error?: Error;</span>
+<span id="L58"><span class="lineNum">      58</span>              : };</span>
+<span id="L59"><span class="lineNum">      59</span>              : </span>
+<span id="L60"><span class="lineNum">      60</span>              : export type ScanResult = {</span>
+<span id="L61"><span class="lineNum">      61</span>              :   bucket: string;</span>
+<span id="L62"><span class="lineNum">      62</span>              :   total_objects: number;</span>
+<span id="L63"><span class="lineNum">      63</span>              :   already_indexed: number;</span>
+<span id="L64"><span class="lineNum">      64</span>              :   new_objects: number;</span>
+<span id="L65"><span class="lineNum">      65</span>              :   created_events: number;</span>
+<span id="L66"><span class="lineNum">      66</span>              :   batch_enriched: number;</span>
+<span id="L67"><span class="lineNum">      67</span>              :   per_object: Array&lt;{ key: string; status: ObjectStatus; error?: string }&gt;;</span>
+<span id="L68"><span class="lineNum">      68</span>              : };</span>
+<span id="L69"><span class="lineNum">      69</span>              : </span>
+<span id="L70"><span class="lineNum">      70</span>              : export type EnrichResult = {</span>
+<span id="L71"><span class="lineNum">      71</span>              :   enriched: number;</span>
+<span id="L72"><span class="lineNum">      72</span>              :   failed: number;</span>
+<span id="L73"><span class="lineNum">      73</span>              :   skipped: number;</span>
+<span id="L74"><span class="lineNum">      74</span>              :   total: number;</span>
+<span id="L75"><span class="lineNum">      75</span>              : };</span>
+<span id="L76"><span class="lineNum">      76</span>              : </span>
+<span id="L77"><span class="lineNum">      77</span>              : type ObjectStatus = &quot;enriched&quot; | &quot;indexed&quot; | &quot;enrich_failed&quot; | &quot;error&quot;;</span>
+<span id="L78"><span class="lineNum">      78</span>              : </span>
+<span id="L79"><span class="lineNum">      79</span> <span class="tlaUNC">           0 : const IMAGE_MIME_PREFIXES = [</span></span>
+<span id="L80"><span class="lineNum">      80</span>              :   &quot;image/jpeg&quot;,</span>
+<span id="L81"><span class="lineNum">      81</span>              :   &quot;image/png&quot;,</span>
+<span id="L82"><span class="lineNum">      82</span>              :   &quot;image/gif&quot;,</span>
+<span id="L83"><span class="lineNum">      83</span>              :   &quot;image/webp&quot;,</span>
+<span id="L84"><span class="lineNum">      84</span>              : ];</span>
+<span id="L85"><span class="lineNum">      85</span>              : </span>
+<span id="L86"><span class="lineNum">      86</span>              : // ── Bucket Config ──────────────────────────────────────────────</span>
+<span id="L87"><span class="lineNum">      87</span>              : </span>
+<span id="L88"><span class="lineNum">      88</span>              : /**</span>
+<span id="L89"><span class="lineNum">      89</span>              :  * Fetch a bucket config by name or UUID, decrypt the secret, and</span>
+<span id="L90"><span class="lineNum">      90</span>              :  * lazy-migrate the encryption key if needed.</span>
+<span id="L91"><span class="lineNum">      91</span>              :  */</span>
+<span id="L92"><span class="lineNum">      92</span> <span class="tlaUNC">           0 : export async function getBucketConfig(</span></span>
+<span id="L93"><span class="lineNum">      93</span>              :   client: SupabaseClient,</span>
+<span id="L94"><span class="lineNum">      94</span>              :   userId: string,</span>
+<span id="L95"><span class="lineNum">      95</span>              :   bucketNameOrId: string,</span>
+<span id="L96"><span class="lineNum">      96</span>              : ): Promise&lt;BucketConfigResult&gt; {</span>
+<span id="L97"><span class="lineNum">      97</span> <span class="tlaUNC">           0 :   if (!bucketNameOrId) return { exists: false };</span></span>
+<span id="L98"><span class="lineNum">      98</span>              : </span>
+<span id="L99"><span class="lineNum">      99</span>              :   // Detect UUID format to decide lookup column</span>
+<span id="L100"><span class="lineNum">     100</span> <span class="tlaUNC">           0 :   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bucketNameOrId);</span></span>
+<span id="L101"><span class="lineNum">     101</span> <span class="tlaUNC">           0 :   const column = isUuid ? &quot;id&quot; : &quot;bucket_name&quot;;</span></span>
+<span id="L102"><span class="lineNum">     102</span>              : </span>
+<span id="L103"><span class="lineNum">     103</span> <span class="tlaUNC">           0 :   const { data, error } = await client</span></span>
+<span id="L104"><span class="lineNum">     104</span>              :     .from(&quot;bucket_configs&quot;)</span>
+<span id="L105"><span class="lineNum">     105</span>              :     .select(&quot;*&quot;)</span>
+<span id="L106"><span class="lineNum">     106</span>              :     .eq(column, bucketNameOrId)</span>
+<span id="L107"><span class="lineNum">     107</span>              :     .eq(&quot;user_id&quot;, userId)</span>
+<span id="L108"><span class="lineNum">     108</span>              :     .maybeSingle();</span>
+<span id="L109"><span class="lineNum">     109</span>              : </span>
+<span id="L110"><span class="lineNum">     110</span> <span class="tlaUNC">           0 :   if (error) {</span></span>
+<span id="L111"><span class="lineNum">     111</span> <span class="tlaUNC">           0 :     logger.error(&quot;bucket config lookup failed&quot;, { bucket: bucketNameOrId, error: error.message });</span></span>
+<span id="L112"><span class="lineNum">     112</span> <span class="tlaUNC">           0 :     return { exists: true, error: new Error(error.message) };</span></span>
+<span id="L113"><span class="lineNum">     113</span>              :   }</span>
+<span id="L114"><span class="lineNum">     114</span> <span class="tlaUNC">           0 :   if (!data) return { exists: false };</span></span>
+<span id="L115"><span class="lineNum">     115</span>              : </span>
+<span id="L116"><span class="lineNum">     116</span> <span class="tlaUNC">           0 :   try {</span></span>
+<span id="L117"><span class="lineNum">     117</span> <span class="tlaUNC">           0 :     const decryptedSecret = await decryptSecretVersioned(data.secret_access_key);</span></span>
+<span id="L118"><span class="lineNum">     118</span>              : </span>
+<span id="L119"><span class="lineNum">     119</span>              :     // Lazy migration: re-encrypt with current version if needed</span>
+<span id="L120"><span class="lineNum">     120</span> <span class="tlaUNC">           0 :     if (needsMigration(data.secret_access_key)) {</span></span>
+<span id="L121"><span class="lineNum">     121</span> <span class="tlaUNC">           0 :       const newCiphertext = await encryptSecretVersioned(decryptedSecret);</span></span>
+<span id="L122"><span class="lineNum">     122</span> <span class="tlaUNC">           0 :       const newVersion = getEncryptionVersion(newCiphertext);</span></span>
+<span id="L123"><span class="lineNum">     123</span>              : </span>
+<span id="L124"><span class="lineNum">     124</span> <span class="tlaUNC">           0 :       void (async () =&gt; {</span></span>
+<span id="L125"><span class="lineNum">     125</span> <span class="tlaUNC">           0 :         try {</span></span>
+<span id="L126"><span class="lineNum">     126</span> <span class="tlaUNC">           0 :           const { error } = await client</span></span>
+<span id="L127"><span class="lineNum">     127</span>              :             .from(&quot;bucket_configs&quot;)</span>
+<span id="L128"><span class="lineNum">     128</span>              :             .update({</span>
+<span id="L129"><span class="lineNum">     129</span>              :               secret_access_key: newCiphertext,</span>
+<span id="L130"><span class="lineNum">     130</span>              :               encryption_key_version: newVersion,</span>
+<span id="L131"><span class="lineNum">     131</span>              :             })</span>
+<span id="L132"><span class="lineNum">     132</span>              :             .eq(&quot;id&quot;, data.id);</span>
+<span id="L133"><span class="lineNum">     133</span>              : </span>
+<span id="L134"><span class="lineNum">     134</span> <span class="tlaUNC">           0 :           if (error) {</span></span>
+<span id="L135"><span class="lineNum">     135</span> <span class="tlaUNC">           0 :             logger.error(&quot;lazy migration failed&quot;, { bucket: data.bucket_name, error: error.message });</span></span>
+<span id="L136"><span class="lineNum">     136</span>              :           } else {</span>
+<span id="L137"><span class="lineNum">     137</span> <span class="tlaUNC">           0 :             logger.info(&quot;lazy migration complete&quot;, { bucket: data.bucket_name, new_version: newVersion });</span></span>
+<span id="L138"><span class="lineNum">     138</span>              :           }</span>
+<span id="L139"><span class="lineNum">     139</span>              :         } catch (err) {</span>
+<span id="L140"><span class="lineNum">     140</span> <span class="tlaUNC">           0 :           logger.error(&quot;lazy migration exception&quot;, {</span></span>
+<span id="L141"><span class="lineNum">     141</span>              :             bucket: data.bucket_name,</span>
+<span id="L142"><span class="lineNum">     142</span>              :             error: err instanceof Error ? err.message : String(err),</span>
+<span id="L143"><span class="lineNum">     143</span>              :           });</span>
+<span id="L144"><span class="lineNum">     144</span>              :         }</span>
+<span id="L145"><span class="lineNum">     145</span>              :       })();</span>
+<span id="L146"><span class="lineNum">     146</span>              :     }</span>
+<span id="L147"><span class="lineNum">     147</span>              : </span>
+<span id="L148"><span class="lineNum">     148</span> <span class="tlaUNC">           0 :     return {</span></span>
+<span id="L149"><span class="lineNum">     149</span>              :       exists: true,</span>
+<span id="L150"><span class="lineNum">     150</span>              :       config: { ...data, secret_access_key: decryptedSecret },</span>
+<span id="L151"><span class="lineNum">     151</span>              :     };</span>
+<span id="L152"><span class="lineNum">     152</span>              :   } catch (err) {</span>
+<span id="L153"><span class="lineNum">     153</span> <span class="tlaUNC">           0 :     const error = err instanceof Error ? err : new Error(String(err));</span></span>
+<span id="L154"><span class="lineNum">     154</span> <span class="tlaUNC">           0 :     logger.error(&quot;cannot decrypt bucket config&quot;, {</span></span>
+<span id="L155"><span class="lineNum">     155</span>              :       bucket: data.bucket_name,</span>
+<span id="L156"><span class="lineNum">     156</span>              :       error: error.message,</span>
+<span id="L157"><span class="lineNum">     157</span>              :     });</span>
+<span id="L158"><span class="lineNum">     158</span> <span class="tlaUNC">           0 :     return { exists: true, error };</span></span>
+<span id="L159"><span class="lineNum">     159</span>              :   }</span>
+<span id="L160"><span class="lineNum">     160</span>              : }</span>
+<span id="L161"><span class="lineNum">     161</span>              : </span>
+<span id="L162"><span class="lineNum">     162</span>              : /**</span>
+<span id="L163"><span class="lineNum">     163</span>              :  * Create an S3Client from a decrypted BucketConfig.</span>
+<span id="L164"><span class="lineNum">     164</span>              :  */</span>
+<span id="L165"><span class="lineNum">     165</span> <span class="tlaUNC">           0 : export function createS3ClientFromConfig(config: BucketConfig): S3Client {</span></span>
+<span id="L166"><span class="lineNum">     166</span> <span class="tlaUNC">           0 :   return createS3Client({</span></span>
+<span id="L167"><span class="lineNum">     167</span>              :     endpoint: config.endpoint_url,</span>
+<span id="L168"><span class="lineNum">     168</span>              :     region: config.region ?? undefined,</span>
+<span id="L169"><span class="lineNum">     169</span>              :     accessKeyId: config.access_key_id,</span>
+<span id="L170"><span class="lineNum">     170</span>              :     secretAccessKey: config.secret_access_key,</span>
+<span id="L171"><span class="lineNum">     171</span>              :   });</span>
+<span id="L172"><span class="lineNum">     172</span>              : }</span>
+<span id="L173"><span class="lineNum">     173</span>              : </span>
+<span id="L174"><span class="lineNum">     174</span>              : /**</span>
+<span id="L175"><span class="lineNum">     175</span>              :  * Test S3 connectivity by listing 1 object. Falls back to v1 API.</span>
+<span id="L176"><span class="lineNum">     176</span>              :  */</span>
+<span id="L177"><span class="lineNum">     177</span> <span class="tlaUNC">           0 : export async function testBucketConnectivity(</span></span>
+<span id="L178"><span class="lineNum">     178</span>              :   s3: S3Client,</span>
+<span id="L179"><span class="lineNum">     179</span>              :   bucketName: string,</span>
+<span id="L180"><span class="lineNum">     180</span>              : ): Promise&lt;{ success: boolean; has_objects: boolean; message: string }&gt; {</span>
+<span id="L181"><span class="lineNum">     181</span> <span class="tlaUNC">           0 :   try {</span></span>
+<span id="L182"><span class="lineNum">     182</span> <span class="tlaUNC">           0 :     try {</span></span>
+<span id="L183"><span class="lineNum">     183</span> <span class="tlaUNC">           0 :       const response = await s3.send(</span></span>
+<span id="L184"><span class="lineNum">     184</span>              :         new ListObjectsV2Command({ Bucket: bucketName, MaxKeys: 1 }),</span>
+<span id="L185"><span class="lineNum">     185</span>              :       );</span>
+<span id="L186"><span class="lineNum">     186</span> <span class="tlaUNC">           0 :       const count = response.KeyCount ?? 0;</span></span>
+<span id="L187"><span class="lineNum">     187</span> <span class="tlaUNC">           0 :       return {</span></span>
+<span id="L188"><span class="lineNum">     188</span>              :         success: true,</span>
+<span id="L189"><span class="lineNum">     189</span>              :         has_objects: count &gt; 0,</span>
+<span id="L190"><span class="lineNum">     190</span>              :         message: `Read access confirmed for &quot;${bucketName}&quot;`,</span>
+<span id="L191"><span class="lineNum">     191</span>              :       };</span>
+<span id="L192"><span class="lineNum">     192</span>              :     } catch {</span>
+<span id="L193"><span class="lineNum">     193</span>              :       // Fallback to v1 for providers that don't support v2</span>
+<span id="L194"><span class="lineNum">     194</span> <span class="tlaUNC">           0 :       const response = await s3.send(</span></span>
+<span id="L195"><span class="lineNum">     195</span>              :         new ListObjectsCommand({ Bucket: bucketName, MaxKeys: 1 }),</span>
+<span id="L196"><span class="lineNum">     196</span>              :       );</span>
+<span id="L197"><span class="lineNum">     197</span> <span class="tlaUNC">           0 :       const count = (response.Contents ?? []).length;</span></span>
+<span id="L198"><span class="lineNum">     198</span> <span class="tlaUNC">           0 :       return {</span></span>
+<span id="L199"><span class="lineNum">     199</span>              :         success: true,</span>
+<span id="L200"><span class="lineNum">     200</span>              :         has_objects: count &gt; 0,</span>
+<span id="L201"><span class="lineNum">     201</span>              :         message: `Read access confirmed for &quot;${bucketName}&quot; (v1 API)`,</span>
+<span id="L202"><span class="lineNum">     202</span>              :       };</span>
+<span id="L203"><span class="lineNum">     203</span>              :     }</span>
+<span id="L204"><span class="lineNum">     204</span>              :   } catch (err) {</span>
+<span id="L205"><span class="lineNum">     205</span> <span class="tlaUNC">           0 :     return {</span></span>
+<span id="L206"><span class="lineNum">     206</span>              :       success: false,</span>
+<span id="L207"><span class="lineNum">     207</span>              :       has_objects: false,</span>
+<span id="L208"><span class="lineNum">     208</span>              :       message: `Cannot read bucket &quot;${bucketName}&quot;: ${(err as Error).message}`,</span>
+<span id="L209"><span class="lineNum">     209</span>              :     };</span>
+<span id="L210"><span class="lineNum">     210</span>              :   }</span>
+<span id="L211"><span class="lineNum">     211</span>              : }</span>
+<span id="L212"><span class="lineNum">     212</span>              : </span>
+<span id="L213"><span class="lineNum">     213</span>              : /**</span>
+<span id="L214"><span class="lineNum">     214</span>              :  * Scan an S3 bucket for new objects, insert events + watched_keys.</span>
+<span id="L215"><span class="lineNum">     215</span>              :  */</span>
+<span id="L216"><span class="lineNum">     216</span> <span class="tlaUNC">           0 : export async function scanBucket(</span></span>
+<span id="L217"><span class="lineNum">     217</span>              :   client: SupabaseClient,</span>
+<span id="L218"><span class="lineNum">     218</span>              :   s3: S3Client,</span>
+<span id="L219"><span class="lineNum">     219</span>              :   config: BucketConfig,</span>
+<span id="L220"><span class="lineNum">     220</span>              :   userId: string,</span>
+<span id="L221"><span class="lineNum">     221</span>              :   opts: {</span>
+<span id="L222"><span class="lineNum">     222</span>              :     prefix?: string;</span>
+<span id="L223"><span class="lineNum">     223</span>              :     batch_size?: number;</span>
+<span id="L224"><span class="lineNum">     224</span>              :     auto_enrich?: boolean;</span>
+<span id="L225"><span class="lineNum">     225</span>              :     device_id?: string;</span>
+<span id="L226"><span class="lineNum">     226</span>              :   } = {},</span>
+<span id="L227"><span class="lineNum">     227</span>              : ): Promise&lt;ScanResult&gt; {</span>
+<span id="L228"><span class="lineNum">     228</span> <span class="tlaUNC">           0 :   const batchSize = opts.batch_size ?? 100;</span></span>
+<span id="L229"><span class="lineNum">     229</span> <span class="tlaUNC">           0 :   const deviceId = opts.device_id ?? &quot;api&quot;;</span></span>
+<span id="L230"><span class="lineNum">     230</span> <span class="tlaUNC">           0 :   const prefix = opts.prefix ?? &quot;&quot;;</span></span>
+<span id="L231"><span class="lineNum">     231</span> <span class="tlaUNC">           0 :   const autoEnrich = opts.auto_enrich ?? false;</span></span>
+<span id="L232"><span class="lineNum">     232</span>              : </span>
+<span id="L233"><span class="lineNum">     233</span> <span class="tlaUNC">           0 :   const allObjects = await listS3Objects(s3, config.bucket_name, prefix);</span></span>
+<span id="L234"><span class="lineNum">     234</span>              : </span>
+<span id="L235"><span class="lineNum">     235</span>              :   // Get already-watched keys to find new ones</span>
+<span id="L236"><span class="lineNum">     236</span> <span class="tlaUNC">           0 :   const watchedResult = await getWatchedKeys(client, userId);</span></span>
+<span id="L237"><span class="lineNum">     237</span> <span class="tlaUNC">           0 :   if (watchedResult.error) {</span></span>
+<span id="L238"><span class="lineNum">     238</span> <span class="tlaUNC">           0 :     throw watchedResult.error;</span></span>
+<span id="L239"><span class="lineNum">     239</span>              :   }</span>
+<span id="L240"><span class="lineNum">     240</span> <span class="tlaUNC">           0 :   const watchedKeys = new Set(</span></span>
+<span id="L241"><span class="lineNum">     241</span> <span class="tlaUNC">           0 :     (watchedResult.data ?? []).map((r: { s3_key: string }) =&gt; r.s3_key),</span></span>
+<span id="L242"><span class="lineNum">     242</span>              :   );</span>
+<span id="L243"><span class="lineNum">     243</span> <span class="tlaUNC">           0 :   const newObjects = allObjects.filter((o) =&gt; !watchedKeys.has(o.key));</span></span>
+<span id="L244"><span class="lineNum">     244</span> <span class="tlaUNC">           0 :   const batch = newObjects.slice(0, batchSize);</span></span>
+<span id="L245"><span class="lineNum">     245</span>              : </span>
+<span id="L246"><span class="lineNum">     246</span> <span class="tlaUNC">           0 :   const limit = pLimit(3);</span></span>
+<span id="L247"><span class="lineNum">     247</span>              : </span>
+<span id="L248"><span class="lineNum">     248</span> <span class="tlaUNC">           0 :   const perObject = await Promise.all(</span></span>
+<span id="L249"><span class="lineNum">     249</span> <span class="tlaUNC">           0 :     batch.map((obj) =&gt;</span></span>
+<span id="L250"><span class="lineNum">     250</span> <span class="tlaUNC">           0 :       limit(async (): Promise&lt;{ key: string; status: ObjectStatus; error?: string }&gt; =&gt; {</span></span>
+<span id="L251"><span class="lineNum">     251</span> <span class="tlaUNC">           0 :         try {</span></span>
+<span id="L252"><span class="lineNum">     252</span> <span class="tlaUNC">           0 :           const eventId = newEventId();</span></span>
+<span id="L253"><span class="lineNum">     253</span> <span class="tlaUNC">           0 :           const contentType = detectContentType(obj.key);</span></span>
+<span id="L254"><span class="lineNum">     254</span> <span class="tlaUNC">           0 :           const mimeType = getMimeType(obj.key);</span></span>
+<span id="L255"><span class="lineNum">     255</span>              : </span>
+<span id="L256"><span class="lineNum">     256</span> <span class="tlaUNC">           0 :           const insertResult = await insertEvent(client, {</span></span>
+<span id="L257"><span class="lineNum">     257</span>              :             id: eventId,</span>
+<span id="L258"><span class="lineNum">     258</span>              :             device_id: deviceId,</span>
+<span id="L259"><span class="lineNum">     259</span>              :             type: &quot;create&quot;,</span>
+<span id="L260"><span class="lineNum">     260</span>              :             content_type: contentType,</span>
+<span id="L261"><span class="lineNum">     261</span>              :             content_hash: `etag:${obj.etag}`,</span>
+<span id="L262"><span class="lineNum">     262</span>              :             local_path: null,</span>
+<span id="L263"><span class="lineNum">     263</span>              :             remote_path: `s3://${config.bucket_name}/${obj.key}`,</span>
+<span id="L264"><span class="lineNum">     264</span>              :             metadata: s3Metadata(obj.key, obj.size, obj.etag),</span>
+<span id="L265"><span class="lineNum">     265</span>              :             parent_id: null,</span>
+<span id="L266"><span class="lineNum">     266</span>              :             bucket_config_id: config.id,</span>
+<span id="L267"><span class="lineNum">     267</span>              :             user_id: userId,</span>
+<span id="L268"><span class="lineNum">     268</span>              :           });</span>
+<span id="L269"><span class="lineNum">     269</span> <span class="tlaUNC">           0 :           if (insertResult.error) throw insertResult.error;</span></span>
+<span id="L270"><span class="lineNum">     270</span>              : </span>
+<span id="L271"><span class="lineNum">     271</span> <span class="tlaUNC">           0 :           const upsertResult = await upsertWatchedKey(</span></span>
+<span id="L272"><span class="lineNum">     272</span>              :             client, obj.key, eventId, obj.etag, obj.size, userId, config.id,</span>
+<span id="L273"><span class="lineNum">     273</span>              :           );</span>
+<span id="L274"><span class="lineNum">     274</span> <span class="tlaUNC">           0 :           if (upsertResult.error) {</span></span>
+<span id="L275"><span class="lineNum">     275</span> <span class="tlaUNC">           0 :             logger.warn(&quot;upsertWatchedKey failed&quot;, {</span></span>
+<span id="L276"><span class="lineNum">     276</span>              :               key: obj.key,</span>
+<span id="L277"><span class="lineNum">     277</span>              :               error: (upsertResult.error as Error).message ?? String(upsertResult.error),</span>
+<span id="L278"><span class="lineNum">     278</span>              :             });</span>
+<span id="L279"><span class="lineNum">     279</span>              :           }</span>
+<span id="L280"><span class="lineNum">     280</span>              : </span>
+<span id="L281"><span class="lineNum">     281</span>              :           // Enrich if it's an image and auto-enrich is on</span>
+<span id="L282"><span class="lineNum">     282</span> <span class="tlaUNC">           0 :           if (autoEnrich &amp;&amp; IMAGE_MIME_PREFIXES.includes(mimeType)) {</span></span>
+<span id="L283"><span class="lineNum">     283</span> <span class="tlaUNC">           0 :             try {</span></span>
+<span id="L284"><span class="lineNum">     284</span> <span class="tlaUNC">           0 :               const imageBytes = await downloadS3Object(s3, config.bucket_name, obj.key);</span></span>
+<span id="L285"><span class="lineNum">     285</span> <span class="tlaUNC">           0 :               const result = await enrichImage(imageBytes, mimeType);</span></span>
+<span id="L286"><span class="lineNum">     286</span> <span class="tlaUNC">           0 :               const enrichInsert = await insertEnrichment(client, eventId, result, userId);</span></span>
+<span id="L287"><span class="lineNum">     287</span> <span class="tlaUNC">           0 :               if (enrichInsert.error) throw enrichInsert.error;</span></span>
+<span id="L288"><span class="lineNum">     288</span> <span class="tlaUNC">           0 :               return { key: obj.key, status: &quot;enriched&quot; };</span></span>
+<span id="L289"><span class="lineNum">     289</span>              :             } catch (enrichErr) {</span>
+<span id="L290"><span class="lineNum">     290</span> <span class="tlaUNC">           0 :               logger.warn(&quot;enrichment failed&quot;, {</span></span>
+<span id="L291"><span class="lineNum">     291</span>              :                 key: obj.key,</span>
+<span id="L292"><span class="lineNum">     292</span>              :                 error: enrichErr instanceof Error ? enrichErr.message : String(enrichErr),</span>
+<span id="L293"><span class="lineNum">     293</span>              :               });</span>
+<span id="L294"><span class="lineNum">     294</span> <span class="tlaUNC">           0 :               return {</span></span>
+<span id="L295"><span class="lineNum">     295</span>              :                 key: obj.key,</span>
+<span id="L296"><span class="lineNum">     296</span>              :                 status: &quot;enrich_failed&quot;,</span>
+<span id="L297"><span class="lineNum">     297</span>              :                 error: enrichErr instanceof Error ? enrichErr.message : String(enrichErr),</span>
+<span id="L298"><span class="lineNum">     298</span>              :               };</span>
+<span id="L299"><span class="lineNum">     299</span>              :             }</span>
+<span id="L300"><span class="lineNum">     300</span>              :           }</span>
+<span id="L301"><span class="lineNum">     301</span>              : </span>
+<span id="L302"><span class="lineNum">     302</span> <span class="tlaUNC">           0 :           return { key: obj.key, status: &quot;indexed&quot; };</span></span>
+<span id="L303"><span class="lineNum">     303</span>              :         } catch (err) {</span>
+<span id="L304"><span class="lineNum">     304</span> <span class="tlaUNC">           0 :           return {</span></span>
+<span id="L305"><span class="lineNum">     305</span>              :             key: obj.key,</span>
+<span id="L306"><span class="lineNum">     306</span>              :             status: &quot;error&quot;,</span>
+<span id="L307"><span class="lineNum">     307</span>              :             error: err instanceof Error ? err.message : String(err),</span>
+<span id="L308"><span class="lineNum">     308</span>              :           };</span>
+<span id="L309"><span class="lineNum">     309</span>              :         }</span>
+<span id="L310"><span class="lineNum">     310</span>              :       }),</span>
+<span id="L311"><span class="lineNum">     311</span>              :     ),</span>
+<span id="L312"><span class="lineNum">     312</span>              :   );</span>
+<span id="L313"><span class="lineNum">     313</span>              : </span>
+<span id="L314"><span class="lineNum">     314</span> <span class="tlaUNC">           0 :   const createdEvents = perObject.filter(</span></span>
+<span id="L315"><span class="lineNum">     315</span> <span class="tlaUNC">           0 :     (r) =&gt; r.status === &quot;indexed&quot; || r.status === &quot;enriched&quot; || r.status === &quot;enrich_failed&quot;,</span></span>
+<span id="L316"><span class="lineNum">     316</span>              :   ).length;</span>
+<span id="L317"><span class="lineNum">     317</span> <span class="tlaUNC">           0 :   const batchEnriched = perObject.filter((r) =&gt; r.status === &quot;enriched&quot;).length;</span></span>
+<span id="L318"><span class="lineNum">     318</span>              : </span>
+<span id="L319"><span class="lineNum">     319</span> <span class="tlaUNC">           0 :   logger.info(&quot;scanBucket complete&quot;, {</span></span>
+<span id="L320"><span class="lineNum">     320</span>              :     bucket: config.bucket_name,</span>
+<span id="L321"><span class="lineNum">     321</span>              :     created_events: createdEvents,</span>
+<span id="L322"><span class="lineNum">     322</span>              :     batch_enriched: batchEnriched,</span>
+<span id="L323"><span class="lineNum">     323</span> <span class="tlaUNC">           0 :     errors: perObject.filter((r) =&gt; r.status === &quot;error&quot;).length,</span></span>
+<span id="L324"><span class="lineNum">     324</span>              :   });</span>
+<span id="L325"><span class="lineNum">     325</span>              : </span>
+<span id="L326"><span class="lineNum">     326</span> <span class="tlaUNC">           0 :   return {</span></span>
+<span id="L327"><span class="lineNum">     327</span>              :     bucket: config.bucket_name,</span>
+<span id="L328"><span class="lineNum">     328</span>              :     total_objects: allObjects.length,</span>
+<span id="L329"><span class="lineNum">     329</span>              :     already_indexed: allObjects.length - newObjects.length,</span>
+<span id="L330"><span class="lineNum">     330</span>              :     new_objects: newObjects.length,</span>
+<span id="L331"><span class="lineNum">     331</span>              :     created_events: createdEvents,</span>
+<span id="L332"><span class="lineNum">     332</span>              :     batch_enriched: batchEnriched,</span>
+<span id="L333"><span class="lineNum">     333</span>              :     per_object: perObject,</span>
+<span id="L334"><span class="lineNum">     334</span>              :   };</span>
+<span id="L335"><span class="lineNum">     335</span>              : }</span>
+<span id="L336"><span class="lineNum">     336</span>              : </span>
+<span id="L337"><span class="lineNum">     337</span>              : /**</span>
+<span id="L338"><span class="lineNum">     338</span>              :  * Enrich unenriched images in a bucket.</span>
+<span id="L339"><span class="lineNum">     339</span>              :  */</span>
+<span id="L340"><span class="lineNum">     340</span> <span class="tlaUNC">           0 : export async function enrichBucketPending(</span></span>
+<span id="L341"><span class="lineNum">     341</span>              :   client: SupabaseClient,</span>
+<span id="L342"><span class="lineNum">     342</span>              :   s3: S3Client,</span>
+<span id="L343"><span class="lineNum">     343</span>              :   config: BucketConfig,</span>
+<span id="L344"><span class="lineNum">     344</span>              :   userId: string,</span>
+<span id="L345"><span class="lineNum">     345</span>              :   opts: {</span>
+<span id="L346"><span class="lineNum">     346</span>              :     event_id?: string;</span>
+<span id="L347"><span class="lineNum">     347</span>              :     concurrency?: number;</span>
+<span id="L348"><span class="lineNum">     348</span>              :     dry_run?: boolean;</span>
+<span id="L349"><span class="lineNum">     349</span>              :   } = {},</span>
+<span id="L350"><span class="lineNum">     350</span>              : ): Promise&lt;EnrichResult&gt; {</span>
+<span id="L351"><span class="lineNum">     351</span> <span class="tlaUNC">           0 :   const concurrency = opts.concurrency ?? 3;</span></span>
+<span id="L352"><span class="lineNum">     352</span> <span class="tlaUNC">           0 :   const dryRun = opts.dry_run ?? false;</span></span>
+<span id="L353"><span class="lineNum">     353</span>              : </span>
+<span id="L354"><span class="lineNum">     354</span>              :   // Get pending enrichments for this user, filtered by bucket</span>
+<span id="L355"><span class="lineNum">     355</span> <span class="tlaUNC">           0 :   const { data: pending, error } = await getPendingEnrichments(client, userId);</span></span>
+<span id="L356"><span class="lineNum">     356</span> <span class="tlaUNC">           0 :   if (error) {</span></span>
+<span id="L357"><span class="lineNum">     357</span> <span class="tlaUNC">           0 :     throw error;</span></span>
+<span id="L358"><span class="lineNum">     358</span>              :   }</span>
+<span id="L359"><span class="lineNum">     359</span>              : </span>
+<span id="L360"><span class="lineNum">     360</span>              :   // Filter to events that belong to this bucket</span>
+<span id="L361"><span class="lineNum">     361</span> <span class="tlaUNC">           0 :   let items = (pending ?? []).filter(</span></span>
+<span id="L362"><span class="lineNum">     362</span> <span class="tlaUNC">           0 :     (e) =&gt; e.remote_path?.startsWith(`s3://${config.bucket_name}/`),</span></span>
+<span id="L363"><span class="lineNum">     363</span>              :   );</span>
+<span id="L364"><span class="lineNum">     364</span>              : </span>
+<span id="L365"><span class="lineNum">     365</span>              :   // If a specific event_id is requested, filter to just that one</span>
+<span id="L366"><span class="lineNum">     366</span> <span class="tlaUNC">           0 :   if (opts.event_id) {</span></span>
+<span id="L367"><span class="lineNum">     367</span> <span class="tlaUNC">           0 :     items = items.filter((e) =&gt; e.id === opts.event_id);</span></span>
+<span id="L368"><span class="lineNum">     368</span>              :   }</span>
+<span id="L369"><span class="lineNum">     369</span>              : </span>
+<span id="L370"><span class="lineNum">     370</span> <span class="tlaUNC">           0 :   if (dryRun) {</span></span>
+<span id="L371"><span class="lineNum">     371</span> <span class="tlaUNC">           0 :     return {</span></span>
+<span id="L372"><span class="lineNum">     372</span>              :       enriched: 0,</span>
+<span id="L373"><span class="lineNum">     373</span>              :       failed: 0,</span>
+<span id="L374"><span class="lineNum">     374</span>              :       skipped: 0,</span>
+<span id="L375"><span class="lineNum">     375</span>              :       total: items.length,</span>
+<span id="L376"><span class="lineNum">     376</span>              :     };</span>
+<span id="L377"><span class="lineNum">     377</span>              :   }</span>
+<span id="L378"><span class="lineNum">     378</span>              : </span>
+<span id="L379"><span class="lineNum">     379</span> <span class="tlaUNC">           0 :   if (items.length === 0) {</span></span>
+<span id="L380"><span class="lineNum">     380</span> <span class="tlaUNC">           0 :     return { enriched: 0, failed: 0, skipped: 0, total: 0 };</span></span>
+<span id="L381"><span class="lineNum">     381</span>              :   }</span>
+<span id="L382"><span class="lineNum">     382</span>              : </span>
+<span id="L383"><span class="lineNum">     383</span>              :   // Load model config for this user</span>
+<span id="L384"><span class="lineNum">     384</span> <span class="tlaUNC">           0 :   const { data: modelConfigRow } = await getModelConfig(client, userId);</span></span>
+<span id="L385"><span class="lineNum">     385</span> <span class="tlaUNC">           0 :   const modelConfig = modelConfigRow</span></span>
+<span id="L386"><span class="lineNum">     386</span>              :     ? {</span>
+<span id="L387"><span class="lineNum">     387</span>              :         provider: modelConfigRow.provider,</span>
+<span id="L388"><span class="lineNum">     388</span>              :         baseUrl: modelConfigRow.base_url,</span>
+<span id="L389"><span class="lineNum">     389</span>              :         model: modelConfigRow.model,</span>
+<span id="L390"><span class="lineNum">     390</span>              :         apiKey: modelConfigRow.api_key_encrypted,</span>
+<span id="L391"><span class="lineNum">     391</span>              :       }</span>
+<span id="L392"><span class="lineNum">     392</span>              :     : undefined;</span>
+<span id="L393"><span class="lineNum">     393</span>              : </span>
+<span id="L394"><span class="lineNum">     394</span> <span class="tlaUNC">           0 :   const limit = pLimit(concurrency);</span></span>
+<span id="L395"><span class="lineNum">     395</span> <span class="tlaUNC">           0 :   let enriched = 0;</span></span>
+<span id="L396"><span class="lineNum">     396</span> <span class="tlaUNC">           0 :   let failed = 0;</span></span>
+<span id="L397"><span class="lineNum">     397</span> <span class="tlaUNC">           0 :   let skipped = 0;</span></span>
+<span id="L398"><span class="lineNum">     398</span>              : </span>
+<span id="L399"><span class="lineNum">     399</span> <span class="tlaUNC">           0 :   const tasks = items.map((event) =&gt;</span></span>
+<span id="L400"><span class="lineNum">     400</span> <span class="tlaUNC">           0 :     limit(async () =&gt; {</span></span>
+<span id="L401"><span class="lineNum">     401</span> <span class="tlaUNC">           0 :       const meta = (event.metadata as Record&lt;string, unknown&gt;) ?? {};</span></span>
+<span id="L402"><span class="lineNum">     402</span>              :       const s3Key =</span>
+<span id="L403"><span class="lineNum">     403</span> <span class="tlaUNC">           0 :         (meta.s3_key as string) ??</span></span>
+<span id="L404"><span class="lineNum">     404</span>              :         (event.remote_path</span>
+<span id="L405"><span class="lineNum">     405</span>              :           ? String(event.remote_path).replace(`s3://${config.bucket_name}/`, &quot;&quot;)</span>
+<span id="L406"><span class="lineNum">     406</span>              :           : null);</span>
+<span id="L407"><span class="lineNum">     407</span>              : </span>
+<span id="L408"><span class="lineNum">     408</span> <span class="tlaUNC">           0 :       if (!s3Key) {</span></span>
+<span id="L409"><span class="lineNum">     409</span> <span class="tlaUNC">           0 :         skipped++;</span></span>
+<span id="L410"><span class="lineNum">     410</span> <span class="tlaUNC">           0 :         return;</span></span>
+<span id="L411"><span class="lineNum">     411</span>              :       }</span>
+<span id="L412"><span class="lineNum">     412</span>              : </span>
+<span id="L413"><span class="lineNum">     413</span> <span class="tlaUNC">           0 :       try {</span></span>
+<span id="L414"><span class="lineNum">     414</span> <span class="tlaUNC">           0 :         const imageBytes = await downloadS3Object(s3, config.bucket_name, s3Key);</span></span>
+<span id="L415"><span class="lineNum">     415</span> <span class="tlaUNC">           0 :         const mime = (meta.mime_type as string) ?? getMimeType(s3Key);</span></span>
+<span id="L416"><span class="lineNum">     416</span> <span class="tlaUNC">           0 :         const result = await enrichImage(imageBytes, mime, modelConfig);</span></span>
+<span id="L417"><span class="lineNum">     417</span> <span class="tlaUNC">           0 :         const enrichInsert = await insertEnrichment(client, event.id, result, userId);</span></span>
+<span id="L418"><span class="lineNum">     418</span> <span class="tlaUNC">           0 :         if (enrichInsert.error) throw enrichInsert.error;</span></span>
+<span id="L419"><span class="lineNum">     419</span> <span class="tlaUNC">           0 :         enriched++;</span></span>
+<span id="L420"><span class="lineNum">     420</span>              :       } catch (err) {</span>
+<span id="L421"><span class="lineNum">     421</span> <span class="tlaUNC">           0 :         failed++;</span></span>
+<span id="L422"><span class="lineNum">     422</span> <span class="tlaUNC">           0 :         logger.error(&quot;enrich item failed&quot;, {</span></span>
+<span id="L423"><span class="lineNum">     423</span>              :           event_id: event.id,</span>
+<span id="L424"><span class="lineNum">     424</span>              :           error: err instanceof Error ? err.message : String(err),</span>
+<span id="L425"><span class="lineNum">     425</span>              :         });</span>
+<span id="L426"><span class="lineNum">     426</span>              :       }</span>
+<span id="L427"><span class="lineNum">     427</span>              :     }),</span>
+<span id="L428"><span class="lineNum">     428</span>              :   );</span>
+<span id="L429"><span class="lineNum">     429</span>              : </span>
+<span id="L430"><span class="lineNum">     430</span> <span class="tlaUNC">           0 :   await Promise.all(tasks);</span></span>
+<span id="L431"><span class="lineNum">     431</span>              : </span>
+<span id="L432"><span class="lineNum">     432</span> <span class="tlaUNC">           0 :   return { enriched, failed, skipped, total: items.length };</span></span>
+<span id="L433"><span class="lineNum">     433</span>              : }</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

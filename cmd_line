@@ -1,0 +1,1 @@
+genhtml ../combined.info -o coverage-html --quiet

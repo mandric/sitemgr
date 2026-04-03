@@ -1,0 +1,555 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - combined.info - lib/media/lib/media/db.ts</title>
+  <link rel="stylesheet" type="text/css" href="../../../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../../../index.html">top level</a> - <a href="index.html">lib/media/lib/media</a> - db.ts<span style="font-size: 80%;"> (source / <a href="db.ts.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">combined.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryLo">63.1&nbsp;%</td>
+            <td class="headerCovTableEntry">130</td>
+            <td class="headerCovTableEntry">82</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-04-03 03:00:32</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryLo">56.0&nbsp;%</td>
+            <td class="headerCovTableEntry">25</td>
+            <td class="headerCovTableEntry">14</td>
+          </tr>
+                  <tr><td><img src="../../../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">            Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>              : /**</span>
+<span id="L2"><span class="lineNum">       2</span>              :  * Database operations for the media event store (Supabase Postgres)</span>
+<span id="L3"><span class="lineNum">       3</span>              :  *</span>
+<span id="L4"><span class="lineNum">       4</span>              :  * All functions return Supabase's { data, error } shape as-is.</span>
+<span id="L5"><span class="lineNum">       5</span>              :  * Callers decide how to handle errors — the db layer's job is</span>
+<span id="L6"><span class="lineNum">       6</span>              :  * query encapsulation and retry on writes.</span>
+<span id="L7"><span class="lineNum">       7</span>              :  *</span>
+<span id="L8"><span class="lineNum">       8</span>              :  * Client factories are parameterized — callers provide config explicitly.</span>
+<span id="L9"><span class="lineNum">       9</span>              :  * This module has zero dependency on cli-auth.</span>
+<span id="L10"><span class="lineNum">      10</span>              :  */</span>
+<span id="L11"><span class="lineNum">      11</span>              : </span>
+<span id="L12"><span class="lineNum">      12</span>              : import { createClient as createSupabaseClient, type SupabaseClient } from &quot;@supabase/supabase-js&quot;;</span>
+<span id="L13"><span class="lineNum">      13</span>              : import { createLogger, LogComponent } from &quot;@/lib/logger&quot;;</span>
+<span id="L14"><span class="lineNum">      14</span>              : import { withRetry } from &quot;@/lib/retry&quot;;</span>
+<span id="L15"><span class="lineNum">      15</span>              : import { CONTENT_TYPE_PHOTO } from &quot;@/lib/media/constants&quot;;</span>
+<span id="L16"><span class="lineNum">      16</span>              : </span>
+<span id="L17"><span class="lineNum">      17</span> <span class="tlaGNC tlaBgGNC">           1 : const logger = createLogger(LogComponent.DB);</span></span>
+<span id="L18"><span class="lineNum">      18</span>              : </span>
+<span id="L19"><span class="lineNum">      19</span>              : // ── Config types ──────────────────────────────────────────────</span>
+<span id="L20"><span class="lineNum">      20</span>              : </span>
+<span id="L21"><span class="lineNum">      21</span>              : export interface SupabaseConfig {</span>
+<span id="L22"><span class="lineNum">      22</span>              :   url: string;</span>
+<span id="L23"><span class="lineNum">      23</span>              :   serviceKey: string;</span>
+<span id="L24"><span class="lineNum">      24</span>              : }</span>
+<span id="L25"><span class="lineNum">      25</span>              : </span>
+<span id="L26"><span class="lineNum">      26</span>              : export interface SupabaseUserConfig {</span>
+<span id="L27"><span class="lineNum">      27</span>              :   url: string;</span>
+<span id="L28"><span class="lineNum">      28</span>              :   anonKey: string;</span>
+<span id="L29"><span class="lineNum">      29</span>              : }</span>
+<span id="L30"><span class="lineNum">      30</span>              : </span>
+<span id="L31"><span class="lineNum">      31</span>              : // ── Retry support ──────────────────────────────────────────────</span>
+<span id="L32"><span class="lineNum">      32</span>              : </span>
+<span id="L33"><span class="lineNum">      33</span> <span class="tlaGNC">           1 : const NON_RETRYABLE_CODES = new Set([&quot;23505&quot;, &quot;23503&quot;, &quot;42501&quot;, &quot;PGRST301&quot;, &quot;PGRST302&quot;]);</span></span>
+<span id="L34"><span class="lineNum">      34</span>              : </span>
+<span id="L35"><span class="lineNum">      35</span> <span class="tlaUNC tlaBgUNC">           0 : function shouldRetryDbError(error: unknown): boolean {</span></span>
+<span id="L36"><span class="lineNum">      36</span> <span class="tlaUNC">           0 :   const code = (error as Record&lt;string, unknown&gt;)?.code as string | undefined;</span></span>
+<span id="L37"><span class="lineNum">      37</span> <span class="tlaUNC">           0 :   if (code &amp;&amp; NON_RETRYABLE_CODES.has(code)) return false;</span></span>
+<span id="L38"><span class="lineNum">      38</span> <span class="tlaUNC">           0 :   return true;</span></span>
+<span id="L39"><span class="lineNum">      39</span>              : }</span>
+<span id="L40"><span class="lineNum">      40</span>              : </span>
+<span id="L41"><span class="lineNum">      41</span>              : /**</span>
+<span id="L42"><span class="lineNum">      42</span>              :  * Adapt withRetry for Supabase's { data, error } pattern.</span>
+<span id="L43"><span class="lineNum">      43</span>              :  * Retries when error is present and retryable; returns { data, error } in all cases.</span>
+<span id="L44"><span class="lineNum">      44</span>              :  */</span>
+<span id="L45"><span class="lineNum">      45</span> <span class="tlaGNC tlaBgGNC">           7 : async function withRetryDb&lt;T&gt;(</span></span>
+<span id="L46"><span class="lineNum">      46</span>              :   fn: () =&gt; Promise&lt;{ data: T; error: unknown }&gt;,</span>
+<span id="L47"><span class="lineNum">      47</span>              : ): Promise&lt;{ data: T; error: unknown }&gt; {</span>
+<span id="L48"><span class="lineNum">      48</span> <span class="tlaGNC">           7 :   try {</span></span>
+<span id="L49"><span class="lineNum">      49</span> <span class="tlaGNC">           7 :     return await withRetry(async () =&gt; {</span></span>
+<span id="L50"><span class="lineNum">      50</span> <span class="tlaGNC">           7 :       const result = await fn();</span></span>
+<span id="L51"><span class="lineNum">      51</span> <span class="tlaGNC">           7 :       if (result.error) throw result.error;</span></span>
+<span id="L52"><span class="lineNum">      52</span> <span class="tlaGNC">           7 :       return result;</span></span>
+<span id="L53"><span class="lineNum">      53</span>              :     }, { shouldRetry: shouldRetryDbError });</span>
+<span id="L54"><span class="lineNum">      54</span>              :   } catch (error) {</span>
+<span id="L55"><span class="lineNum">      55</span> <span class="tlaUNC tlaBgUNC">           0 :     return { data: null as T, error };</span></span>
+<span id="L56"><span class="lineNum">      56</span>              :   }</span>
+<span id="L57"><span class="lineNum">      57</span>              : }</span>
+<span id="L58"><span class="lineNum">      58</span>              : </span>
+<span id="L59"><span class="lineNum">      59</span>              : // ── Clients ────────────────────────────────────────────────────</span>
+<span id="L60"><span class="lineNum">      60</span>              : </span>
+<span id="L61"><span class="lineNum">      61</span>              : /** Creates a Supabase client with the service role key (bypasses RLS). */</span>
+<span id="L62"><span class="lineNum">      62</span> <span class="tlaUNC">           0 : export function getAdminClient(config: SupabaseConfig) {</span></span>
+<span id="L63"><span class="lineNum">      63</span> <span class="tlaUNC">           0 :   if (!config.url) throw new Error(&quot;url is required for admin client&quot;);</span></span>
+<span id="L64"><span class="lineNum">      64</span> <span class="tlaUNC">           0 :   if (!config.serviceKey) throw new Error(&quot;serviceKey is required for admin client&quot;);</span></span>
+<span id="L65"><span class="lineNum">      65</span> <span class="tlaUNC">           0 :   return createSupabaseClient(config.url, config.serviceKey);</span></span>
+<span id="L66"><span class="lineNum">      66</span>              : }</span>
+<span id="L67"><span class="lineNum">      67</span>              : </span>
+<span id="L68"><span class="lineNum">      68</span>              : /** Creates a Supabase client with the publishable/anon key (respects RLS). */</span>
+<span id="L69"><span class="lineNum">      69</span> <span class="tlaUNC">           0 : export function getUserClient(config: SupabaseUserConfig) {</span></span>
+<span id="L70"><span class="lineNum">      70</span> <span class="tlaUNC">           0 :   if (!config.url) throw new Error(&quot;url is required for user client&quot;);</span></span>
+<span id="L71"><span class="lineNum">      71</span> <span class="tlaUNC">           0 :   if (!config.anonKey) throw new Error(&quot;anonKey is required for user client&quot;);</span></span>
+<span id="L72"><span class="lineNum">      72</span> <span class="tlaUNC">           0 :   return createSupabaseClient(config.url, config.anonKey);</span></span>
+<span id="L73"><span class="lineNum">      73</span>              : }</span>
+<span id="L74"><span class="lineNum">      74</span>              : </span>
+<span id="L75"><span class="lineNum">      75</span>              : export interface EventRow {</span>
+<span id="L76"><span class="lineNum">      76</span>              :   id: string;</span>
+<span id="L77"><span class="lineNum">      77</span>              :   timestamp: string;</span>
+<span id="L78"><span class="lineNum">      78</span>              :   device_id: string;</span>
+<span id="L79"><span class="lineNum">      79</span>              :   type: string;</span>
+<span id="L80"><span class="lineNum">      80</span>              :   content_type: string | null;</span>
+<span id="L81"><span class="lineNum">      81</span>              :   content_hash: string | null;</span>
+<span id="L82"><span class="lineNum">      82</span>              :   local_path: string | null;</span>
+<span id="L83"><span class="lineNum">      83</span>              :   remote_path: string | null;</span>
+<span id="L84"><span class="lineNum">      84</span>              :   metadata: Record&lt;string, unknown&gt; | null;</span>
+<span id="L85"><span class="lineNum">      85</span>              :   parent_id: string | null;</span>
+<span id="L86"><span class="lineNum">      86</span>              :   bucket_config_id?: string | null;</span>
+<span id="L87"><span class="lineNum">      87</span>              :   user_id: string;</span>
+<span id="L88"><span class="lineNum">      88</span>              : }</span>
+<span id="L89"><span class="lineNum">      89</span>              : </span>
+<span id="L90"><span class="lineNum">      90</span>              : // ── Query ──────────────────────────────────────────────────────</span>
+<span id="L91"><span class="lineNum">      91</span>              : </span>
+<span id="L92"><span class="lineNum">      92</span>              : export interface QueryOptions {</span>
+<span id="L93"><span class="lineNum">      93</span>              :   userId?: string;</span>
+<span id="L94"><span class="lineNum">      94</span>              :   search?: string;</span>
+<span id="L95"><span class="lineNum">      95</span>              :   type?: string;</span>
+<span id="L96"><span class="lineNum">      96</span>              :   since?: string;</span>
+<span id="L97"><span class="lineNum">      97</span>              :   until?: string;</span>
+<span id="L98"><span class="lineNum">      98</span>              :   device?: string;</span>
+<span id="L99"><span class="lineNum">      99</span>              :   bucketConfigId?: string;</span>
+<span id="L100"><span class="lineNum">     100</span>              :   limit?: number;</span>
+<span id="L101"><span class="lineNum">     101</span>              :   offset?: number;</span>
+<span id="L102"><span class="lineNum">     102</span>              : }</span>
+<span id="L103"><span class="lineNum">     103</span>              : </span>
+<span id="L104"><span class="lineNum">     104</span> <span class="tlaGNC tlaBgGNC">           3 : export async function queryEvents(client: SupabaseClient, opts: QueryOptions) {</span></span>
+<span id="L105"><span class="lineNum">     105</span> <span class="tlaGNC">           3 :   const start = Date.now();</span></span>
+<span id="L106"><span class="lineNum">     106</span>              : </span>
+<span id="L107"><span class="lineNum">     107</span>              :   // Empty search guard</span>
+<span id="L108"><span class="lineNum">     108</span> <span class="tlaGNC">           3 :   if (opts.search !== undefined &amp;&amp; opts.search.trim() === &quot;&quot;) {</span></span>
+<span id="L109"><span class="lineNum">     109</span> <span class="tlaUNC tlaBgUNC">           0 :     logger.info(&quot;queryEvents&quot;, {</span></span>
+<span id="L110"><span class="lineNum">     110</span>              :       has_search: true,</span>
+<span id="L111"><span class="lineNum">     111</span>              :       result_count: 0,</span>
+<span id="L112"><span class="lineNum">     112</span>              :       duration_ms: Date.now() - start,</span>
+<span id="L113"><span class="lineNum">     113</span>              :     });</span>
+<span id="L114"><span class="lineNum">     114</span> <span class="tlaUNC">           0 :     return { data: [], count: 0, error: null };</span></span>
+<span id="L115"><span class="lineNum">     115</span>              :   }</span>
+<span id="L116"><span class="lineNum">     116</span>              : </span>
+<span id="L117"><span class="lineNum">     117</span>              :   // Full-text search via RPC</span>
+<span id="L118"><span class="lineNum">     118</span> <span class="tlaGNC tlaBgGNC">           3 :   if (opts.search) {</span></span>
+<span id="L119"><span class="lineNum">     119</span> <span class="tlaGNC">           2 :     const { data, error } = await client.rpc(&quot;search_events&quot;, {</span></span>
+<span id="L120"><span class="lineNum">     120</span>              :       p_user_id: opts.userId,</span>
+<span id="L121"><span class="lineNum">     121</span>              :       query_text: opts.search,</span>
+<span id="L122"><span class="lineNum">     122</span>              :       content_type_filter: opts.type ?? null,</span>
+<span id="L123"><span class="lineNum">     123</span>              :       since_filter: opts.since ?? null,</span>
+<span id="L124"><span class="lineNum">     124</span>              :       until_filter: opts.until ?? null,</span>
+<span id="L125"><span class="lineNum">     125</span>              :       result_limit: Math.min(opts.limit ?? 20, 100),</span>
+<span id="L126"><span class="lineNum">     126</span>              :     });</span>
+<span id="L127"><span class="lineNum">     127</span>              : </span>
+<span id="L128"><span class="lineNum">     128</span> <span class="tlaGNC">           2 :     logger.info(&quot;queryEvents&quot;, {</span></span>
+<span id="L129"><span class="lineNum">     129</span>              :       has_search: true,</span>
+<span id="L130"><span class="lineNum">     130</span>              :       result_count: (data ?? []).length,</span>
+<span id="L131"><span class="lineNum">     131</span>              :       duration_ms: Date.now() - start,</span>
+<span id="L132"><span class="lineNum">     132</span>              :     });</span>
+<span id="L133"><span class="lineNum">     133</span> <span class="tlaGNC">           2 :     return { data: data ?? [], count: (data ?? []).length, error };</span></span>
+<span id="L134"><span class="lineNum">     134</span>              :   }</span>
+<span id="L135"><span class="lineNum">     135</span>              : </span>
+<span id="L136"><span class="lineNum">     136</span>              :   // Standard query with joined enrichments (no N+1)</span>
+<span id="L137"><span class="lineNum">     137</span> <span class="tlaGNC">           1 :   const effectiveLimit = Math.min(opts.limit ?? 20, 100);</span></span>
+<span id="L138"><span class="lineNum">     138</span> <span class="tlaGNC">           3 :   let query = client</span></span>
+<span id="L139"><span class="lineNum">     139</span>              :     .from(&quot;events&quot;)</span>
+<span id="L140"><span class="lineNum">     140</span>              :     .select(&quot;*, enrichments(description, objects, context, tags)&quot;, { count: &quot;exact&quot; })</span>
+<span id="L141"><span class="lineNum">     141</span>              :     .eq(&quot;type&quot;, &quot;create&quot;)</span>
+<span id="L142"><span class="lineNum">     142</span>              :     .order(&quot;timestamp&quot;, { ascending: false })</span>
+<span id="L143"><span class="lineNum">     143</span>              :     .range(opts.offset ?? 0, (opts.offset ?? 0) + effectiveLimit - 1);</span>
+<span id="L144"><span class="lineNum">     144</span>              : </span>
+<span id="L145"><span class="lineNum">     145</span> <span class="tlaGNC">           3 :   if (opts.userId) query = query.eq(&quot;user_id&quot;, opts.userId);</span></span>
+<span id="L146"><span class="lineNum">     146</span> <span class="tlaGNC">           1 :   if (opts.type) query = query.eq(&quot;content_type&quot;, opts.type);</span></span>
+<span id="L147"><span class="lineNum">     147</span> <span class="tlaGNC">           1 :   if (opts.since) query = query.gte(&quot;timestamp&quot;, opts.since);</span></span>
+<span id="L148"><span class="lineNum">     148</span> <span class="tlaGNC">           1 :   if (opts.until) query = query.lte(&quot;timestamp&quot;, opts.until);</span></span>
+<span id="L149"><span class="lineNum">     149</span> <span class="tlaGNC">           1 :   if (opts.device) query = query.eq(&quot;device_id&quot;, opts.device);</span></span>
+<span id="L150"><span class="lineNum">     150</span> <span class="tlaGNC">           1 :   if (opts.bucketConfigId) query = query.eq(&quot;bucket_config_id&quot;, opts.bucketConfigId);</span></span>
+<span id="L151"><span class="lineNum">     151</span>              : </span>
+<span id="L152"><span class="lineNum">     152</span> <span class="tlaGNC">           1 :   const { data, count, error } = await query;</span></span>
+<span id="L153"><span class="lineNum">     153</span>              : </span>
+<span id="L154"><span class="lineNum">     154</span>              :   // Normalize enrichments join → single &quot;enrichment&quot; property.</span>
+<span id="L155"><span class="lineNum">     155</span>              :   // PostgREST returns an object (one-to-one) or array (one-to-many)</span>
+<span id="L156"><span class="lineNum">     156</span>              :   // depending on FK uniqueness. Handle both.</span>
+<span id="L157"><span class="lineNum">     157</span>              :   // eslint-disable-next-line @typescript-eslint/no-explicit-any</span>
+<span id="L158"><span class="lineNum">     158</span> <span class="tlaGNC">           1 :   const events = (data ?? []).map((evt: any) =&gt; {</span></span>
+<span id="L159"><span class="lineNum">     159</span> <span class="tlaGNC">           3 :     const e = evt.enrichments;</span></span>
+<span id="L160"><span class="lineNum">     160</span> <span class="tlaGNC">           3 :     if (Array.isArray(e) &amp;&amp; e.length &gt; 0) {</span></span>
+<span id="L161"><span class="lineNum">     161</span> <span class="tlaUNC tlaBgUNC">           0 :       evt.enrichment = e[0];</span></span>
+<span id="L162"><span class="lineNum">     162</span> <span class="tlaGNC tlaBgGNC">           3 :     } else if (e &amp;&amp; typeof e === &quot;object&quot; &amp;&amp; !Array.isArray(e)) {</span></span>
+<span id="L163"><span class="lineNum">     163</span> <span class="tlaGNC">           2 :       evt.enrichment = e;</span></span>
+<span id="L164"><span class="lineNum">     164</span>              :     }</span>
+<span id="L165"><span class="lineNum">     165</span> <span class="tlaGNC">           3 :     delete evt.enrichments;</span></span>
+<span id="L166"><span class="lineNum">     166</span> <span class="tlaGNC">           3 :     return evt;</span></span>
+<span id="L167"><span class="lineNum">     167</span>              :   });</span>
+<span id="L168"><span class="lineNum">     168</span>              : </span>
+<span id="L169"><span class="lineNum">     169</span> <span class="tlaGNC">           3 :   logger.info(&quot;queryEvents&quot;, {</span></span>
+<span id="L170"><span class="lineNum">     170</span>              :     has_search: false,</span>
+<span id="L171"><span class="lineNum">     171</span>              :     result_count: events.length,</span>
+<span id="L172"><span class="lineNum">     172</span>              :     duration_ms: Date.now() - start,</span>
+<span id="L173"><span class="lineNum">     173</span>              :   });</span>
+<span id="L174"><span class="lineNum">     174</span>              : </span>
+<span id="L175"><span class="lineNum">     175</span> <span class="tlaGNC">           3 :   return { data: events, count: count ?? events.length, error };</span></span>
+<span id="L176"><span class="lineNum">     176</span>              : }</span>
+<span id="L177"><span class="lineNum">     177</span>              : </span>
+<span id="L178"><span class="lineNum">     178</span>              : // ── Show ───────────────────────────────────────────────────────</span>
+<span id="L179"><span class="lineNum">     179</span>              : </span>
+<span id="L180"><span class="lineNum">     180</span> <span class="tlaUNC tlaBgUNC">           0 : export async function showEvent(client: SupabaseClient, eventId: string, userId?: string) {</span></span>
+<span id="L181"><span class="lineNum">     181</span> <span class="tlaUNC">           0 :   let query = client</span></span>
+<span id="L182"><span class="lineNum">     182</span>              :     .from(&quot;events&quot;)</span>
+<span id="L183"><span class="lineNum">     183</span>              :     .select(&quot;*, enrichments(description, objects, context, tags)&quot;)</span>
+<span id="L184"><span class="lineNum">     184</span>              :     .eq(&quot;id&quot;, eventId);</span>
+<span id="L185"><span class="lineNum">     185</span> <span class="tlaUNC">           0 :   if (userId) query = query.eq(&quot;user_id&quot;, userId);</span></span>
+<span id="L186"><span class="lineNum">     186</span>              : </span>
+<span id="L187"><span class="lineNum">     187</span> <span class="tlaUNC">           0 :   const { data: event, error } = await query.maybeSingle();</span></span>
+<span id="L188"><span class="lineNum">     188</span> <span class="tlaUNC">           0 :   if (error || !event) return { data: event, error };</span></span>
+<span id="L189"><span class="lineNum">     189</span>              : </span>
+<span id="L190"><span class="lineNum">     190</span>              :   // Normalize enrichments join → single &quot;enrichment&quot; property</span>
+<span id="L191"><span class="lineNum">     191</span> <span class="tlaUNC">           0 :   const e = event.enrichments;</span></span>
+<span id="L192"><span class="lineNum">     192</span> <span class="tlaUNC">           0 :   if (Array.isArray(e) &amp;&amp; e.length &gt; 0) {</span></span>
+<span id="L193"><span class="lineNum">     193</span> <span class="tlaUNC">           0 :     event.enrichment = e[0];</span></span>
+<span id="L194"><span class="lineNum">     194</span> <span class="tlaUNC">           0 :   } else if (e &amp;&amp; typeof e === &quot;object&quot; &amp;&amp; !Array.isArray(e)) {</span></span>
+<span id="L195"><span class="lineNum">     195</span> <span class="tlaUNC">           0 :     event.enrichment = e;</span></span>
+<span id="L196"><span class="lineNum">     196</span>              :   }</span>
+<span id="L197"><span class="lineNum">     197</span> <span class="tlaUNC">           0 :   delete event.enrichments;</span></span>
+<span id="L198"><span class="lineNum">     198</span>              : </span>
+<span id="L199"><span class="lineNum">     199</span> <span class="tlaUNC">           0 :   return { data: event, error };</span></span>
+<span id="L200"><span class="lineNum">     200</span>              : }</span>
+<span id="L201"><span class="lineNum">     201</span>              : </span>
+<span id="L202"><span class="lineNum">     202</span>              : // ── Stats ──────────────────────────────────────────────────────</span>
+<span id="L203"><span class="lineNum">     203</span>              : </span>
+<span id="L204"><span class="lineNum">     204</span> <span class="tlaGNC tlaBgGNC">           2 : export async function getStats(client: SupabaseClient, opts?: { userId?: string; deviceId?: string; bucketConfigId?: string }) {</span></span>
+<span id="L205"><span class="lineNum">     205</span> <span class="tlaGNC">           2 :   const userId = opts?.userId;</span></span>
+<span id="L206"><span class="lineNum">     206</span> <span class="tlaGNC">           2 :   const bucketConfigId = opts?.bucketConfigId;</span></span>
+<span id="L207"><span class="lineNum">     207</span>              : </span>
+<span id="L208"><span class="lineNum">     208</span> <span class="tlaGNC">           2 :   let eventsQuery = client.from(&quot;events&quot;).select(&quot;*&quot;, { count: &quot;exact&quot;, head: true });</span></span>
+<span id="L209"><span class="lineNum">     209</span> <span class="tlaGNC">           2 :   let enrichmentsQuery = client.from(&quot;enrichments&quot;).select(&quot;*&quot;, { count: &quot;exact&quot;, head: true });</span></span>
+<span id="L210"><span class="lineNum">     210</span> <span class="tlaGNC">           2 :   let watchedQuery = client.from(&quot;watched_keys&quot;).select(&quot;*&quot;, { count: &quot;exact&quot;, head: true });</span></span>
+<span id="L211"><span class="lineNum">     211</span>              : </span>
+<span id="L212"><span class="lineNum">     212</span> <span class="tlaGNC">           2 :   if (userId) {</span></span>
+<span id="L213"><span class="lineNum">     213</span> <span class="tlaGNC">           2 :     eventsQuery = eventsQuery.eq(&quot;user_id&quot;, userId);</span></span>
+<span id="L214"><span class="lineNum">     214</span> <span class="tlaGNC">           2 :     enrichmentsQuery = enrichmentsQuery.eq(&quot;user_id&quot;, userId);</span></span>
+<span id="L215"><span class="lineNum">     215</span> <span class="tlaGNC">           2 :     watchedQuery = watchedQuery.eq(&quot;user_id&quot;, userId);</span></span>
+<span id="L216"><span class="lineNum">     216</span>              :   }</span>
+<span id="L217"><span class="lineNum">     217</span> <span class="tlaGNC">           2 :   if (bucketConfigId) {</span></span>
+<span id="L218"><span class="lineNum">     218</span> <span class="tlaUNC tlaBgUNC">           0 :     eventsQuery = eventsQuery.eq(&quot;bucket_config_id&quot;, bucketConfigId);</span></span>
+<span id="L219"><span class="lineNum">     219</span> <span class="tlaUNC">           0 :     watchedQuery = watchedQuery.eq(&quot;bucket_config_id&quot;, bucketConfigId);</span></span>
+<span id="L220"><span class="lineNum">     220</span>              :   }</span>
+<span id="L221"><span class="lineNum">     221</span>              : </span>
+<span id="L222"><span class="lineNum">     222</span>              :   const [byContentType, byEventType, totalRes, enrichedRes, watchedRes] =</span>
+<span id="L223"><span class="lineNum">     223</span> <span class="tlaGNC tlaBgGNC">           2 :     await Promise.all([</span></span>
+<span id="L224"><span class="lineNum">     224</span>              :       client.rpc(&quot;stats_by_content_type&quot;, { p_user_id: userId }),</span>
+<span id="L225"><span class="lineNum">     225</span>              :       client.rpc(&quot;stats_by_event_type&quot;, { p_user_id: userId }),</span>
+<span id="L226"><span class="lineNum">     226</span>              :       eventsQuery,</span>
+<span id="L227"><span class="lineNum">     227</span>              :       enrichmentsQuery,</span>
+<span id="L228"><span class="lineNum">     228</span>              :       watchedQuery,</span>
+<span id="L229"><span class="lineNum">     229</span>              :     ]);</span>
+<span id="L230"><span class="lineNum">     230</span>              : </span>
+<span id="L231"><span class="lineNum">     231</span>              :   // Return first error if any sub-query failed</span>
+<span id="L232"><span class="lineNum">     232</span> <span class="tlaGNC">           2 :   const firstError = [byContentType, byEventType, totalRes, enrichedRes, watchedRes]</span></span>
+<span id="L233"><span class="lineNum">     233</span> <span class="tlaGNC">          10 :     .find(r =&gt; r.error)?.error ?? null;</span></span>
+<span id="L234"><span class="lineNum">     234</span> <span class="tlaGNC">           2 :   if (firstError) {</span></span>
+<span id="L235"><span class="lineNum">     235</span> <span class="tlaUNC tlaBgUNC">           0 :     return { data: null, error: firstError };</span></span>
+<span id="L236"><span class="lineNum">     236</span>              :   }</span>
+<span id="L237"><span class="lineNum">     237</span>              : </span>
+<span id="L238"><span class="lineNum">     238</span> <span class="tlaGNC tlaBgGNC">           2 :   const contentTypeCounts: Record&lt;string, number&gt; = {};</span></span>
+<span id="L239"><span class="lineNum">     239</span> <span class="tlaGNC">           2 :   for (const row of byContentType.data ?? []) {</span></span>
+<span id="L240"><span class="lineNum">     240</span> <span class="tlaGNC">           4 :     contentTypeCounts[row.content_type ?? &quot;unknown&quot;] = Number(row.count);</span></span>
+<span id="L241"><span class="lineNum">     241</span>              :   }</span>
+<span id="L242"><span class="lineNum">     242</span>              : </span>
+<span id="L243"><span class="lineNum">     243</span> <span class="tlaGNC">           2 :   const eventTypeCounts: Record&lt;string, number&gt; = {};</span></span>
+<span id="L244"><span class="lineNum">     244</span> <span class="tlaGNC">           2 :   for (const row of byEventType.data ?? []) {</span></span>
+<span id="L245"><span class="lineNum">     245</span> <span class="tlaGNC">           2 :     eventTypeCounts[row.type] = Number(row.count);</span></span>
+<span id="L246"><span class="lineNum">     246</span>              :   }</span>
+<span id="L247"><span class="lineNum">     247</span>              : </span>
+<span id="L248"><span class="lineNum">     248</span> <span class="tlaGNC">           2 :   const total = totalRes.count ?? 0;</span></span>
+<span id="L249"><span class="lineNum">     249</span> <span class="tlaGNC">           2 :   const enriched = enrichedRes.count ?? 0;</span></span>
+<span id="L250"><span class="lineNum">     250</span> <span class="tlaGNC">           2 :   const watched = watchedRes.count ?? 0;</span></span>
+<span id="L251"><span class="lineNum">     251</span>              : </span>
+<span id="L252"><span class="lineNum">     252</span>              :   // Count &quot;photo&quot; content type as media for pending enrichment calculation</span>
+<span id="L253"><span class="lineNum">     253</span> <span class="tlaGNC">           2 :   const photoCount = contentTypeCounts[CONTENT_TYPE_PHOTO] ?? 0;</span></span>
+<span id="L254"><span class="lineNum">     254</span>              : </span>
+<span id="L255"><span class="lineNum">     255</span> <span class="tlaGNC">           2 :   return {</span></span>
+<span id="L256"><span class="lineNum">     256</span>              :     data: {</span>
+<span id="L257"><span class="lineNum">     257</span>              :       total_events: total,</span>
+<span id="L258"><span class="lineNum">     258</span>              :       by_content_type: contentTypeCounts,</span>
+<span id="L259"><span class="lineNum">     259</span>              :       by_event_type: eventTypeCounts,</span>
+<span id="L260"><span class="lineNum">     260</span>              :       watched_s3_keys: watched,</span>
+<span id="L261"><span class="lineNum">     261</span>              :       enriched,</span>
+<span id="L262"><span class="lineNum">     262</span>              :       pending_enrichment: Math.max(0, photoCount - enriched),</span>
+<span id="L263"><span class="lineNum">     263</span>              :       device_id: opts?.deviceId ?? &quot;default&quot;,</span>
+<span id="L264"><span class="lineNum">     264</span>              :     },</span>
+<span id="L265"><span class="lineNum">     265</span>              :     error: null,</span>
+<span id="L266"><span class="lineNum">     266</span>              :   };</span>
+<span id="L267"><span class="lineNum">     267</span>              : }</span>
+<span id="L268"><span class="lineNum">     268</span>              : </span>
+<span id="L269"><span class="lineNum">     269</span>              : // ── Enrich Status ──────────────────────────────────────────────</span>
+<span id="L270"><span class="lineNum">     270</span>              : </span>
+<span id="L271"><span class="lineNum">     271</span> <span class="tlaGNC">           1 : export async function getEnrichStatus(client: SupabaseClient, userId?: string, contentType = CONTENT_TYPE_PHOTO) {</span></span>
+<span id="L272"><span class="lineNum">     272</span> <span class="tlaGNC">           1 :   let eventsQuery = client</span></span>
+<span id="L273"><span class="lineNum">     273</span>              :     .from(&quot;events&quot;)</span>
+<span id="L274"><span class="lineNum">     274</span>              :     .select(&quot;*&quot;, { count: &quot;exact&quot;, head: true })</span>
+<span id="L275"><span class="lineNum">     275</span>              :     .eq(&quot;type&quot;, &quot;create&quot;)</span>
+<span id="L276"><span class="lineNum">     276</span>              :     .eq(&quot;content_type&quot;, contentType);</span>
+<span id="L277"><span class="lineNum">     277</span> <span class="tlaGNC">           1 :   let enrichmentsQuery = client</span></span>
+<span id="L278"><span class="lineNum">     278</span>              :     .from(&quot;enrichments&quot;)</span>
+<span id="L279"><span class="lineNum">     279</span>              :     .select(&quot;*&quot;, { count: &quot;exact&quot;, head: true });</span>
+<span id="L280"><span class="lineNum">     280</span>              : </span>
+<span id="L281"><span class="lineNum">     281</span> <span class="tlaGNC">           1 :   if (userId) {</span></span>
+<span id="L282"><span class="lineNum">     282</span> <span class="tlaGNC">           1 :     eventsQuery = eventsQuery.eq(&quot;user_id&quot;, userId);</span></span>
+<span id="L283"><span class="lineNum">     283</span> <span class="tlaGNC">           1 :     enrichmentsQuery = enrichmentsQuery.eq(&quot;user_id&quot;, userId);</span></span>
+<span id="L284"><span class="lineNum">     284</span>              :   }</span>
+<span id="L285"><span class="lineNum">     285</span>              : </span>
+<span id="L286"><span class="lineNum">     286</span> <span class="tlaGNC">           1 :   const [totalRes, enrichedRes] = await Promise.all([</span></span>
+<span id="L287"><span class="lineNum">     287</span>              :     eventsQuery,</span>
+<span id="L288"><span class="lineNum">     288</span>              :     enrichmentsQuery,</span>
+<span id="L289"><span class="lineNum">     289</span>              :   ]);</span>
+<span id="L290"><span class="lineNum">     290</span>              : </span>
+<span id="L291"><span class="lineNum">     291</span> <span class="tlaGNC">           2 :   const firstError = [totalRes, enrichedRes].find(r =&gt; r.error)?.error ?? null;</span></span>
+<span id="L292"><span class="lineNum">     292</span> <span class="tlaGNC">           1 :   if (firstError) {</span></span>
+<span id="L293"><span class="lineNum">     293</span> <span class="tlaUNC tlaBgUNC">           0 :     return { data: null, error: firstError };</span></span>
+<span id="L294"><span class="lineNum">     294</span>              :   }</span>
+<span id="L295"><span class="lineNum">     295</span>              : </span>
+<span id="L296"><span class="lineNum">     296</span> <span class="tlaGNC tlaBgGNC">           1 :   const total = totalRes.count ?? 0;</span></span>
+<span id="L297"><span class="lineNum">     297</span> <span class="tlaGNC">           1 :   const enriched = enrichedRes.count ?? 0;</span></span>
+<span id="L298"><span class="lineNum">     298</span>              : </span>
+<span id="L299"><span class="lineNum">     299</span> <span class="tlaGNC">           1 :   return {</span></span>
+<span id="L300"><span class="lineNum">     300</span>              :     data: {</span>
+<span id="L301"><span class="lineNum">     301</span>              :       total_media: total,</span>
+<span id="L302"><span class="lineNum">     302</span>              :       enriched,</span>
+<span id="L303"><span class="lineNum">     303</span>              :       pending: Math.max(0, total - enriched),</span>
+<span id="L304"><span class="lineNum">     304</span>              :     },</span>
+<span id="L305"><span class="lineNum">     305</span>              :     error: null,</span>
+<span id="L306"><span class="lineNum">     306</span>              :   };</span>
+<span id="L307"><span class="lineNum">     307</span>              : }</span>
+<span id="L308"><span class="lineNum">     308</span>              : </span>
+<span id="L309"><span class="lineNum">     309</span>              : // ── Insert Event ───────────────────────────────────────────────</span>
+<span id="L310"><span class="lineNum">     310</span>              : </span>
+<span id="L311"><span class="lineNum">     311</span> <span class="tlaGNC">           3 : export async function insertEvent(client: SupabaseClient, event: Omit&lt;EventRow, &quot;timestamp&quot;&gt; &amp; { timestamp?: string }) {</span></span>
+<span id="L312"><span class="lineNum">     312</span> <span class="tlaGNC">           3 :   const result = await withRetryDb(async () =&gt; {</span></span>
+<span id="L313"><span class="lineNum">     313</span> <span class="tlaGNC">           3 :     return client.from(&quot;events&quot;).insert({</span></span>
+<span id="L314"><span class="lineNum">     314</span>              :       ...event,</span>
+<span id="L315"><span class="lineNum">     315</span>              :       timestamp: event.timestamp ?? new Date().toISOString(),</span>
+<span id="L316"><span class="lineNum">     316</span>              :     });</span>
+<span id="L317"><span class="lineNum">     317</span>              :   });</span>
+<span id="L318"><span class="lineNum">     318</span>              : </span>
+<span id="L319"><span class="lineNum">     319</span> <span class="tlaGNC">           3 :   if (!result.error) {</span></span>
+<span id="L320"><span class="lineNum">     320</span> <span class="tlaGNC">           3 :     logger.debug(&quot;insertEvent&quot;, { event_id: event.id, content_type: event.content_type });</span></span>
+<span id="L321"><span class="lineNum">     321</span>              :   }</span>
+<span id="L322"><span class="lineNum">     322</span>              : </span>
+<span id="L323"><span class="lineNum">     323</span> <span class="tlaGNC">           3 :   return result;</span></span>
+<span id="L324"><span class="lineNum">     324</span>              : }</span>
+<span id="L325"><span class="lineNum">     325</span>              : </span>
+<span id="L326"><span class="lineNum">     326</span>              : // ── Insert Enrichment ──────────────────────────────────────────</span>
+<span id="L327"><span class="lineNum">     327</span>              : </span>
+<span id="L328"><span class="lineNum">     328</span> <span class="tlaGNC">           2 : export async function insertEnrichment(</span></span>
+<span id="L329"><span class="lineNum">     329</span>              :   client: SupabaseClient,</span>
+<span id="L330"><span class="lineNum">     330</span>              :   eventId: string,</span>
+<span id="L331"><span class="lineNum">     331</span>              :   result: { description: string; objects: string[]; context: string; suggested_tags: string[] },</span>
+<span id="L332"><span class="lineNum">     332</span>              :   userId?: string,</span>
+<span id="L333"><span class="lineNum">     333</span>              : ) {</span>
+<span id="L334"><span class="lineNum">     334</span> <span class="tlaGNC">           2 :   const dbResult = await withRetryDb(async () =&gt; {</span></span>
+<span id="L335"><span class="lineNum">     335</span> <span class="tlaGNC">           2 :     return client.from(&quot;enrichments&quot;).insert({</span></span>
+<span id="L336"><span class="lineNum">     336</span>              :       event_id: eventId,</span>
+<span id="L337"><span class="lineNum">     337</span>              :       description: result.description,</span>
+<span id="L338"><span class="lineNum">     338</span>              :       objects: result.objects,</span>
+<span id="L339"><span class="lineNum">     339</span>              :       context: result.context,</span>
+<span id="L340"><span class="lineNum">     340</span>              :       tags: result.suggested_tags,</span>
+<span id="L341"><span class="lineNum">     341</span>              :       ...(userId ? { user_id: userId } : {}),</span>
+<span id="L342"><span class="lineNum">     342</span>              :     });</span>
+<span id="L343"><span class="lineNum">     343</span>              :   });</span>
+<span id="L344"><span class="lineNum">     344</span>              : </span>
+<span id="L345"><span class="lineNum">     345</span> <span class="tlaGNC">           2 :   if (!dbResult.error) {</span></span>
+<span id="L346"><span class="lineNum">     346</span> <span class="tlaGNC">           2 :     logger.debug(&quot;insertEnrichment&quot;, { event_id: eventId });</span></span>
+<span id="L347"><span class="lineNum">     347</span>              :   }</span>
+<span id="L348"><span class="lineNum">     348</span>              : </span>
+<span id="L349"><span class="lineNum">     349</span> <span class="tlaGNC">           2 :   return dbResult;</span></span>
+<span id="L350"><span class="lineNum">     350</span>              : }</span>
+<span id="L351"><span class="lineNum">     351</span>              : </span>
+<span id="L352"><span class="lineNum">     352</span>              : // ── Upsert Watched Key ────────────────────────────────────────</span>
+<span id="L353"><span class="lineNum">     353</span>              : </span>
+<span id="L354"><span class="lineNum">     354</span> <span class="tlaGNC">           2 : export async function upsertWatchedKey(</span></span>
+<span id="L355"><span class="lineNum">     355</span>              :   client: SupabaseClient,</span>
+<span id="L356"><span class="lineNum">     356</span>              :   s3Key: string,</span>
+<span id="L357"><span class="lineNum">     357</span>              :   eventId: string | null,</span>
+<span id="L358"><span class="lineNum">     358</span>              :   etag: string,</span>
+<span id="L359"><span class="lineNum">     359</span>              :   sizeBytes: number,</span>
+<span id="L360"><span class="lineNum">     360</span>              :   userId?: string,</span>
+<span id="L361"><span class="lineNum">     361</span>              :   bucketConfigId?: string,</span>
+<span id="L362"><span class="lineNum">     362</span>              : ) {</span>
+<span id="L363"><span class="lineNum">     363</span> <span class="tlaGNC">           2 :   const result = await withRetryDb(async () =&gt; {</span></span>
+<span id="L364"><span class="lineNum">     364</span> <span class="tlaGNC">           2 :     return client.from(&quot;watched_keys&quot;).upsert(</span></span>
+<span id="L365"><span class="lineNum">     365</span>              :       {</span>
+<span id="L366"><span class="lineNum">     366</span>              :         s3_key: s3Key,</span>
+<span id="L367"><span class="lineNum">     367</span>              :         first_seen: new Date().toISOString(),</span>
+<span id="L368"><span class="lineNum">     368</span>              :         event_id: eventId,</span>
+<span id="L369"><span class="lineNum">     369</span>              :         etag,</span>
+<span id="L370"><span class="lineNum">     370</span>              :         size_bytes: sizeBytes,</span>
+<span id="L371"><span class="lineNum">     371</span>              :         ...(userId ? { user_id: userId } : {}),</span>
+<span id="L372"><span class="lineNum">     372</span>              :         ...(bucketConfigId !== undefined ? { bucket_config_id: bucketConfigId } : {}),</span>
+<span id="L373"><span class="lineNum">     373</span>              :       },</span>
+<span id="L374"><span class="lineNum">     374</span>              :       { onConflict: &quot;s3_key&quot; },</span>
+<span id="L375"><span class="lineNum">     375</span>              :     );</span>
+<span id="L376"><span class="lineNum">     376</span>              :   });</span>
+<span id="L377"><span class="lineNum">     377</span>              : </span>
+<span id="L378"><span class="lineNum">     378</span> <span class="tlaGNC">           2 :   if (!result.error) {</span></span>
+<span id="L379"><span class="lineNum">     379</span> <span class="tlaGNC">           2 :     logger.debug(&quot;upsertWatchedKey&quot;, { s3_key: s3Key, etag });</span></span>
+<span id="L380"><span class="lineNum">     380</span>              :   }</span>
+<span id="L381"><span class="lineNum">     381</span>              : </span>
+<span id="L382"><span class="lineNum">     382</span> <span class="tlaGNC">           2 :   return result;</span></span>
+<span id="L383"><span class="lineNum">     383</span>              : }</span>
+<span id="L384"><span class="lineNum">     384</span>              : </span>
+<span id="L385"><span class="lineNum">     385</span>              : // ── Get Watched Keys ──────────────────────────────────────────</span>
+<span id="L386"><span class="lineNum">     386</span>              : </span>
+<span id="L387"><span class="lineNum">     387</span> <span class="tlaUNC tlaBgUNC">           0 : export async function getWatchedKeys(client: SupabaseClient, userId?: string) {</span></span>
+<span id="L388"><span class="lineNum">     388</span> <span class="tlaUNC">           0 :   let query = client.from(&quot;watched_keys&quot;).select(&quot;s3_key&quot;);</span></span>
+<span id="L389"><span class="lineNum">     389</span> <span class="tlaUNC">           0 :   if (userId) query = query.eq(&quot;user_id&quot;, userId);</span></span>
+<span id="L390"><span class="lineNum">     390</span> <span class="tlaUNC">           0 :   return query;</span></span>
+<span id="L391"><span class="lineNum">     391</span>              : }</span>
+<span id="L392"><span class="lineNum">     392</span>              : </span>
+<span id="L393"><span class="lineNum">     393</span>              : // ── Check Duplicate by Hash ───────────────────────────────────</span>
+<span id="L394"><span class="lineNum">     394</span>              : </span>
+<span id="L395"><span class="lineNum">     395</span> <span class="tlaUNC">           0 : export async function findEventByHash(client: SupabaseClient, hash: string, userId?: string) {</span></span>
+<span id="L396"><span class="lineNum">     396</span> <span class="tlaUNC">           0 :   let query = client</span></span>
+<span id="L397"><span class="lineNum">     397</span>              :     .from(&quot;events&quot;)</span>
+<span id="L398"><span class="lineNum">     398</span>              :     .select(&quot;id&quot;)</span>
+<span id="L399"><span class="lineNum">     399</span>              :     .eq(&quot;type&quot;, &quot;create&quot;)</span>
+<span id="L400"><span class="lineNum">     400</span>              :     .eq(&quot;content_hash&quot;, hash);</span>
+<span id="L401"><span class="lineNum">     401</span> <span class="tlaUNC">           0 :   if (userId) query = query.eq(&quot;user_id&quot;, userId);</span></span>
+<span id="L402"><span class="lineNum">     402</span> <span class="tlaUNC">           0 :   return query</span></span>
+<span id="L403"><span class="lineNum">     403</span>              :     .limit(1)</span>
+<span id="L404"><span class="lineNum">     404</span>              :     .maybeSingle();</span>
+<span id="L405"><span class="lineNum">     405</span>              : }</span>
+<span id="L406"><span class="lineNum">     406</span>              : </span>
+<span id="L407"><span class="lineNum">     407</span>              : // ── Find Duplicate Groups ────────────────────────────────────</span>
+<span id="L408"><span class="lineNum">     408</span>              : </span>
+<span id="L409"><span class="lineNum">     409</span>              : export interface DuplicateGroup {</span>
+<span id="L410"><span class="lineNum">     410</span>              :   content_hash: string;</span>
+<span id="L411"><span class="lineNum">     411</span>              :   copies: number;</span>
+<span id="L412"><span class="lineNum">     412</span>              :   event_ids: string[];</span>
+<span id="L413"><span class="lineNum">     413</span>              :   paths: string[];</span>
+<span id="L414"><span class="lineNum">     414</span>              : }</span>
+<span id="L415"><span class="lineNum">     415</span>              : </span>
+<span id="L416"><span class="lineNum">     416</span> <span class="tlaUNC">           0 : export async function findDuplicateGroups(</span></span>
+<span id="L417"><span class="lineNum">     417</span>              :   client: SupabaseClient,</span>
+<span id="L418"><span class="lineNum">     418</span>              :   userId: string,</span>
+<span id="L419"><span class="lineNum">     419</span>              :   bucketConfigId?: string,</span>
+<span id="L420"><span class="lineNum">     420</span>              :   limit = 100,</span>
+<span id="L421"><span class="lineNum">     421</span>              :   offset = 0,</span>
+<span id="L422"><span class="lineNum">     422</span>              : ): Promise&lt;{ data: DuplicateGroup[] | null; error: unknown }&gt; {</span>
+<span id="L423"><span class="lineNum">     423</span> <span class="tlaUNC">           0 :   return client.rpc(&quot;find_duplicate_groups&quot;, {</span></span>
+<span id="L424"><span class="lineNum">     424</span>              :     p_user_id: userId,</span>
+<span id="L425"><span class="lineNum">     425</span>              :     p_bucket_config_id: bucketConfigId ?? null,</span>
+<span id="L426"><span class="lineNum">     426</span>              :     p_limit: limit,</span>
+<span id="L427"><span class="lineNum">     427</span>              :     p_offset: offset,</span>
+<span id="L428"><span class="lineNum">     428</span>              :   });</span>
+<span id="L429"><span class="lineNum">     429</span>              : }</span>
+<span id="L430"><span class="lineNum">     430</span>              : </span>
+<span id="L431"><span class="lineNum">     431</span>              : // ── Get Pending Enrichments ───────────────────────────────────</span>
+<span id="L432"><span class="lineNum">     432</span>              : </span>
+<span id="L433"><span class="lineNum">     433</span> <span class="tlaUNC">           0 : export async function getPendingEnrichments(client: SupabaseClient, userId?: string) {</span></span>
+<span id="L434"><span class="lineNum">     434</span> <span class="tlaUNC">           0 :   let photosQuery = client</span></span>
+<span id="L435"><span class="lineNum">     435</span>              :     .from(&quot;events&quot;)</span>
+<span id="L436"><span class="lineNum">     436</span>              :     .select(&quot;id, content_hash, content_type, local_path, remote_path, metadata&quot;)</span>
+<span id="L437"><span class="lineNum">     437</span>              :     .eq(&quot;type&quot;, &quot;create&quot;)</span>
+<span id="L438"><span class="lineNum">     438</span>              :     .eq(&quot;content_type&quot;, CONTENT_TYPE_PHOTO)</span>
+<span id="L439"><span class="lineNum">     439</span>              :     .order(&quot;timestamp&quot;, { ascending: false });</span>
+<span id="L440"><span class="lineNum">     440</span> <span class="tlaUNC">           0 :   if (userId) photosQuery = photosQuery.eq(&quot;user_id&quot;, userId);</span></span>
+<span id="L441"><span class="lineNum">     441</span> <span class="tlaUNC">           0 :   const { data: photos, error: photosErr } = await photosQuery;</span></span>
+<span id="L442"><span class="lineNum">     442</span>              : </span>
+<span id="L443"><span class="lineNum">     443</span> <span class="tlaUNC">           0 :   if (photosErr) return { data: null, error: photosErr };</span></span>
+<span id="L444"><span class="lineNum">     444</span>              : </span>
+<span id="L445"><span class="lineNum">     445</span> <span class="tlaUNC">           0 :   let enrichedQuery = client.from(&quot;enrichments&quot;).select(&quot;event_id&quot;);</span></span>
+<span id="L446"><span class="lineNum">     446</span> <span class="tlaUNC">           0 :   if (userId) enrichedQuery = enrichedQuery.eq(&quot;user_id&quot;, userId);</span></span>
+<span id="L447"><span class="lineNum">     447</span> <span class="tlaUNC">           0 :   const { data: enriched, error: enrichedErr } = await enrichedQuery;</span></span>
+<span id="L448"><span class="lineNum">     448</span>              : </span>
+<span id="L449"><span class="lineNum">     449</span> <span class="tlaUNC">           0 :   if (enrichedErr) return { data: null, error: enrichedErr };</span></span>
+<span id="L450"><span class="lineNum">     450</span>              : </span>
+<span id="L451"><span class="lineNum">     451</span> <span class="tlaUNC">           0 :   const enrichedIds = new Set((enriched ?? []).map((e) =&gt; e.event_id));</span></span>
+<span id="L452"><span class="lineNum">     452</span> <span class="tlaUNC">           0 :   return { data: (photos ?? []).filter((p) =&gt; !enrichedIds.has(p.id)), error: null };</span></span>
+<span id="L453"><span class="lineNum">     453</span>              : }</span>
+<span id="L454"><span class="lineNum">     454</span>              : </span>
+<span id="L455"><span class="lineNum">     455</span>              : // ── Model Config ──────────────────────────────────────────────</span>
+<span id="L456"><span class="lineNum">     456</span>              : </span>
+<span id="L457"><span class="lineNum">     457</span>              : export interface ModelConfigRow {</span>
+<span id="L458"><span class="lineNum">     458</span>              :   id: string;</span>
+<span id="L459"><span class="lineNum">     459</span>              :   user_id: string;</span>
+<span id="L460"><span class="lineNum">     460</span>              :   provider: string;</span>
+<span id="L461"><span class="lineNum">     461</span>              :   base_url: string | null;</span>
+<span id="L462"><span class="lineNum">     462</span>              :   model: string;</span>
+<span id="L463"><span class="lineNum">     463</span>              :   api_key_encrypted: string | null;</span>
+<span id="L464"><span class="lineNum">     464</span>              :   is_active: boolean;</span>
+<span id="L465"><span class="lineNum">     465</span>              :   created_at: string;</span>
+<span id="L466"><span class="lineNum">     466</span>              :   updated_at: string;</span>
+<span id="L467"><span class="lineNum">     467</span>              : }</span>
+<span id="L468"><span class="lineNum">     468</span>              : </span>
+<span id="L469"><span class="lineNum">     469</span> <span class="tlaUNC">           0 : export async function getModelConfig(client: SupabaseClient, userId: string, provider?: string) {</span></span>
+<span id="L470"><span class="lineNum">     470</span> <span class="tlaUNC">           0 :   let query = client</span></span>
+<span id="L471"><span class="lineNum">     471</span>              :     .from(&quot;model_configs&quot;)</span>
+<span id="L472"><span class="lineNum">     472</span>              :     .select(&quot;*&quot;)</span>
+<span id="L473"><span class="lineNum">     473</span>              :     .eq(&quot;user_id&quot;, userId)</span>
+<span id="L474"><span class="lineNum">     474</span>              :     .eq(&quot;is_active&quot;, true);</span>
+<span id="L475"><span class="lineNum">     475</span>              : </span>
+<span id="L476"><span class="lineNum">     476</span> <span class="tlaUNC">           0 :   if (provider) query = query.eq(&quot;provider&quot;, provider);</span></span>
+<span id="L477"><span class="lineNum">     477</span>              : </span>
+<span id="L478"><span class="lineNum">     478</span> <span class="tlaUNC">           0 :   return await query.maybeSingle();</span></span>
+<span id="L479"><span class="lineNum">     479</span>              : }</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>

@@ -1,0 +1,152 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - combined.info - lib/supabase/lib/supabase/proxy.ts</title>
+  <link rel="stylesheet" type="text/css" href="../../../../gcov.css">
+</head>
+
+<body>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="title">LCOV - code coverage report</td></tr>
+            <tr><td class="ruler"><img src="../../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+            <tr>
+              <td width="100%">
+                <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="10%" class="headerValue"><a href="../../../../index.html">top level</a> - <a href="index.html">lib/supabase/lib/supabase</a> - proxy.ts<span style="font-size: 80%;"> (source / <a href="proxy.ts.func-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="5%"></td>
+            <td width="5%" class="headerCovTableHead">Coverage</td>
+            <td width="5%" class="headerCovTableHead" title="Covered + Uncovered code">Total</td>
+            <td width="5%" class="headerCovTableHead" title="Exercised code only">Hit</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">combined.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntryLo">0.0&nbsp;%</td>
+            <td class="headerCovTableEntry">17</td>
+            <td class="headerCovTableEntry">0</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test Date:</td>
+            <td class="headerValue">2026-04-03 03:00:32</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntryLo">0.0&nbsp;%</td>
+            <td class="headerCovTableEntry">5</td>
+            <td class="headerCovTableEntry">0</td>
+          </tr>
+                  <tr><td><img src="../../../../glass.png" width=3 height=3 alt=""></td></tr>
+                </table>
+              </td>
+            </tr>
+
+            <tr><td class="ruler"><img src="../../../../glass.png" width=3 height=3 alt=""></td></tr>
+          </table>
+
+          <table cellpadding=0 cellspacing=0 border=0>
+            <tr>
+              <td><br></td>
+            </tr>
+            <tr>
+              <td>
+<pre class="sourceHeading">            Line data    Source code</pre>
+<pre class="source">
+<span id="L1"><span class="lineNum">       1</span>              : import { createServerClient } from &quot;@supabase/ssr&quot;;</span>
+<span id="L2"><span class="lineNum">       2</span>              : import { NextResponse, type NextRequest } from &quot;next/server&quot;;</span>
+<span id="L3"><span class="lineNum">       3</span>              : import { hasEnvVars } from &quot;../utils&quot;;</span>
+<span id="L4"><span class="lineNum">       4</span>              : </span>
+<span id="L5"><span class="lineNum">       5</span> <span class="tlaUNC tlaBgUNC">           0 : export async function updateSession(request: NextRequest) {</span></span>
+<span id="L6"><span class="lineNum">       6</span> <span class="tlaUNC">           0 :   let supabaseResponse = NextResponse.next({</span></span>
+<span id="L7"><span class="lineNum">       7</span>              :     request,</span>
+<span id="L8"><span class="lineNum">       8</span>              :   });</span>
+<span id="L9"><span class="lineNum">       9</span>              : </span>
+<span id="L10"><span class="lineNum">      10</span>              :   // If the env vars are not set, skip proxy check. You can remove this</span>
+<span id="L11"><span class="lineNum">      11</span>              :   // once you setup the project.</span>
+<span id="L12"><span class="lineNum">      12</span> <span class="tlaUNC">           0 :   if (!hasEnvVars) {</span></span>
+<span id="L13"><span class="lineNum">      13</span> <span class="tlaUNC">           0 :     return supabaseResponse;</span></span>
+<span id="L14"><span class="lineNum">      14</span>              :   }</span>
+<span id="L15"><span class="lineNum">      15</span>              : </span>
+<span id="L16"><span class="lineNum">      16</span>              :   // With Fluid compute, don't put this client in a global environment</span>
+<span id="L17"><span class="lineNum">      17</span>              :   // variable. Always create a new one on each request.</span>
+<span id="L18"><span class="lineNum">      18</span> <span class="tlaUNC">           0 :   const supabase = createServerClient(</span></span>
+<span id="L19"><span class="lineNum">      19</span>              :     process.env.NEXT_PUBLIC_SUPABASE_URL!,</span>
+<span id="L20"><span class="lineNum">      20</span>              :     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,</span>
+<span id="L21"><span class="lineNum">      21</span>              :     {</span>
+<span id="L22"><span class="lineNum">      22</span>              :       cookies: {</span>
+<span id="L23"><span class="lineNum">      23</span> <span class="tlaUNC">           0 :         getAll() {</span></span>
+<span id="L24"><span class="lineNum">      24</span> <span class="tlaUNC">           0 :           return request.cookies.getAll();</span></span>
+<span id="L25"><span class="lineNum">      25</span>              :         },</span>
+<span id="L26"><span class="lineNum">      26</span> <span class="tlaUNC">           0 :         setAll(cookiesToSet) {</span></span>
+<span id="L27"><span class="lineNum">      27</span> <span class="tlaUNC">           0 :           cookiesToSet.forEach(({ name, value }) =&gt;</span></span>
+<span id="L28"><span class="lineNum">      28</span> <span class="tlaUNC">           0 :             request.cookies.set(name, value),</span></span>
+<span id="L29"><span class="lineNum">      29</span>              :           );</span>
+<span id="L30"><span class="lineNum">      30</span> <span class="tlaUNC">           0 :           supabaseResponse = NextResponse.next({</span></span>
+<span id="L31"><span class="lineNum">      31</span>              :             request,</span>
+<span id="L32"><span class="lineNum">      32</span>              :           });</span>
+<span id="L33"><span class="lineNum">      33</span> <span class="tlaUNC">           0 :           cookiesToSet.forEach(({ name, value, options }) =&gt;</span></span>
+<span id="L34"><span class="lineNum">      34</span> <span class="tlaUNC">           0 :             supabaseResponse.cookies.set(name, value, options),</span></span>
+<span id="L35"><span class="lineNum">      35</span>              :           );</span>
+<span id="L36"><span class="lineNum">      36</span>              :         },</span>
+<span id="L37"><span class="lineNum">      37</span>              :       },</span>
+<span id="L38"><span class="lineNum">      38</span>              :     },</span>
+<span id="L39"><span class="lineNum">      39</span>              :   );</span>
+<span id="L40"><span class="lineNum">      40</span>              : </span>
+<span id="L41"><span class="lineNum">      41</span>              :   // Do not run code between createServerClient and</span>
+<span id="L42"><span class="lineNum">      42</span>              :   // supabase.auth.getClaims(). A simple mistake could make it very hard to debug</span>
+<span id="L43"><span class="lineNum">      43</span>              :   // issues with users being randomly logged out.</span>
+<span id="L44"><span class="lineNum">      44</span>              : </span>
+<span id="L45"><span class="lineNum">      45</span>              :   // IMPORTANT: If you remove getClaims() and you use server-side rendering</span>
+<span id="L46"><span class="lineNum">      46</span>              :   // with the Supabase client, your users may be randomly logged out.</span>
+<span id="L47"><span class="lineNum">      47</span> <span class="tlaUNC">           0 :   const { data } = await supabase.auth.getClaims();</span></span>
+<span id="L48"><span class="lineNum">      48</span> <span class="tlaUNC">           0 :   const user = data?.claims;</span></span>
+<span id="L49"><span class="lineNum">      49</span>              : </span>
+<span id="L50"><span class="lineNum">      50</span> <span class="tlaUNC">           0 :   if (</span></span>
+<span id="L51"><span class="lineNum">      51</span>              :     request.nextUrl.pathname !== &quot;/&quot; &amp;&amp;</span>
+<span id="L52"><span class="lineNum">      52</span>              :     !user &amp;&amp;</span>
+<span id="L53"><span class="lineNum">      53</span>              :     !request.nextUrl.pathname.startsWith(&quot;/login&quot;) &amp;&amp;</span>
+<span id="L54"><span class="lineNum">      54</span>              :     !request.nextUrl.pathname.startsWith(&quot;/auth&quot;)</span>
+<span id="L55"><span class="lineNum">      55</span>              :   ) {</span>
+<span id="L56"><span class="lineNum">      56</span>              :     // no user, potentially respond by redirecting the user to the login page</span>
+<span id="L57"><span class="lineNum">      57</span> <span class="tlaUNC">           0 :     const url = request.nextUrl.clone();</span></span>
+<span id="L58"><span class="lineNum">      58</span> <span class="tlaUNC">           0 :     url.pathname = &quot;/auth/login&quot;;</span></span>
+<span id="L59"><span class="lineNum">      59</span> <span class="tlaUNC">           0 :     return NextResponse.redirect(url);</span></span>
+<span id="L60"><span class="lineNum">      60</span>              :   }</span>
+<span id="L61"><span class="lineNum">      61</span>              : </span>
+<span id="L62"><span class="lineNum">      62</span>              :   // IMPORTANT: You *must* return the supabaseResponse object as it is.</span>
+<span id="L63"><span class="lineNum">      63</span>              :   // If you're creating a new response object with NextResponse.next() make sure to:</span>
+<span id="L64"><span class="lineNum">      64</span>              :   // 1. Pass the request in it, like so:</span>
+<span id="L65"><span class="lineNum">      65</span>              :   //    const myNewResponse = NextResponse.next({ request })</span>
+<span id="L66"><span class="lineNum">      66</span>              :   // 2. Copy over the cookies, like so:</span>
+<span id="L67"><span class="lineNum">      67</span>              :   //    myNewResponse.cookies.setAll(supabaseResponse.cookies.getAll())</span>
+<span id="L68"><span class="lineNum">      68</span>              :   // 3. Change the myNewResponse object to fit your needs, but avoid changing</span>
+<span id="L69"><span class="lineNum">      69</span>              :   //    the cookies!</span>
+<span id="L70"><span class="lineNum">      70</span>              :   // 4. Finally:</span>
+<span id="L71"><span class="lineNum">      71</span>              :   //    return myNewResponse</span>
+<span id="L72"><span class="lineNum">      72</span>              :   // If this is not done, you may be causing the browser and server to go out</span>
+<span id="L73"><span class="lineNum">      73</span>              :   // of sync and terminate the user's session prematurely!</span>
+<span id="L74"><span class="lineNum">      74</span>              : </span>
+<span id="L75"><span class="lineNum">      75</span> <span class="tlaUNC">           0 :   return supabaseResponse;</span></span>
+<span id="L76"><span class="lineNum">      76</span>              : }</span>
+        </pre>
+              </td>
+            </tr>
+          </table>
+          <br>
+
+          <table width="100%" border=0 cellspacing=0 cellpadding=0>
+            <tr><td class="ruler"><img src="../../../../glass.png" width=3 height=3 alt=""></td></tr>
+            <tr><td class="versionInfo">Generated by: <a href="https://github.com//linux-test-project/lcov" target="_parent">LCOV version 2.0-1</a></td></tr>
+          </table>
+          <br>
+
+</body>
+</html>
