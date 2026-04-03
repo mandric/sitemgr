@@ -5,18 +5,25 @@
  *   - badge.json (shields.io endpoint)
  *
  * Usage:
- *   node scripts/coverage-summary.mjs <lcov-file> [output-dir]
+ *   node scripts/coverage-summary.mjs <lcov-file> [output-dir] [--repo owner/repo] [--sha commit-sha]
  *
- * Example:
+ * Examples:
  *   node scripts/coverage-summary.mjs combined.info pages-output
+ *   node scripts/coverage-summary.mjs combined.info pages-output --repo mandric/sitemgr --sha abc123
  */
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, readdirSync } from "node:fs";
 
-const lcovFile = process.argv[2];
-const outputDir = process.argv[3] || ".";
+// Parse args
+const args = process.argv.slice(2);
+const lcovFile = args.find(a => !a.startsWith("--"));
+const outputDir = args.filter(a => !a.startsWith("--"))[1] || ".";
+const repoFlag = args.indexOf("--repo");
+const shaFlag = args.indexOf("--sha");
+const repo = repoFlag >= 0 ? args[repoFlag + 1] : null;
+const sha = shaFlag >= 0 ? args[shaFlag + 1] : null;
 
 if (!lcovFile) {
-  console.error("Usage: node scripts/coverage-summary.mjs <lcov-file> [output-dir]");
+  console.error("Usage: node scripts/coverage-summary.mjs <lcov-file> [output-dir] [--repo owner/repo] [--sha sha]");
   process.exit(1);
 }
 
@@ -47,6 +54,16 @@ for (const f of Object.values(files)) {
 }
 const pct = (n, d) => d > 0 ? (n / d * 100).toFixed(1) + "%" : "N/A";
 
+// Build file link (GitHub blob URL if repo+sha provided, otherwise just code block)
+function fileRef(name) {
+  if (repo && sha) {
+    // Files are relative to web/, so prefix with web/ for the GitHub URL
+    const path = name.startsWith("web/") ? name : `web/${name}`;
+    return `[\`${name}\`](https://github.com/${repo}/blob/${sha}/${path})`;
+  }
+  return `\`${name}\``;
+}
+
 // Build file table rows sorted by line coverage ascending (worst first)
 const sorted = Object.entries(files).sort((a, b) => {
   const pa = a[1].linesTotal > 0 ? a[1].linesHit / a[1].linesTotal : 1;
@@ -58,8 +75,19 @@ const rows = sorted.map(([name, f]) => {
   const fp = pct(f.fnHit, f.fnTotal);
   const bp = pct(f.brHit, f.brTotal);
   const icon = f.linesTotal === 0 ? "⚪" : f.linesHit / f.linesTotal >= 0.8 ? "🟢" : f.linesHit / f.linesTotal >= 0.5 ? "🟡" : "🔴";
-  return `| ${icon} | \`${name}\` | ${lp} | ${fp} | ${bp} |`;
+  return `| ${icon} | ${fileRef(name)} | ${lp} | ${fp} | ${bp} |`;
 }).join("\n");
+
+// Detect which input LCOV sources contributed (check for well-known artifact dirs)
+const sources = [];
+for (const dir of ["unit-coverage", "integration-coverage", "e2e-cli-coverage", "e2e-web-coverage"]) {
+  try {
+    const entries = readdirSync(dir);
+    if (entries.includes("lcov.info")) {
+      sources.push(dir.replace("-coverage", ""));
+    }
+  } catch { /* dir doesn't exist */ }
+}
 
 // Badge
 const linesPct = tl > 0 ? (tlh / tl * 100) : 0;
@@ -78,7 +106,9 @@ writeFileSync(`${outputDir}/coverage-summary.json`, JSON.stringify({
   branches: pct(tbh, tb),
   fileTable: rows,
   fileCount: sorted.length,
+  sources,
 }));
 
 console.log(`Coverage: ${linesPct.toFixed(1)}% lines (${tlh}/${tl}), ${sorted.length} files`);
+console.log(`Sources: ${sources.length > 0 ? sources.join(", ") : "unknown"}`);
 console.log(`Written: ${outputDir}/badge.json, ${outputDir}/coverage-summary.json`);

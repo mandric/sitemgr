@@ -387,7 +387,9 @@ jobs:
           if [ -n "$ARGS" ]; then
             # shellcheck disable=SC2086
             merge_lcov combined.info $ARGS
-            node scripts/coverage-summary.mjs combined.info pages-output
+            node scripts/coverage-summary.mjs combined.info pages-output \
+              --repo "${{ github.repository }}" \
+              --sha "${{ github.event.pull_request.head.sha || github.sha }}"
           fi
 
       - name: Post coverage comment on PR
@@ -406,8 +408,11 @@ jobs:
               ? `[View full report](${pagesUrl})`
               : `[View baseline report](${pagesUrl})`;
             const marker = '<!-- combined-coverage-report -->';
+            const sourcesLine = data.sources && data.sources.length > 0
+              ? `Sources: ${data.sources.join(', ')}`
+              : '';
             const body = [
-              '## Combined Coverage (Unit + Integration)',
+              '## Combined Coverage',
               '',
               '| Metric | Coverage |',
               '|--------|----------|',
@@ -416,6 +421,7 @@ jobs:
               `| Branches | **${data.branches}** |`,
               '',
               `${reportLink} · [Download artifact](${runUrl}#artifacts)`,
+              sourcesLine ? `\n${sourcesLine}` : '',
               '',
               '<details>',
               `<summary>File Coverage (${data.fileCount} files)</summary>`,
