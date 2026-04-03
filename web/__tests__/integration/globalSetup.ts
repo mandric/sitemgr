@@ -4,12 +4,6 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
-import { mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
-/** Directory where Node writes raw V8 coverage JSON on server exit. */
-const V8_COV_DIR = join(tmpdir(), "v8-coverage-nextjs");
 
 declare global {
   var __WEB_SERVER__: ChildProcess | undefined;
@@ -121,13 +115,9 @@ export async function setup(): Promise<void> {
   // This equivalence is only valid for local Supabase instances where both sets
   // of vars point to the same http://127.0.0.1:54321 endpoint. Integration tests
   // always run against local Supabase, so this is safe.
-  // Create V8 coverage output directory
-  mkdirSync(V8_COV_DIR, { recursive: true });
-
   const spawnEnv = {
     ...process.env,
     PORT: String(port),
-    NODE_V8_COVERAGE: V8_COV_DIR,
     NEXT_PUBLIC_SUPABASE_URL:
       process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SITEMGR_API_URL,
     NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:

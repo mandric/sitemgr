@@ -1,4 +1,4 @@
-import { test, expect } from "./coverage-fixture";
+import { test, expect } from "@playwright/test";
 
 const MAILPIT_URL = "http://127.0.0.1:54324";
 

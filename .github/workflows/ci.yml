@@ -159,25 +159,6 @@ jobs:
       - name: Run integration tests with coverage
         run: cd web && npx vitest run --project integration --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=json --coverage.reporter=lcov --coverage.include='lib/**'
 
-      - name: Convert Next.js server coverage
-        if: always()
-        run: |
-          source scripts/lib.sh
-          convert_v8_coverage /tmp/v8-coverage-nextjs coverage-server web
-
-      - name: Merge vitest + server coverage
-        if: always()
-        run: |
-          sudo apt-get install -y -qq lcov > /dev/null
-          cd web
-          if [ -f coverage-server/lcov.info ]; then
-            lcov -a coverage/lcov.info -a coverage-server/lcov.info -o coverage/lcov-merged.info
-            mv coverage/lcov-merged.info coverage/lcov.info
-            echo "Merged vitest + server coverage"
-          else
-            echo "No server coverage to merge — using vitest coverage only"
-          fi
-
       - name: Report integration test coverage on PR
         if: always() && github.event_name == 'pull_request'
         uses: davelosert/vitest-coverage-report-action@v2
@@ -269,32 +250,6 @@ jobs:
       - name: Run E2E CLI tests
         run: cd web && npm run test:e2e:cli
 
-      - name: Convert Next.js server coverage
-        if: always()
-        run: |
-          source scripts/lib.sh
-          convert_v8_coverage /tmp/v8-coverage-nextjs coverage web
-
-      - name: Generate E2E CLI coverage summary
-        if: always()
-        run: |
-          if [ -s web/coverage/lcov.info ]; then
-            node scripts/coverage-summary.mjs web/coverage/lcov.info web/coverage \
-              --repo "${{ github.repository }}" \
-              --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
-              --title "E2E CLI Tests Coverage" \
-              --job-summary "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload e2e-cli coverage artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-cli-coverage
-          path: web/coverage/
-          retention-days: 14
-          if-no-files-found: ignore
-
       - name: Stop Supabase
         if: always()
         run: supabase stop
@@ -338,13 +293,6 @@ jobs:
         run: cd web && npm run test:e2e
         env:
           CI: true
-          NODE_V8_COVERAGE: /tmp/v8-coverage-e2e-web
-
-      - name: Convert E2E web server coverage
-        if: always()
-        run: |
-          source scripts/lib.sh
-          convert_v8_coverage /tmp/v8-coverage-e2e-web coverage web
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -352,48 +300,6 @@ jobs:
           name: playwright-report
           path: web/playwright-report/
           retention-days: 30
-
-      - name: Convert browser client coverage
-        if: always()
-        run: |
-          source scripts/lib.sh
-          convert_v8_coverage /tmp/v8-coverage-playwright-client coverage-client web
-
-      - name: Generate E2E Web coverage summary
-        if: always()
-        run: |
-          sudo apt-get install -y -qq lcov > /dev/null
-          source scripts/lib.sh
-          ARGS=""
-          [ -s web/coverage/lcov.info ] && ARGS="$ARGS -a web/coverage/lcov.info"
-          [ -s web/coverage-client/lcov.info ] && ARGS="$ARGS -a web/coverage-client/lcov.info"
-          if [ -n "$ARGS" ]; then
-            # shellcheck disable=SC2086
-            merge_lcov web/coverage/lcov-e2e-web-combined.info $ARGS
-            node scripts/coverage-summary.mjs web/coverage/lcov-e2e-web-combined.info web/coverage \
-              --repo "${{ github.repository }}" \
-              --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
-              --title "Web E2E Tests Coverage" \
-              --job-summary "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: Upload e2e-web server coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-web-coverage
-          path: web/coverage/
-          retention-days: 14
-          if-no-files-found: ignore
-
-      - name: Upload e2e-web client coverage
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-web-client-coverage
-          path: web/coverage-client/
-          retention-days: 14
-          if-no-files-found: ignore
 
       - name: Stop Supabase
         if: always()
@@ -405,7 +311,7 @@ jobs:
 
   coverage-report:
     name: Combined Coverage Report
-    needs: [unit-tests, integration-tests, e2e-cli-tests, e2e-tests]
+    needs: [unit-tests, integration-tests]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -422,7 +328,7 @@ jobs:
           sudo apt-get install -y -qq lcov > /dev/null
           source scripts/lib.sh
           ARGS=""
-          for f in unit-coverage integration-coverage e2e-cli-coverage e2e-web-coverage e2e-web-client-coverage; do
+          for f in unit-coverage integration-coverage; do
             echo "Checking $f/lcov.info: $([ -s "$f/lcov.info" ] && echo "$(wc -l < "$f/lcov.info") lines" || echo "missing/empty")"
             [ -s "$f/lcov.info" ] && ARGS="$ARGS -a $f/lcov.info"
           done

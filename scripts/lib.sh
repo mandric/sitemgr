@@ -43,50 +43,6 @@ source_dotenv() {
 }
 
 # ---------------------------------------------------------------------------
-# convert_v8_coverage — convert NODE_V8_COVERAGE output to LCOV
-#
-# Usage: convert_v8_coverage <v8_coverage_dir> <output_dir> [src_dir]
-#
-# Args:
-#   v8_coverage_dir  Directory where Node wrote V8 coverage JSON
-#                    (the value of NODE_V8_COVERAGE)
-#   output_dir       Where to write lcov.info
-#   src_dir          Source root for resolving paths (default: web/)
-#
-# Requires: npx c8 (install with: npm install -D c8)
-#
-# Example:
-#   export NODE_V8_COVERAGE=/tmp/v8-coverage
-#   # ... start and stop a Node server ...
-#   convert_v8_coverage /tmp/v8-coverage web/coverage web
-# ---------------------------------------------------------------------------
-convert_v8_coverage() {
-  local v8_dir="${1:?Usage: convert_v8_coverage <v8_dir> <output_dir> [src_dir]}"
-  local output_dir="${2:?Usage: convert_v8_coverage <v8_dir> <output_dir> [src_dir]}"
-  local src_dir="${3:-web}"
-
-  if [ ! -d "$v8_dir" ] || ! ls "$v8_dir"/*.json >/dev/null 2>&1; then
-    echo "No V8 coverage data found in $v8_dir"
-    return 0
-  fi
-
-  echo "Converting V8 coverage from $v8_dir..."
-  (cd "$src_dir" && npx c8 report \
-    --temp-directory="$v8_dir" \
-    --src=. \
-    --reports-dir="$output_dir" \
-    --reporter=lcov \
-    --exclude='node_modules/**')
-
-  if [ -s "$src_dir/$output_dir/lcov.info" ]; then
-    echo "Coverage written: $(wc -l < "$src_dir/$output_dir/lcov.info") lines"
-  else
-    echo "Coverage LCOV is empty — V8 data may not map to source files"
-    rm -f "$src_dir/$output_dir/lcov.info"
-  fi
-}
-
-# ---------------------------------------------------------------------------
 # merge_lcov — merge multiple LCOV files into one
 #
 # Usage: merge_lcov <output_file> <input_file1> [input_file2] ...

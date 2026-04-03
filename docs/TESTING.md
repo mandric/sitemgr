@@ -271,20 +271,18 @@ Each CI job writes a coverage summary to GitHub Actions' Job Summary. Click any 
 Every CI run uploads downloadable LCOV artifacts:
 - `unit-coverage` — LCOV + HTML report from unit tests
 - `integration-coverage` — LCOV + HTML report from integration tests
-- `e2e-cli-coverage` — LCOV from E2E CLI server coverage
-- `e2e-web-coverage` — LCOV from E2E Web server coverage
-- `e2e-web-client-coverage` — LCOV from E2E Web browser coverage
-- `combined-coverage` — Merged LCOV from all sources
+- `combined-coverage` — Merged LCOV from unit + integration
+- `playwright-report` — Playwright HTML report from E2E Web tests
 
 ### What Can and Can't Be Measured
 
-| Test type | Coverage | How |
-|-----------|----------|-----|
-| Unit tests | Server | Vitest V8 coverage — tests call `lib/` functions directly |
-| Integration (direct-call) | Server | Vitest V8 coverage — schema-contract, media-storage call `lib/` directly |
-| Integration (fetch-based) | Server | `NODE_V8_COVERAGE` on the dev server — coverage flushed on exit, converted via `c8` |
-| E2E CLI | Server | `NODE_V8_COVERAGE` on the dev server — same as integration |
-| E2E Web | Server + Client | Server: `NODE_V8_COVERAGE`. Client: Playwright `page.coverage` API collects browser-side JS coverage via Chrome DevTools Protocol |
+| Test type | Coverage? | How |
+|-----------|-----------|-----|
+| Unit tests | Yes | Vitest V8 — tests call `lib/` functions directly in the vitest process |
+| Integration (direct-call) | Yes | Vitest V8 — schema-contract, media-storage call `lib/` directly |
+| Integration (fetch-based) | No | `fetch()` hits a separate Next.js dev server — V8 can't instrument across processes |
+| E2E CLI | No | Spawns `tsx bin/sitemgr.ts` as a subprocess |
+| E2E Web | No | Playwright drives a browser; server runs in a separate process |
 
 ### What's Included in Coverage Reports
 
@@ -296,14 +294,13 @@ Coverage is scoped via `--coverage.include` to files where in-process testing is
 | `components/**` | React components with testable pure logic (e.g., `parseCodeFromUrl`) |
 | `bin/**` | CLI entry point |
 
-| `app/api/**` | Route handlers in the Next.js dev server — covered via `NODE_V8_COVERAGE` (server process writes V8 data on exit, converted by `c8`) |
-
 | Excluded | Why |
 |----------|-----|
+| `app/api/**` | Route handlers run in a separate Next.js process. V8 coverage can't instrument across process boundaries, and `c8` can't map Next.js compiled paths (`.next/`) back to TypeScript source without Istanbul build instrumentation. |
 | `app/**/page.tsx` | React pages rendered by Next.js, tested via Playwright (out-of-process) |
 | `e2e/**`, `__tests__/**` | Test files themselves — not application code |
 
-Coverage numbers reflect "what percentage of our application code is exercised by tests." Route handlers (`app/api/**`) are included via the dev server's `NODE_V8_COVERAGE` — the globalSetup spawns the server with this env var, and on teardown `c8` converts the V8 data to LCOV which is merged with vitest's in-process coverage.
+Coverage numbers reflect "what percentage of our core logic is exercised by in-process tests." Fetch-based and E2E tests verify correctness but don't contribute coverage metrics — V8 can't instrument across process boundaries, and Next.js compiled paths can't be mapped back to TypeScript source without build-time Istanbul instrumentation (deferred).
 
 ### CI Permissions
 
@@ -312,18 +309,7 @@ The CI workflow follows least-privilege: `contents: read` and `pull-requests: wr
 ### How the Merge Works
 
 1. Unit job runs vitest with `--coverage` producing LCOV for `lib/`, `components/`, `bin/`
-2. Integration job runs vitest with `--coverage` (in-process) + captures dev server coverage via `NODE_V8_COVERAGE`
-3. After integration tests, `c8 report` converts the server's V8 coverage to LCOV
-4. `lcov -a vitest.lcov -a server.lcov` merges both into a single integration LCOV
-5. The Combined Coverage Report job downloads unit + integration artifacts
-6. `lcov -a unit.lcov -a integration.lcov -o combined.info` merges them
-7. `genhtml` produces the browsable HTML report
-8. A node script parses the combined LCOV for per-file stats and writes a job summary
-
-### How Dev Server Coverage Works
-
-The globalSetup (`__tests__/integration/globalSetup.ts`) spawns the Next.js dev server with `NODE_V8_COVERAGE=/tmp/v8-coverage-nextjs`. This is a built-in Node.js env var — when set, Node writes raw V8 coverage JSON to that directory when the process exits.
-
-On teardown, the server receives SIGTERM and exits gracefully, flushing coverage data. In CI, `c8 report` then converts the V8 JSON to LCOV format, filtered to `app/api/**` and `lib/**`. This LCOV is merged with vitest's in-process coverage before uploading.
-
-This means fetch-based integration tests (`api-*.test.ts`) now contribute real coverage data for route handlers — no Istanbul build step needed.
+2. Integration job runs vitest with `--coverage` producing LCOV for `lib/`
+3. The Combined Coverage Report job downloads both artifacts
+4. `lcov -a unit.lcov -a integration.lcov` merges them
+5. A node script parses the combined LCOV for per-file stats and writes a job summary
