@@ -249,72 +249,62 @@ supabase db reset    # Wipes and replays all migrations
 - Upload failed silently
 - Database not initialized
 
-## Future: Unit Tests
+## Test Tiers
 
-As components stabilize, add unit tests for:
+| Tier | Command | What it tests | Requires |
+|------|---------|---------------|----------|
+| **Unit** | `npm run test` | Pure logic (encryption, validation, retry, media-utils) | Nothing |
+| **Integration** | `npm run test:integration` | Real services via direct calls + fetch() | Supabase + Next.js |
+| **E2E CLI** | `npm run test:e2e:cli` | Full stack via CLI subprocess | Supabase + Next.js |
+| **E2E Web** | `npm run test:e2e` | Full stack via Playwright browser | Supabase + Next.js + Chromium |
 
-**Priority 1: Core logic**
-- SHA-256 content hashing
-- Content type detection
-- Image dimension extraction
-- Query builder (FTS)
-- Event schema validation
+## Coverage Pipeline
 
-**Priority 2: Error handling**
-- API timeouts and retries
-- Network failures
-- Malformed data handling
-- Constraint violations
+Coverage is collected from unit and integration tests, merged, and published in three places:
 
-**Priority 3: Provider abstractions**
-- Enrichment provider interface
-- Storage provider interface
-- Query provider interface
+### PR Comments
 
-**Test framework:** `vitest` (already in use for unit tests)
+Every PR gets three coverage comments (auto-updated on each push):
+- **Unit Tests** — per-file coverage of `lib/` from unit tests
+- **Integration Tests (direct-call only)** — per-file coverage of `lib/` from integration tests
+- **Combined Coverage** — merged totals with a collapsible per-file breakdown
 
-**Coverage target:** 60-80% for stable components
+### GitHub Pages
 
-## Metrics
+On merge to `main`, the combined HTML report is deployed to `https://mandric.github.io/sitemgr/`. This is the canonical coverage report — browsable, line-by-line, file-by-file.
 
-### Current Coverage (Estimate)
+A `badge.json` endpoint is published alongside for the README coverage badge.
 
-| Component | Integration | Unit | Total |
-|-----------|-------------|------|-------|
-| sitemgr CLI (TypeScript) | 30% | 0% | 30% |
-| API routes / webhooks | 10% | 0% | 10% |
-| Database / migrations | 40% | N/A | 40% |
-| **Overall** | **~20%** | **0%** | **~20%** |
+### Artifacts
 
-### Target Coverage (3 months)
+Every CI run uploads downloadable artifacts:
+- `unit-coverage` — LCOV + HTML report from unit tests
+- `integration-coverage` — LCOV + HTML report from integration tests
+- `combined-coverage` — Merged LCOV + HTML report
 
-| Component | Integration | Unit | Total |
-|-----------|-------------|------|-------|
-| sitemgr CLI (TypeScript) | 60% | 40% | 70% |
-| API routes / webhooks | 40% | 30% | 50% |
-| Database / migrations | 70% | N/A | 70% |
-| **Overall** | **~55%** | **~25%** | **~65%** |
+Download and open `html/index.html` for a local browsable report.
 
-### Success Metrics
+### What Can and Can't Be Measured
 
-**Reliability:**
-- CI pass rate > 95%
-- Zero flaky tests
-- Test runtime < 2 minutes
+| Test type | In-process? | Coverage? | Why |
+|-----------|-------------|-----------|-----|
+| Unit tests | Yes | Yes | Tests call `lib/` functions directly in the vitest process |
+| Integration (direct-call) | Yes | Yes | Tests like schema-contract, media-storage call `lib/` functions directly |
+| Integration (fetch-based) | No | No | `api-*.test.ts` files hit a separate Next.js dev server via `fetch()` — V8 can't instrument a different process |
+| E2E CLI | No | No | Spawns `tsx bin/sitemgr.ts` as a subprocess |
+| E2E Web | No | No | Drives a browser via Playwright |
 
-**Confidence:**
-- Can deploy to production with passing CI
-- Regressions caught before merge
-- Edge cases documented and tested
+The coverage numbers reflect unit + direct-call integration tests only. Fetch-based and E2E tests verify correctness but don't contribute to coverage metrics.
 
-**Velocity:**
-- Tests don't slow down development
-- Easy to add new test cases
-- Quick feedback loop (< 30s locally)
+### How the Merge Works
 
-## Resources
+1. Unit and integration jobs each run vitest with `--coverage` producing LCOV + json-summary
+2. The Combined Coverage Report job downloads both artifacts
+3. `lcov -a unit.lcov -a integration.lcov -o combined.info` merges them
+4. `genhtml` produces the browsable HTML report
+5. A node script parses the combined LCOV for per-file stats and posts the PR comment
+6. On `main`, `peaceiris/actions-gh-pages` deploys the HTML to the `gh-pages` branch
 
-- [Supabase CLI Docs](https://supabase.com/docs/guides/cli)
-- [Supabase Local Development](https://supabase.com/docs/guides/cli/local-development)
-- [Integration Testing Best Practices](https://martinfowler.com/bliki/IntegrationTest.html)
-- [Test Pyramid](https://martinfowler.com/articles/practical-test-pyramid.html)
+## Future: Full-Stack Coverage
+
+To get coverage from fetch-based and CLI tests, you'd need Istanbul instrumentation in the Next.js server process (e.g., `babel-plugin-istanbul` + a `/__coverage__` endpoint). This is deferred — see backlog.
