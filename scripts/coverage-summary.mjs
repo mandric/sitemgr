@@ -19,8 +19,10 @@ const lcovFile = args.find(a => !a.startsWith("--"));
 const outputDir = args.filter(a => !a.startsWith("--"))[1] || ".";
 const repoFlag = args.indexOf("--repo");
 const shaFlag = args.indexOf("--sha");
+const summaryFlag = args.indexOf("--job-summary");
 const repo = repoFlag >= 0 ? args[repoFlag + 1] : null;
 const sha = shaFlag >= 0 ? args[shaFlag + 1] : null;
+const jobSummaryFile = summaryFlag >= 0 ? args[summaryFlag + 1] : null;
 
 if (!lcovFile) {
   console.error("Usage: node scripts/coverage-summary.mjs <lcov-file> [output-dir] [--repo owner/repo] [--sha sha]");
@@ -141,3 +143,43 @@ writeFileSync(`${outputDir}/coverage-summary.json`, JSON.stringify({
 console.log(`Coverage: ${linesPct.toFixed(1)}% lines (${tlh}/${tl}), ${sorted.length} files`);
 console.log(`Sources: ${sources.length > 0 ? sources.join(", ") : "unknown"}`);
 console.log(`Written: ${outputDir}/badge.json, ${outputDir}/coverage-summary.json`);
+
+// Job summary (for GitHub Actions $GITHUB_STEP_SUMMARY)
+if (jobSummaryFile) {
+  const fileRows = sorted.map(([name, f]) => {
+    const lp = pct(f.linesHit, f.linesTotal);
+    const fp = pct(f.fnHit, f.fnTotal);
+    const bp = pct(f.brHit, f.brTotal);
+    const ref = repo && sha
+      ? `<a href="https://github.com/${repo}/blob/${sha}/web/${name}">${name}</a>`
+      : name;
+    const uncovered = [];
+    // Note: LCOV line-level detail not available in summary, so just show percentages
+    return `<tr><td>${ref}</td><td>${lp}</td><td>${bp}</td><td>${fp}</td><td>${lp}</td><td></td></tr>`;
+  }).join("\n");
+
+  const summary = `## Combined Coverage Report
+
+### Summary
+
+- **Sources:** ${sources.length > 0 ? sources.join(", ") : "all available"}
+- **Files:** ${sorted.length} total
+
+| Metric | Percentage | Covered / Total |
+|--------|-----------|-----------------|
+| Lines | ${pct(tlh, tl)} | ${tlh} / ${tl} |
+| Functions | ${pct(tfh, tf)} | ${tfh} / ${tf} |
+| Branches | ${pct(tbh, tb)} | ${tbh} / ${tb} |
+
+<details>
+<summary>File Coverage</summary>
+
+| | File | Lines | Functions | Branches |
+|---|------|-------|-----------|----------|
+${rows}
+
+</details>
+`;
+  writeFileSync(jobSummaryFile, summary);
+  console.log(`Written: ${jobSummaryFile} (job summary)`);
+}

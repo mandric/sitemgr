@@ -405,7 +405,8 @@ jobs:
             merge_lcov combined.info $ARGS
             node scripts/coverage-summary.mjs combined.info pages-output \
               --repo "${{ github.repository }}" \
-              --sha "${{ github.event.pull_request.head.sha || github.sha }}"
+              --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+              --job-summary "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Post coverage comment on PR
