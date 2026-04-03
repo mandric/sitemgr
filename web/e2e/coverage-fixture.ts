@@ -23,6 +23,7 @@ export const test = base.extend({
     // Start collecting JS coverage in the browser
     await page.coverage.startJSCoverage({ resetOnNavigation: false });
 
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(page);
 
     // Stop and save coverage
