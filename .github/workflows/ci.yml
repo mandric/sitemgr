@@ -333,21 +333,19 @@ jobs:
             });
             fs.writeFileSync("coverage-summary.json", output);
           '
-          echo "data<<COVERAGE_EOF" >> "$GITHUB_OUTPUT"
-          cat coverage-summary.json >> "$GITHUB_OUTPUT"
-          echo "COVERAGE_EOF" >> "$GITHUB_OUTPUT"
 
       - name: Post coverage comment on PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
+            const fs = require('fs');
+            const data = JSON.parse(fs.readFileSync('coverage-summary.json', 'utf8'));
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const pagesUrl = `https://${owner}.github.io/${repo}/`;
             const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
             const marker = '<!-- combined-coverage-report -->';
-            const data = ${{ steps.coverage.outputs.data }};
             const body = [
               '## Combined Coverage (Unit + Integration)',
               '',
