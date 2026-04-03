@@ -212,7 +212,7 @@ jobs:
 
       - name: Generate HTML coverage report
         if: always()
-        run: cd web && genhtml coverage/lcov.info -o coverage/html --quiet
+        run: cd web && genhtml coverage/lcov.info -o coverage/html --quiet --ignore-errors source
 
       - name: Upload integration coverage artifact
         if: always()
@@ -322,7 +322,7 @@ jobs:
           [ -f unit-coverage/lcov.info ] && ARGS="$ARGS -a unit-coverage/lcov.info"
           [ -f integration-coverage/lcov.info ] && ARGS="$ARGS -a integration-coverage/lcov.info"
           lcov $ARGS -o combined.info
-          cd web && genhtml ../combined.info -o coverage-html --quiet
+          cd web && genhtml ../combined.info -o coverage-html --quiet --ignore-errors source
           cp ../combined.info coverage-html/lcov.info
 
       - name: Extract coverage summary
