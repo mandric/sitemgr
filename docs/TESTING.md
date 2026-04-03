@@ -294,6 +294,24 @@ Download and open `index.html` for a local browsable report.
 | E2E CLI | No | No | Spawns `tsx bin/sitemgr.ts` as a subprocess |
 | E2E Web | No | No | Drives a browser via Playwright |
 
+### What's Included in Coverage Reports
+
+Coverage is scoped via `--coverage.include` to files where in-process testing is meaningful:
+
+| Included | Why |
+|----------|-----|
+| `lib/**` | Core logic — encryption, DB queries, S3 operations, auth, validation, retry |
+| `components/**` | React components with testable pure logic (e.g., `parseCodeFromUrl`) |
+| `bin/**` | CLI entry point |
+
+| Excluded | Why |
+|----------|-----|
+| `app/api/**` | Route handlers run in a separate Next.js process. Including them would show 0% for every file (false negatives), dragging totals down with noise. The logic these routes call IS covered — it lives in `lib/`. |
+| `app/**/page.tsx` | React pages rendered by Next.js, tested via Playwright (out-of-process) |
+| `e2e/**`, `__tests__/**` | Test files themselves — not application code |
+
+This means the coverage numbers reflect "what percentage of our core logic is exercised by tests" — not "what percentage of all source files." Route handlers are thin (authenticate → delegate to `lib/`) so excluding them doesn't hide meaningful gaps.
+
 The coverage numbers reflect unit + direct-call integration tests only. Fetch-based and E2E tests verify correctness but don't contribute to coverage metrics.
 
 ### CI Permissions
