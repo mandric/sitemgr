@@ -345,6 +345,10 @@ jobs:
             const repo = context.repo.repo;
             const pagesUrl = `https://${owner}.github.io/${repo}/`;
             const runUrl = `https://github.com/${owner}/${repo}/actions/runs/${context.runId}`;
+            const isMain = context.payload.pull_request?.base?.ref === 'main' && context.payload.pull_request?.head?.ref === 'main';
+            const reportLink = isMain
+              ? `[View full report](${pagesUrl})`
+              : `[View baseline report](${pagesUrl})`;
             const marker = '<!-- combined-coverage-report -->';
             const body = [
               '## Combined Coverage (Unit + Integration)',
@@ -355,7 +359,7 @@ jobs:
               `| Functions | **${data.functions}** |`,
               `| Branches | **${data.branches}** |`,
               '',
-              `[View full report](${pagesUrl}) · [Download artifact](${runUrl}#artifacts)`,
+              `${reportLink} · [Download artifact](${runUrl}#artifacts)`,
               '',
               '<details>',
               `<summary>File Coverage (${data.fileCount} files)</summary>`,
