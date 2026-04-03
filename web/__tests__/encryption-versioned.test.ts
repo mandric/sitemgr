@@ -46,7 +46,7 @@ describe("encryption-versioned", () => {
     it("throws without ENCRYPTION_KEY_CURRENT", async () => {
       vi.unstubAllEnvs();
       vi.stubEnv("ENCRYPTION_KEY_PREVIOUS", V1_KEY);
-      // CURRENT not set
+      vi.stubEnv("ENCRYPTION_KEY_CURRENT", ""); // explicitly clear in case real env has it
 
       await expect(encryptSecretVersioned("test")).rejects.toThrow(
         /Encryption key "current" not configured/,
