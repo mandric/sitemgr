@@ -100,22 +100,20 @@ merge_lcov() {
   local output="${1:?Usage: merge_lcov <output> <input1> [input2] ...}"
   shift
 
-  local args=""
-  local count=0
+  local args=()
   for f in "$@"; do
     if [ -s "$f" ]; then
-      args="$args -a $f"
-      count=$((count + 1))
+      args+=(-a "$f")
     fi
   done
 
-  if [ "$count" -eq 0 ]; then
+  if [ ${#args[@]} -eq 0 ]; then
     echo "No coverage files to merge"
     return 0
   fi
 
-  echo "Merging $count LCOV files..."
-  lcov $args -o "$output"
+  echo "Merging ${#args[@]} LCOV inputs..."
+  lcov "${args[@]}" -o "$output"
 }
 
 # ---------------------------------------------------------------------------
