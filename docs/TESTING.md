@@ -260,7 +260,7 @@ supabase db reset    # Wipes and replays all migrations
 
 ## Coverage Pipeline
 
-Coverage is collected from unit and integration tests, merged, and published in three places:
+Coverage is collected from all test tiers — both server-side (Node.js) and client-side (browser) — merged, and published in three places:
 
 ### PR Comments
 
@@ -286,13 +286,13 @@ Download and open `index.html` for a local browsable report.
 
 ### What Can and Can't Be Measured
 
-| Test type | In-process? | Coverage? | How |
-|-----------|-------------|-----------|-----|
-| Unit tests | Yes | Yes | Vitest V8 coverage — tests call `lib/` functions directly |
-| Integration (direct-call) | Yes | Yes | Vitest V8 coverage — schema-contract, media-storage call `lib/` directly |
-| Integration (fetch-based) | No | Yes | `NODE_V8_COVERAGE` on the dev server process — coverage flushed on exit, converted via `c8` |
-| E2E CLI | No | No | Spawns `tsx bin/sitemgr.ts` as a subprocess |
-| E2E Web | No | No | Drives a browser via Playwright |
+| Test type | Coverage | How |
+|-----------|----------|-----|
+| Unit tests | Server | Vitest V8 coverage — tests call `lib/` functions directly |
+| Integration (direct-call) | Server | Vitest V8 coverage — schema-contract, media-storage call `lib/` directly |
+| Integration (fetch-based) | Server | `NODE_V8_COVERAGE` on the dev server — coverage flushed on exit, converted via `c8` |
+| E2E CLI | Server | `NODE_V8_COVERAGE` on the dev server — same as integration |
+| E2E Web | Server + Client | Server: `NODE_V8_COVERAGE`. Client: Playwright `page.coverage` API collects browser-side JS coverage via Chrome DevTools Protocol |
 
 ### What's Included in Coverage Reports
 

@@ -342,12 +342,27 @@ jobs:
           path: web/playwright-report/
           retention-days: 30
 
-      - name: Upload e2e-web coverage artifact
+      - name: Convert browser client coverage
+        if: always()
+        run: |
+          source scripts/lib.sh
+          convert_v8_coverage /tmp/v8-coverage-playwright-client coverage-client web
+
+      - name: Upload e2e-web server coverage
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: e2e-web-coverage
           path: web/coverage/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Upload e2e-web client coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-web-client-coverage
+          path: web/coverage-client/
           retention-days: 14
           if-no-files-found: ignore
 
@@ -381,7 +396,7 @@ jobs:
           sudo apt-get install -y -qq lcov > /dev/null
           source scripts/lib.sh
           ARGS=""
-          for f in unit-coverage integration-coverage e2e-cli-coverage e2e-web-coverage; do
+          for f in unit-coverage integration-coverage e2e-cli-coverage e2e-web-coverage e2e-web-client-coverage; do
             [ -s "$f/lcov.info" ] && ARGS="$ARGS -a $f/lcov.info"
           done
           if [ -n "$ARGS" ]; then
