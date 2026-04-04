@@ -257,7 +257,6 @@ jobs:
   e2e-tests:
     name: E2E Web Tests
     runs-on: ubuntu-latest
-    environment: Production
     steps:
       - uses: actions/checkout@v4
 
