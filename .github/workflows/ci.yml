@@ -19,7 +19,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install dependencies
         run: cd web && npm ci
@@ -41,7 +41,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install dependencies
         run: cd web && npm ci
@@ -57,13 +57,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install dependencies
         run: cd web && npm ci
 
       - name: Run unit tests with coverage
-        run: cd web && npx vitest run --project unit --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=lcov --coverage.include='lib/**'
+        run: cd web && npx vitest run --project unit --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=html --coverage.include='lib/**' --coverage.include='components/**' --coverage.include='bin/**'
 
       - name: Report unit test coverage on PR
         if: always() && github.event_name == 'pull_request'
@@ -72,6 +72,8 @@ jobs:
           working-directory: web
           name: Unit Tests
           json-summary-path: coverage/coverage-summary.json
+          json-final-path: coverage/coverage-final.json
+          file-coverage-mode: all
 
       - name: Upload unit coverage artifact
         if: always()
@@ -90,7 +92,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Read Supabase version from scripts/lib.sh
         run: |
@@ -151,20 +153,21 @@ jobs:
             -d '{"id":"media","name":"media","public":false}' \
             || echo "Bucket may already exist"
 
-      # Coverage note: Only direct-function-call tests (schema-contract,
-      # media-storage, tenant-isolation, etc.) contribute coverage. The api-*
-      # tests use fetch() against a separate Next.js process and can't be
-      # instrumented by V8.
+      # Coverage: vitest collects in-process coverage (direct-call tests).
+      # The globalSetup spawns the Next.js dev server with NODE_V8_COVERAGE,
+      # so route handler coverage is captured when the server exits.
       - name: Run integration tests with coverage
-        run: cd web && npx vitest run --project integration --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=lcov --coverage.include='lib/**'
+        run: cd web && npx vitest run --project integration --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=json --coverage.reporter=lcov --coverage.include='lib/**'
 
       - name: Report integration test coverage on PR
         if: always() && github.event_name == 'pull_request'
         uses: davelosert/vitest-coverage-report-action@v2
         with:
           working-directory: web
-          name: Integration Tests (direct-call only)
+          name: Integration Tests
           json-summary-path: coverage/coverage-summary.json
+          json-final-path: coverage/coverage-final.json
+          file-coverage-mode: all
 
       - name: Upload integration coverage artifact
         if: always()
@@ -178,16 +181,88 @@ jobs:
         if: always()
         run: supabase stop
 
-  e2e-tests:
-    name: Web E2E Tests
+  e2e-cli-tests:
+    name: E2E CLI Tests
     runs-on: ubuntu-latest
-    environment: Production
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
+
+      - name: Read Supabase version from scripts/lib.sh
+        run: |
+          source scripts/lib.sh
+          echo "SUPABASE_PINNED_VERSION=$SUPABASE_PINNED_VERSION" >> "$GITHUB_ENV"
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: ${{ env.SUPABASE_PINNED_VERSION }}
+
+      - name: Install web dependencies
+        run: cd web && npm ci
+
+      - name: Start Supabase local environment
+        run: |
+          supabase start
+          echo "Supabase started successfully"
+
+      - name: Configure environment
+        run: |
+          source scripts/lib.sh
+          print_setup_env_vars >> "$GITHUB_ENV"
+          echo "SITEMGR_DEVICE_ID=ci-test" >> "$GITHUB_ENV"
+          echo "SITEMGR_AUTO_ENRICH=true" >> "$GITHUB_ENV"
+          echo "SITEMGR_OLLAMA_URL=http://localhost:11434" >> "$GITHUB_ENV"
+          echo "SITEMGR_VISION_MODEL=moondream:1.8b" >> "$GITHUB_ENV"
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Restore Ollama model cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama/models
+          key: ollama-moondream-1.8b-${{ runner.os }}
+
+      - name: Start Ollama server
+        run: |
+          ollama serve &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:11434/api/tags > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -sf http://localhost:11434/api/tags > /dev/null 2>&1 || { echo "::error::Ollama server failed to start within 30s"; exit 1; }
+
+      - name: Pull moondream model
+        run: ollama pull moondream:1.8b
+
+      - name: Create storage bucket
+        run: |
+          curl -sf -X POST "${{ env.SITEMGR_API_URL }}/storage/v1/bucket" \
+            -H "Authorization: Bearer ${{ env.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{"id":"media","name":"media","public":false}' \
+            || echo "Bucket may already exist"
+
+      - name: Run E2E CLI tests
+        run: cd web && npm run test:e2e:cli
+
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop
+
+  e2e-tests:
+    name: E2E Web Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
 
       - name: Read Supabase version from scripts/lib.sh
         run: |
@@ -233,9 +308,50 @@ jobs:
   # in GitHub with VERCEL_TOKEN, VERCEL_PROJECT_ID, and VERCEL_TEAM_ID.
   # See wait_for_vercel_deployment and smoke_test in scripts/lib.sh.
 
+  coverage-report:
+    name: Combined Coverage Report
+    needs: [unit-tests, integration-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download coverage artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*-coverage'
+
+      - name: Merge coverage and generate summary
+        run: |
+          sudo apt-get install -y -qq lcov > /dev/null
+          source scripts/lib.sh
+          ARGS=""
+          for f in unit-coverage integration-coverage; do
+            echo "Checking $f/lcov.info: $([ -s "$f/lcov.info" ] && echo "$(wc -l < "$f/lcov.info") lines" || echo "missing/empty")"
+            [ -s "$f/lcov.info" ] && ARGS="$ARGS -a $f/lcov.info"
+          done
+          if [ -n "$ARGS" ]; then
+            # shellcheck disable=SC2086
+            merge_lcov combined.info $ARGS
+            node scripts/coverage-summary.mjs combined.info \
+              --repo "${{ github.repository }}" \
+              --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+              --title "Combined Coverage Report" \
+              --job-summary "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload combined coverage artifact
+        if: hashFiles('combined.info') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-coverage
+          path: combined.info
+          retention-days: 14
+
   deploy:
     name: Deploy to Production
-    needs: [lint, build, unit-tests, integration-tests, e2e-tests]
+    needs: [lint, build, unit-tests, integration-tests, e2e-cli-tests, e2e-tests]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:

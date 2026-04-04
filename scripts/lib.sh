@@ -43,6 +43,23 @@ source_dotenv() {
 }
 
 # ---------------------------------------------------------------------------
+# merge_lcov — thin wrapper around lcov for merging LCOV files
+#
+# Usage: merge_lcov <output> -a <input1> [-a <input2>] ...
+#
+# Passes all args after <output> directly to lcov. Callers are responsible
+# for checking that input files exist before passing them.
+#
+# Example:
+#   merge_lcov combined.info -a unit/lcov.info -a integration/lcov.info
+# ---------------------------------------------------------------------------
+merge_lcov() {
+  local output="${1:?Usage: merge_lcov <output> -a <input1> [-a <input2>] ...}"
+  shift
+  lcov "$@" -o "$output"
+}
+
+# ---------------------------------------------------------------------------
 # Supabase CLI version constants
 # ---------------------------------------------------------------------------
 # Minimum version with ES256 JWT fix (supabase/cli#4818)

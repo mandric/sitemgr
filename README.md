@@ -1,5 +1,7 @@
 # sitemgr
 
+[![CI](https://github.com/mandric/sitemgr/actions/workflows/ci.yml/badge.svg)](https://github.com/mandric/sitemgr/actions/workflows/ci.yml)
+
 Media management system with LLM enrichment and WhatsApp bot interface.
 
 ## Quick Start
