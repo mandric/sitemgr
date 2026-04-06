@@ -16,8 +16,8 @@ git checkout -b feature/my-feature
 # ... edit files ...
 
 # 4. Test locally
-cd web && npm run setup:supabase  # Start Supabase local
-./scripts/test-integration.sh --skip-ollama  # Run tests
+cd web && npm run start:supabase  # Start Supabase local
+cd web && npm run test:integration  # Run tests
 
 # 5. Commit and push
 git add .
@@ -108,13 +108,13 @@ Manual trigger → Approval required
 ./scripts/setup.sh
 
 # Start local environment
-cd web && npm run setup:supabase && npm run setup:env
+cd web && npm run start:supabase && npm run setup:env
 
 # Run tests
-./scripts/test-integration.sh --skip-ollama
+cd web && npm run test:integration
 
 # Check environment health
-./scripts/setup/verify.sh
+cd web && npm run setup:verify
 uv run python prototype/smgr.py query --type photo
 uv run python prototype/smgr.py watch --once
 

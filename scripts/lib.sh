@@ -8,7 +8,8 @@
 #   install_jq                              # install jq (Linux)
 #   require_supabase_version                # error if CLI too old
 #   install_supabase_cli                    # install CLI binary (Linux)
-#   start_supabase                          # idempotent start
+#   start_ollama                            # idempotent start + pull moondream:1.8b (no-op if not installed)
+#   start_supabase                          # idempotent start + apply pending migrations
 #   print_setup_env_vars                    # emit .env.local from running Supabase
 #   source_dotenv .env.local                # load and export vars from a .env file
 #   verify_supabase_env                     # check required fields in supabase status
@@ -153,6 +154,63 @@ require_supabase_version() {
 }
 
 # ---------------------------------------------------------------------------
+# start_docker — ensures Docker daemon is running
+#   On Linux (CI/web sessions): starts dockerd via sudo -E (preserves proxy env).
+#   On macOS: errors out — Docker Desktop must be started manually.
+# ---------------------------------------------------------------------------
+start_docker() {
+  if docker info &>/dev/null 2>&1; then
+    return 0
+  fi
+  if [[ "$(uname)" == "Linux" ]]; then
+    echo "Starting Docker daemon..."
+    sudo -E dockerd &>/tmp/dockerd.log &
+    for i in $(seq 1 30); do
+      if docker info &>/dev/null 2>&1; then
+        echo "Docker daemon started"
+        return 0
+      fi
+      sleep 1
+    done
+    echo "Error: Docker daemon did not start within 30 seconds." >&2
+    return 1
+  else
+    echo "Error: Docker is not running. Start Docker Desktop or Colima and re-run." >&2
+    return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# start_ollama — idempotent start of Ollama and pull of required model
+#   No-op if ollama is not installed. Starts the server if not already running,
+#   then pulls moondream:1.8b (cached after first pull).
+# ---------------------------------------------------------------------------
+start_ollama() {
+  if ! command -v ollama &>/dev/null; then
+    echo "Ollama not installed, skipping. Install from https://ollama.com to run pipeline tests."
+    return 0
+  fi
+
+  if ! curl -sf http://localhost:11434 >/dev/null 2>&1; then
+    echo "Starting Ollama..."
+    ollama serve &>/dev/null &
+    # Wait for server to be ready
+    local i=0
+    while ! curl -sf http://localhost:11434 >/dev/null 2>&1; do
+      sleep 1
+      i=$((i + 1))
+      if [ "$i" -ge 10 ]; then
+        echo "Warning: Ollama did not start within 10 seconds." >&2
+        return 1
+      fi
+    done
+  fi
+
+  echo "Pulling moondream:1.8b (~828MB, cached after first run)..."
+  ollama pull moondream:1.8b
+}
+
+# ---------------------------------------------------------------------------
 # install_supabase_cli — download and install Supabase CLI binary (Linux only)
 #   Installs to /usr/local/bin if writable, else $HOME/.local/bin.
 #   No-op if supabase is already installed.
@@ -191,10 +249,18 @@ install_supabase_cli() {
 #   Service exclusions (realtime, edge_runtime) are in config.toml.
 # ---------------------------------------------------------------------------
 start_supabase() {
-  if supabase status &>/dev/null 2>&1; then
-    return 0
+  if ! docker info &>/dev/null 2>&1; then
+    echo "Error: Docker is not running. Start Docker and re-run." >&2
+    return 1
   fi
-  supabase start
+  if supabase status &>/dev/null 2>&1; then
+    echo "Supabase already running, applying any pending migrations..."
+    supabase migration up --local
+  else
+    supabase start
+    supabase migration up --local
+  fi
+  "$(dirname "${BASH_SOURCE[0]}")/create-webhook-user.sh"
 }
 
 # ---------------------------------------------------------------------------

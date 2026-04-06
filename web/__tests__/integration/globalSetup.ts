@@ -90,7 +90,7 @@ export async function setup(): Promise<void> {
     throw new Error(
       `Integration tests require a running Supabase instance.\n\n` +
         `Quick setup:\n` +
-        `  npm run setup:supabase   # start local Supabase\n` +
+        `  npm run start:supabase   # start local Supabase\n` +
         `  npm run setup:env        # generate .env.local\n` +
         `  npm run test:integration:full  # or use the all-in-one script\n\n` +
         `Expected Supabase at: ${url}\n` +

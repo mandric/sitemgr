@@ -44,19 +44,7 @@ if ! command -v vercel &>/dev/null; then
   npm install -g vercel
 fi
 
-# Start Docker daemon if not running (needed for Supabase)
-if ! docker info &>/dev/null 2>&1; then
-  echo "Starting Docker daemon..."
-  sudo -E dockerd &>/tmp/dockerd.log &
-  # Wait for Docker to be ready (up to 30 seconds)
-  for i in $(seq 1 30); do
-    if docker info &>/dev/null 2>&1; then
-      echo "Docker daemon started"
-      break
-    fi
-    sleep 1
-  done
-fi
+start_docker
 
 # Install Node.js dependencies for the web app
 cd "$CLAUDE_PROJECT_DIR/web"

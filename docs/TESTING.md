@@ -74,7 +74,7 @@ Inbucket (email)       54324   Email testing (future)
 
 **Setup:**
 ```bash
-cd web && npm run setup:supabase && npm run setup:env  # Start Supabase + generate .env.local
+cd web && npm run start:supabase && npm run setup:env  # Start Supabase + generate .env.local
 cd .. && source .env.local                             # Load environment variables
 ```
 
@@ -84,7 +84,7 @@ cd .. && source .env.local                             # Load environment variab
 supabase start
 
 # Terminal 2: Run integration tests
-./scripts/test-integration.sh --skip-ollama
+cd web && npm run test:integration
 ```
 
 **Reset:**
@@ -124,18 +124,11 @@ supabase db reset         # Wipes and replays all migrations; .env.local is unaf
 
 ## Integration Test Suite
 
-The canonical integration test runner is `./scripts/test-integration.sh`, which sources `.env.local` automatically and runs the vitest integration project under `web/__tests__/integration/`.
-
 ### Running Tests
 
-**Integration tests (requires Supabase running):**
+**Integration tests (requires `npm run setup` first):**
 ```bash
-./scripts/test-integration.sh --skip-ollama
-```
-
-**With Ollama enrichment (optional):**
-```bash
-./scripts/test-integration.sh
+cd web && npm run test:integration
 ```
 
 **Unit tests only (no Supabase required):**
@@ -217,7 +210,7 @@ supabase db reset    # Wipes and replays all migrations
 
 3. **Check environment health:**
    ```bash
-   ./scripts/setup/verify.sh
+   cd web && npm run setup:verify
    ```
 
 4. **Check Supabase logs:**

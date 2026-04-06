@@ -11,7 +11,7 @@ Media management system with LLM enrichment and WhatsApp bot interface.
 ./scripts/setup.sh
 
 # 2. Start Supabase and generate env vars
-cd web && npm run setup:supabase && npm run setup:env
+cd web && npm run start:supabase && npm run setup:env
 
 # 3. Load environment variables
 cd .. && source .env.local
@@ -91,7 +91,7 @@ npm run sitemgr enrich -- --pending
 
 ```bash
 # Start environment
-cd web && npm run setup:supabase && npm run setup:env
+cd web && npm run start:supabase && npm run setup:env
 cd .. && source .env.local
 
 # Run unit tests
@@ -101,7 +101,7 @@ cd web && npm test
 cd web && npm run test:e2e
 
 # Run integration tests
-./scripts/test-integration.sh --skip-ollama
+cd web && npm run test:integration
 ```
 
 ### Deployment
