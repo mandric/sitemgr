@@ -160,8 +160,7 @@ test.describe("Site Manager Agent", () => {
     );
   });
 
-  // Skip AI-dependent tests in CI - they're flaky because AI responses are non-deterministic
-  test.skip("should render markdown links", async ({ page }) => {
+  test("should render markdown links", async ({ page }) => {
     await page.goto("/agent");
 
     // Ask about buckets - specifically request a link
@@ -181,7 +180,7 @@ test.describe("Site Manager Agent", () => {
     await expect(bucketsLink).toHaveAttribute("href", "/buckets");
   });
 
-  test.skip("should navigate to buckets page from agent link", async ({
+  test("should navigate to buckets page from agent link", async ({
     page,
   }) => {
     await page.goto("/agent");

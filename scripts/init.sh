@@ -7,6 +7,6 @@
 #   source ../scripts/init.sh
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPTS_DIR/lib.sh"
-if [ -f "$SCRIPTS_DIR/../.env.local" ]; then
-  source_dotenv "$SCRIPTS_DIR/../.env.local"
+if [ -f "$SCRIPTS_DIR/../web/.env.local" ]; then
+  source_dotenv "$SCRIPTS_DIR/../web/.env.local"
 fi

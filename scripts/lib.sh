@@ -8,7 +8,7 @@
 #   install_jq                              # install jq (Linux)
 #   require_supabase_version                # error if CLI too old
 #   install_supabase_cli                    # install CLI binary (Linux)
-#   setup_ollama                            # pull moondream:1.8b model (no-op if not installed or cached)
+#   setup_ollama                            # start server if needed, pull moondream:1.8b model
 #   setup_supabase                          # idempotent setup: start, migrate, webhook user (returns)
 #   start_supabase                          # tail Supabase container logs (foreground)
 #   print_setup_env_vars                    # emit .env.local
@@ -183,16 +183,32 @@ start_docker() {
 }
 
 # ---------------------------------------------------------------------------
-# setup_ollama — pull required Ollama model (no-op if not installed or cached)
-#   Does NOT start the server — use `ollama serve` directly for that.
+# setup_ollama — ensure server is running, then pull required model.
 # ---------------------------------------------------------------------------
 setup_ollama() {
   if ! command -v ollama &>/dev/null; then
     echo "Error: Ollama is required. Install from https://ollama.com" >&2
     return 1
   fi
+  local started=false
+  if ! curl -sf http://localhost:11434 >/dev/null 2>&1; then
+    echo "Starting Ollama server..."
+    ollama serve >/dev/null 2>&1 &
+    local deadline=$((SECONDS + 15))
+    while ! curl -sf http://localhost:11434 >/dev/null 2>&1; do
+      if [ $SECONDS -ge $deadline ]; then
+        echo "Error: Ollama server did not start within 15 seconds." >&2
+        return 1
+      fi
+      sleep 1
+    done
+    started=true
+  fi
   echo "Pulling moondream:1.8b (~828MB, cached after first run)..."
   ollama pull moondream:1.8b
+  if $started; then
+    echo "Ollama server is running (use 'npm run stop:ollama' to stop)."
+  fi
 }
 
 # ---------------------------------------------------------------------------
