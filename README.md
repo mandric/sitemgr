@@ -4,122 +4,74 @@
 
 Media management system with LLM enrichment and WhatsApp bot interface.
 
-## Quick Start
-
-```bash
-# 1. Run setup (installs Node.js dependencies)
-./scripts/setup.sh
-
-# 2. Start Supabase and generate env vars
-cd web && npm run start:supabase && npm run setup:env
-
-# 3. Load environment variables
-cd .. && source .env.local
-
-# 4. Run the CLI
-cd web && npm run sitemgr stats
-
-# 5. Run tests
-cd web && npm test
-```
-
 ## Prerequisites
 
-- **Node.js 20+** - JavaScript runtime ([install guide](https://nodejs.org/))
-- **Supabase CLI** - Local development environment ([install guide](https://supabase.com/docs/guides/cli))
-- **Docker** or **Colima** - For running Supabase locally
-- **jq** - JSON processor (`brew install jq`)
+- **Node.js 20+** — [nodejs.org](https://nodejs.org/)
+- **Docker** or **Colima** — for running Supabase locally
+- **Supabase CLI** — `brew install supabase/tap/supabase`
+- **Ollama** — [ollama.com](https://ollama.com)
+- **jq** — `brew install jq`
+
+## Getting Started
+
+```bash
+cd web
+npm install
+npm run setup   # check prereqs, start Supabase, pull Ollama model, generate .env.local
+```
+
+Then in separate terminals:
+
+```bash
+npm run start:supabase   # Supabase (start + migrations + log tail)
+npm run start:ollama     # Ollama server
+npm run dev              # Next.js dev server
+```
+
+## Running Tests
+
+```bash
+cd web
+npm test                  # unit tests (no services required)
+npm run test:integration  # integration tests (requires npm run setup first)
+npm run test:e2e          # E2E browser tests (requires all services running)
+```
+
+## npm Scripts
+
+| Script | Description |
+|--------|-------------|
+| `npm run setup` | Full setup: Supabase + Ollama + `.env.local` (run once, returns) |
+| `npm run setup:supabase` | Check prereqs, start Supabase, apply migrations |
+| `npm run setup:ollama` | Pull Ollama model (moondream:1.8b) |
+| `npm run setup:env` | Regenerate `.env.local` from running Supabase instance |
+| `npm run start:supabase` | Setup + tail Supabase container logs (foreground) |
+| `npm run start:ollama` | Start Ollama server (foreground) |
+| `npm run dev` | Start Next.js dev server (foreground) |
+
+## Resetting
+
+```bash
+supabase db reset       # wipe local DB and replay migrations
+npm run setup:env       # regenerate .env.local after reset
+```
 
 ## Project Structure
 
 ```
 sitemgr/
-├── web/               # Next.js app + TypeScript CLI
-│   ├── bin/sitemgr.ts   # CLI tool (query, watch, enrich, stats)
-│   ├── lib/media/    # Core media processing library
-│   ├── app/          # Next.js web UI
-│   └── __tests__/    # Unit tests (Vitest)
-├── supabase/          # Database + Edge Functions
-│   ├── migrations/    # Database schema
-│   └── functions/     # Edge Functions (TypeScript)
-├── scripts/           # Development scripts
-│   └── setup.sh       # First-time setup
-├── tests/             # Integration tests
-└── design/            # Architecture docs
+├── web/                  # Next.js app + TypeScript CLI
+│   ├── bin/sitemgr.ts    # CLI tool (query, watch, enrich, stats)
+│   ├── lib/              # Core library (db, crypto, media, s3)
+│   ├── app/              # Next.js web UI + API routes
+│   └── __tests__/        # Tests (unit, integration, e2e)
+├── supabase/             # Local Supabase config + migrations
+│   └── migrations/       # Database schema
+└── scripts/              # Dev and CI shell helpers (lib.sh, init.sh)
 ```
-
-## What It Does
-
-1. **Watches S3 bucket** for new photos/videos
-2. **Enriches media** using LLM (Claude) - descriptions, tags, objects
-3. **Indexes content** in Postgres with full-text search
-4. **WhatsApp bot** - Natural language queries ("show me photos from last week")
-5. **Event-driven** - Append-only event log for all actions
-
-## Architecture
-
-- **Event Store**: Supabase Postgres (append-only log)
-- **Storage**: Supabase Storage (S3-compatible)
-- **Enrichment**: BYO LLM (Anthropic)
-- **Query**: Postgres FTS (tsvector + GIN)
-- **Bot**: Supabase Edge Function + Twilio WhatsApp
-- **Web UI**: Next.js + Supabase Auth
-
-See [design/architecture.md](design/architecture.md) for details.
-
-## Development
-
-### CLI Usage
-
-```bash
-cd web
-
-# Check database stats
-npm run sitemgr stats
-
-# Query events
-npm run sitemgr query -- --search "beach" --format json
-
-# Watch for new S3 objects
-npm run sitemgr watch
-
-# Enrich pending items
-npm run sitemgr enrich -- --pending
-```
-
-### Local Testing
-
-```bash
-# Start environment
-cd web && npm run start:supabase && npm run setup:env
-cd .. && source .env.local
-
-# Run unit tests
-cd web && npm test
-
-# Run E2E tests
-cd web && npm run test:e2e
-
-# Run integration tests
-cd web && npm run test:integration
-```
-
-### Deployment
-
-```bash
-# Deploy to Supabase (staging)
-git push origin develop
-
-# Deploy to production
-git push origin main
-```
-
-See [INTEGRATION_TESTS_SETUP.md](INTEGRATION_TESTS_SETUP.md) for complete setup guide.
 
 ## Documentation
 
-- [INTEGRATION_TESTS_SETUP.md](INTEGRATION_TESTS_SETUP.md) - Quick start guide
-- [docs/TESTING.md](docs/TESTING.md) - Testing strategy
-- [design/vision.md](design/vision.md) - Project vision
-- [design/architecture.md](design/architecture.md) - System architecture
-- [docs/TESTING.md](docs/TESTING.md) - Testing strategy and test runner docs
+- [docs/TESTING.md](docs/TESTING.md) — Testing strategy and test tiers
+- [docs/WORKFLOW.md](docs/WORKFLOW.md) — Development and deployment workflow
+- [docs/ENV_VARS.md](docs/ENV_VARS.md) — Environment variables and key rotation

@@ -8,9 +8,10 @@
 #   install_jq                              # install jq (Linux)
 #   require_supabase_version                # error if CLI too old
 #   install_supabase_cli                    # install CLI binary (Linux)
-#   start_ollama                            # idempotent start + pull moondream:1.8b (no-op if not installed)
-#   start_supabase                          # idempotent start + apply pending migrations
-#   print_setup_env_vars                    # emit .env.local from running Supabase
+#   setup_ollama                            # pull moondream:1.8b model (no-op if not installed or cached)
+#   setup_supabase                          # idempotent setup: start, migrate, webhook user (returns)
+#   start_supabase                          # tail Supabase container logs (foreground)
+#   print_setup_env_vars                    # emit .env.local
 #   source_dotenv .env.local                # load and export vars from a .env file
 #   verify_supabase_env                     # check required fields in supabase status
 #   verify_gotrue <url> <key>               # probe GoTrue with service role key
@@ -22,6 +23,7 @@
 # NOTE: Do NOT set -euo pipefail here. This file is sourced by other scripts
 # and setting shell options would affect the caller. Each calling script should
 # set its own shell options.
+
 
 # ---------------------------------------------------------------------------
 # source_dotenv — load a .env file and export all variables
@@ -164,7 +166,7 @@ start_docker() {
   fi
   if [[ "$(uname)" == "Linux" ]]; then
     echo "Starting Docker daemon..."
-    sudo -E dockerd &>/tmp/dockerd.log &
+    sudo -E dockerd &
     for i in $(seq 1 30); do
       if docker info &>/dev/null 2>&1; then
         echo "Docker daemon started"
@@ -181,33 +183,42 @@ start_docker() {
 }
 
 # ---------------------------------------------------------------------------
-# start_ollama — idempotent start of Ollama and pull of required model
-#   No-op if ollama is not installed. Starts the server if not already running,
-#   then pulls moondream:1.8b (cached after first pull).
+# setup_ollama — pull required Ollama model (no-op if not installed or cached)
+#   Does NOT start the server — use `ollama serve` directly for that.
+# ---------------------------------------------------------------------------
+setup_ollama() {
+  if ! command -v ollama &>/dev/null; then
+    echo "Error: Ollama is required. Install from https://ollama.com" >&2
+    return 1
+  fi
+  echo "Pulling moondream:1.8b (~828MB, cached after first run)..."
+  ollama pull moondream:1.8b
+}
+
+# ---------------------------------------------------------------------------
+# start_ollama — start Ollama server if not running, then follow logs.
 # ---------------------------------------------------------------------------
 start_ollama() {
   if ! command -v ollama &>/dev/null; then
-    echo "Ollama not installed, skipping. Install from https://ollama.com to run pipeline tests."
+    echo "Error: Ollama is required. Install from https://ollama.com" >&2
+    return 1
+  fi
+  if curl -sf http://localhost:11434 >/dev/null 2>&1; then
+    echo "Ollama is already running."
+  else
+    ollama serve
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# stop_ollama — stop the Ollama server.
+# ---------------------------------------------------------------------------
+stop_ollama() {
+  if ! curl -sf http://localhost:11434 >/dev/null 2>&1; then
+    echo "Ollama is not running."
     return 0
   fi
-
-  if ! curl -sf http://localhost:11434 >/dev/null 2>&1; then
-    echo "Starting Ollama..."
-    ollama serve &>/dev/null &
-    # Wait for server to be ready
-    local i=0
-    while ! curl -sf http://localhost:11434 >/dev/null 2>&1; do
-      sleep 1
-      i=$((i + 1))
-      if [ "$i" -ge 10 ]; then
-        echo "Warning: Ollama did not start within 10 seconds." >&2
-        return 1
-      fi
-    done
-  fi
-
-  echo "Pulling moondream:1.8b (~828MB, cached after first run)..."
-  ollama pull moondream:1.8b
+  pkill -f "ollama serve" && echo "Ollama stopped." || echo "Error: could not stop Ollama." >&2
 }
 
 # ---------------------------------------------------------------------------
@@ -245,22 +256,42 @@ install_supabase_cli() {
 }
 
 # ---------------------------------------------------------------------------
-# start_supabase — idempotent start of local Supabase
-#   Service exclusions (realtime, edge_runtime) are in config.toml.
 # ---------------------------------------------------------------------------
-start_supabase() {
+# setup_supabase — check prereqs, start if needed, apply migrations, create
+#   webhook user. Returns when complete.
+# ---------------------------------------------------------------------------
+setup_supabase() {
+  if ! command -v supabase &>/dev/null; then
+    echo "Error: Supabase CLI is required. Install: brew install supabase/tap/supabase" >&2
+    return 1
+  fi
   if ! docker info &>/dev/null 2>&1; then
-    echo "Error: Docker is not running. Start Docker and re-run." >&2
+    echo "Error: Docker is not running. Start Docker Desktop or Colima and re-run." >&2
     return 1
   fi
   if supabase status &>/dev/null 2>&1; then
     echo "Supabase already running, applying any pending migrations..."
-    supabase migration up --local
+    supabase migration up --local || return 1
   else
     supabase start
-    supabase migration up --local
+    supabase migration up --local || return 1
   fi
   "$(dirname "${BASH_SOURCE[0]}")/create-webhook-user.sh"
+}
+
+# ---------------------------------------------------------------------------
+# start_supabase — setup then tail logs for key containers (foreground).
+# ---------------------------------------------------------------------------
+start_supabase() {
+  setup_supabase || return 1
+  local project
+  project=$(basename "$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)")
+  echo "Tailing Supabase logs (db, storage, auth, rest)..."
+  docker logs -f --since 0s "supabase_db_${project}" &
+  docker logs -f --since 0s "supabase_storage_${project}" &
+  docker logs -f --since 0s "supabase_auth_${project}" &
+  docker logs -f --since 0s "supabase_rest_${project}" &
+  wait
 }
 
 # ---------------------------------------------------------------------------
@@ -296,12 +327,6 @@ print_setup_env_vars() {
   local encryption_key
   encryption_key=$(openssl rand -base64 32)
 
-  # Check if web app is running (non-blocking warning)
-  local web_url="http://localhost:3000"
-  if ! curl -sf --connect-timeout 2 "${web_url}/api/health" >/dev/null 2>&1; then
-    echo "Warning: Next.js web app not running at ${web_url}. Start with: cd web && npm run dev" >&2
-    echo "         CLI 'sitemgr login' requires the web app. Other commands work without it." >&2
-  fi
 
   cat <<EOF
 NEXT_PUBLIC_SUPABASE_URL=${api_url}
