@@ -239,19 +239,23 @@ stop_ollama() {
 }
 
 # ---------------------------------------------------------------------------
-# cleanup_colima — unlock a stale Colima disk lock left by a hard crash/kill.
+# cleanup_colima — remove stale disk lock left by a hard crash/kill.
 #   Run this when `colima start` fails with "disk in use by instance" error.
 #   Usage: cleanup_colima [profile]  (profile defaults to "colima")
 # ---------------------------------------------------------------------------
 cleanup_colima() {
   local profile="${1:-colima}"
-  if ! command -v limactl &>/dev/null; then
-    echo "Error: limactl is required (install Colima: brew install colima)." >&2
+  local lock_dir="$HOME/.colima/_lima/_disks/${profile}/in_use_by"
+  if [ -L "$lock_dir" ]; then
+    echo "Removing stale disk lock: $lock_dir"
+    rm "$lock_dir"
+    echo "Done. Run 'colima start' to start Colima."
+  elif [ -e "$lock_dir" ]; then
+    echo "Error: $lock_dir exists but is not a symlink — inspect manually." >&2
     return 1
+  else
+    echo "No stale lock found at $lock_dir — nothing to clean up."
   fi
-  echo "Unlocking Lima disk '${profile}'..."
-  limactl disk unlock "${profile}"
-  echo "Done. Run 'colima start' to start Colima."
 }
 
 # ---------------------------------------------------------------------------
