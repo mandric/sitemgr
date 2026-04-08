@@ -1,9 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// Load .env.local at config time so secrets are available for webServer.env.
-// This runs before globalSetup, so we need to load it here independently.
-try { process.loadEnvFile('.env.local'); } catch { /* CI sets vars directly */ }
-
 // Default to single worker (safe for dev laptops). Set E2E_PARALLEL=1 to
 // enable parallel execution on machines with more resources.
 const parallel = !!process.env.E2E_PARALLEL;
