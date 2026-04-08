@@ -13,9 +13,9 @@ type Message = {
   timestamp: Date;
 };
 
-// TODO: pass userId to sendMessage once conversation history is implemented
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function ChatInterface({ userId }: { userId: string }) {
+// The agent server action reads the authenticated user from the session,
+// so the userId is resolved server-side — no need to pass it from the client.
+export function ChatInterface() {
   const [mounted, setMounted] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {

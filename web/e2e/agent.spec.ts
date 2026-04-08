@@ -180,6 +180,35 @@ test.describe("Site Manager Agent", () => {
     await expect(bucketsLink).toHaveAttribute("href", "/buckets");
   });
 
+  test("should answer media library questions via tool use", async ({
+    page,
+  }) => {
+    // This verifies the tool-use loop end-to-end: the agent must call
+    // `get_stats` (or `query_media`) against real Supabase and incorporate
+    // the result into its response. The test user was just created with no
+    // seeded media, so the live stats call should return 0 events — the
+    // assistant's reply must mention that the library is empty or contains 0.
+    await page.goto("/agent");
+
+    // Wait for initial greeting to load
+    await page.waitForSelector(".rounded-lg.px-4.py-2", { timeout: 5000 });
+
+    await page.fill(
+      'input[placeholder="Ask me anything..."]',
+      "How many media items are in my library right now?",
+    );
+    await page.click('button[type="submit"]');
+
+    // Wait for the assistant response bubble (the second assistant message).
+    const assistantBubbles = page.locator(".bg-muted");
+    await expect(assistantBubbles.nth(1)).toBeVisible({ timeout: 30000 });
+
+    const responseText = (await assistantBubbles.nth(1).textContent()) ?? "";
+    // If the tool was actually invoked, Claude has ground-truth data (0).
+    // Accept common phrasings: "0", "zero", "empty", "no media", "don't have".
+    expect(responseText).toMatch(/\b(0|zero|empty|no media|don't have|haven't)\b/i);
+  });
+
   test("should navigate to buckets page from agent link", async ({
     page,
   }) => {

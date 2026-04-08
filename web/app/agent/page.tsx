@@ -5,16 +5,15 @@ import { ChatInterface } from "@/components/agent/chat-interface";
 
 async function AgentContent() {
   const supabase = await createClient();
+  const { data } = await supabase.auth.getUser();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
+  if (!data.user) {
     return redirect("/auth/login");
   }
 
-  return <ChatInterface userId={user.id} />;
+  // ChatInterface resolves the authenticated user server-side via the session,
+  // so we don't need to pass anything from here.
+  return <ChatInterface />;
 }
 
 function AgentLoading() {
