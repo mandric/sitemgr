@@ -364,7 +364,6 @@ print_setup_env_vars() {
   local encryption_key
   encryption_key=$(openssl rand -base64 32)
 
-
   cat <<EOF
 NEXT_PUBLIC_SUPABASE_URL=${api_url}
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${anon_key}
