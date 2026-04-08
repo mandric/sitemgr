@@ -332,8 +332,10 @@ start_supabase() {
 }
 
 # ---------------------------------------------------------------------------
-# print_setup_env_vars — prints env vars from a running Supabase instance
-#   in dotenv format (KEY=value). Requires jq and a running Supabase.
+# print_setup_env_vars — prints env vars in dotenv format (KEY=value).
+#   Service-derived vars come from a running Supabase instance (requires jq).
+#   Manually managed vars (e.g. ANTHROPIC_API_KEY) are passed through from
+#   the current environment if set, or emitted as empty placeholders.
 #   Usage: cd web && npm run setup:env
 # ---------------------------------------------------------------------------
 print_setup_env_vars() {
@@ -382,6 +384,7 @@ ENCRYPTION_KEY_CURRENT=${encryption_key}
 WEBHOOK_SERVICE_ACCOUNT_EMAIL=webhook@sitemgr.internal
 WEBHOOK_SERVICE_ACCOUNT_PASSWORD=unused-password-webhook-uses-service-token
 SUPABASE_SERVICE_ROLE_KEY=${service_role}
+ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
 EOF
 }
 
