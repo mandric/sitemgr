@@ -25,6 +25,7 @@ export default defineConfig({
       },
       {
         extends: true,
+        envDir: ".",
         test: {
           name: "integration",
           globals: true,
@@ -38,6 +39,7 @@ export default defineConfig({
       },
       {
         extends: true,
+        envDir: ".",
         test: {
           name: "e2e-cli",
           globals: true,

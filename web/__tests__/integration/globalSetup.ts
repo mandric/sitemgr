@@ -4,6 +4,15 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer } from "node:net";
+import { resolve } from "node:path";
+
+// globalSetup runs in a separate process before Vitest's envDir loading.
+// Load .env.local explicitly so env vars are available for the setup checks.
+try {
+  process.loadEnvFile(resolve(__dirname, "../../.env.local"));
+} catch {
+  // .env.local may not exist in CI (env vars set directly)
+}
 
 declare global {
   var __WEB_SERVER__: ChildProcess | undefined;
@@ -63,9 +72,8 @@ export async function setup(): Promise<void> {
     throw new Error(
       `Missing required environment variables for integration tests:\n` +
         missing.map((k) => `  - ${k}`).join("\n") +
-        `\n\nTo fix, generate .env.local and source it:\n` +
-        `  npm run setup:env\n` +
-        `  source ../.env.local   # or use npm run test:integration:full\n`,
+        `\n\nTo fix, run:\n` +
+        `  npm run setup\n`,
     );
   }
 
@@ -90,7 +98,7 @@ export async function setup(): Promise<void> {
     throw new Error(
       `Integration tests require a running Supabase instance.\n\n` +
         `Quick setup:\n` +
-        `  npm run setup:supabase   # start local Supabase\n` +
+        `  npm run start:supabase   # start local Supabase\n` +
         `  npm run setup:env        # generate .env.local\n` +
         `  npm run test:integration:full  # or use the all-in-one script\n\n` +
         `Expected Supabase at: ${url}\n` +
@@ -153,15 +161,18 @@ export async function teardown(): Promise<void> {
   const child = globalThis.__WEB_SERVER__;
   child.kill("SIGTERM");
 
-  // Give it a grace period, then force kill
+  // Wait for graceful exit with a 15s fallback. If the server doesn't
+  // respond to SIGTERM, force-kill to avoid hanging CI for 20+ minutes.
   await new Promise<void>((resolve) => {
     const forceKill = setTimeout(() => {
+      console.warn("[globalSetup] Dev server did not exit within 15s, sending SIGKILL");
       child.kill("SIGKILL");
       resolve();
-    }, 5000);
+    }, 15000);
 
-    child.once("exit", () => {
+    child.once("exit", (code, signal) => {
       clearTimeout(forceKill);
+      console.log(`[globalSetup] Dev server exited (code=${code}, signal=${signal})`);
       resolve();
     });
   });

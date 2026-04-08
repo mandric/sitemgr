@@ -8,8 +8,11 @@
 #   install_jq                              # install jq (Linux)
 #   require_supabase_version                # error if CLI too old
 #   install_supabase_cli                    # install CLI binary (Linux)
-#   start_supabase                          # idempotent start
-#   print_setup_env_vars                    # emit .env.local from running Supabase
+#   setup_ollama                            # start server if needed, pull moondream:1.8b model
+#   cleanup_colima [profile]                # unlock stale disk lock after hard crash (limactl disk unlock)
+#   setup_supabase                          # idempotent setup: start, migrate, webhook user (returns)
+#   start_supabase                          # tail Supabase container logs (foreground)
+#   print_setup_env_vars                    # emit .env.local
 #   source_dotenv .env.local                # load and export vars from a .env file
 #   verify_supabase_env                     # check required fields in supabase status
 #   verify_gotrue <url> <key>               # probe GoTrue with service role key
@@ -21,6 +24,7 @@
 # NOTE: Do NOT set -euo pipefail here. This file is sourced by other scripts
 # and setting shell options would affect the caller. Each calling script should
 # set its own shell options.
+
 
 # ---------------------------------------------------------------------------
 # source_dotenv — load a .env file and export all variables
@@ -40,6 +44,23 @@ source_dotenv() {
   # shellcheck disable=SC1090
   source "$envfile"
   set +a
+}
+
+# ---------------------------------------------------------------------------
+# merge_lcov — thin wrapper around lcov for merging LCOV files
+#
+# Usage: merge_lcov <output> -a <input1> [-a <input2>] ...
+#
+# Passes all args after <output> directly to lcov. Callers are responsible
+# for checking that input files exist before passing them.
+#
+# Example:
+#   merge_lcov combined.info -a unit/lcov.info -a integration/lcov.info
+# ---------------------------------------------------------------------------
+merge_lcov() {
+  local output="${1:?Usage: merge_lcov <output> -a <input1> [-a <input2>] ...}"
+  shift
+  lcov "$@" -o "$output"
 }
 
 # ---------------------------------------------------------------------------
@@ -136,6 +157,108 @@ require_supabase_version() {
 }
 
 # ---------------------------------------------------------------------------
+# start_docker — ensures Docker daemon is running
+#   On Linux (CI/web sessions): starts dockerd via sudo -E (preserves proxy env).
+#   On macOS: errors out — Docker Desktop must be started manually.
+# ---------------------------------------------------------------------------
+start_docker() {
+  if docker info &>/dev/null 2>&1; then
+    return 0
+  fi
+  if [[ "$(uname)" == "Linux" ]]; then
+    echo "Starting Docker daemon..."
+    sudo -E dockerd &
+    for i in $(seq 1 30); do
+      if docker info &>/dev/null 2>&1; then
+        echo "Docker daemon started"
+        return 0
+      fi
+      sleep 1
+    done
+    echo "Error: Docker daemon did not start within 30 seconds." >&2
+    return 1
+  else
+    echo "Error: Docker is not running. Start Docker Desktop or Colima and re-run." >&2
+    return 1
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# setup_ollama — ensure server is running, then pull required model.
+# ---------------------------------------------------------------------------
+setup_ollama() {
+  if ! command -v ollama &>/dev/null; then
+    echo "Error: Ollama is required. Install from https://ollama.com" >&2
+    return 1
+  fi
+  local started=false
+  if ! curl -sf http://localhost:11434 >/dev/null 2>&1; then
+    echo "Starting Ollama server..."
+    ollama serve >/dev/null 2>&1 &
+    local deadline=$((SECONDS + 15))
+    while ! curl -sf http://localhost:11434 >/dev/null 2>&1; do
+      if [ $SECONDS -ge $deadline ]; then
+        echo "Error: Ollama server did not start within 15 seconds." >&2
+        return 1
+      fi
+      sleep 1
+    done
+    started=true
+  fi
+  echo "Pulling moondream:1.8b (~828MB, cached after first run)..."
+  ollama pull moondream:1.8b
+  if $started; then
+    echo "Ollama server is running (use 'npm run stop:ollama' to stop)."
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# start_ollama — start Ollama server if not running, then follow logs.
+# ---------------------------------------------------------------------------
+start_ollama() {
+  if ! command -v ollama &>/dev/null; then
+    echo "Error: Ollama is required. Install from https://ollama.com" >&2
+    return 1
+  fi
+  if curl -sf http://localhost:11434 >/dev/null 2>&1; then
+    echo "Ollama is already running."
+  else
+    ollama serve
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# stop_ollama — stop the Ollama server.
+# ---------------------------------------------------------------------------
+stop_ollama() {
+  if ! curl -sf http://localhost:11434 >/dev/null 2>&1; then
+    echo "Ollama is not running."
+    return 0
+  fi
+  pkill -f "ollama serve" && echo "Ollama stopped." || echo "Error: could not stop Ollama." >&2
+}
+
+# ---------------------------------------------------------------------------
+# cleanup_colima — remove stale disk lock left by a hard crash/kill.
+#   Run this when `colima start` fails with "disk in use by instance" error.
+#   Usage: cleanup_colima [profile]  (profile defaults to "colima")
+# ---------------------------------------------------------------------------
+cleanup_colima() {
+  local profile="${1:-colima}"
+  local lock_dir="$HOME/.colima/_lima/_disks/${profile}/in_use_by"
+  if [ -L "$lock_dir" ]; then
+    echo "Removing stale disk lock: $lock_dir"
+    rm "$lock_dir"
+    echo "Done. Run 'colima start' to start Colima."
+  elif [ -e "$lock_dir" ]; then
+    echo "Error: $lock_dir exists but is not a symlink — inspect manually." >&2
+    return 1
+  else
+    echo "No stale lock found at $lock_dir — nothing to clean up."
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # install_supabase_cli — download and install Supabase CLI binary (Linux only)
 #   Installs to /usr/local/bin if writable, else $HOME/.local/bin.
 #   No-op if supabase is already installed.
@@ -170,19 +293,49 @@ install_supabase_cli() {
 }
 
 # ---------------------------------------------------------------------------
-# start_supabase — idempotent start of local Supabase
-#   Service exclusions (realtime, edge_runtime) are in config.toml.
 # ---------------------------------------------------------------------------
-start_supabase() {
-  if supabase status &>/dev/null 2>&1; then
-    return 0
+# setup_supabase — check prereqs, start if needed, apply migrations, create
+#   webhook user. Returns when complete.
+# ---------------------------------------------------------------------------
+setup_supabase() {
+  if ! command -v supabase &>/dev/null; then
+    echo "Error: Supabase CLI is required. Install: brew install supabase/tap/supabase" >&2
+    return 1
   fi
-  supabase start
+  if ! docker info &>/dev/null 2>&1; then
+    echo "Error: Docker is not running. Start Docker Desktop or Colima and re-run." >&2
+    return 1
+  fi
+  if supabase status &>/dev/null 2>&1; then
+    echo "Supabase already running, applying any pending migrations..."
+    supabase migration up --local || return 1
+  else
+    supabase start
+    supabase migration up --local || return 1
+  fi
+  "$(dirname "${BASH_SOURCE[0]}")/create-webhook-user.sh"
 }
 
 # ---------------------------------------------------------------------------
-# print_setup_env_vars — prints env vars from a running Supabase instance
-#   in dotenv format (KEY=value). Requires jq and a running Supabase.
+# start_supabase — setup then tail logs for key containers (foreground).
+# ---------------------------------------------------------------------------
+start_supabase() {
+  setup_supabase || return 1
+  local project
+  project=$(basename "$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)")
+  echo "Tailing Supabase logs (db, storage, auth, rest)..."
+  docker logs -f --since 0s "supabase_db_${project}" &
+  docker logs -f --since 0s "supabase_storage_${project}" &
+  docker logs -f --since 0s "supabase_auth_${project}" &
+  docker logs -f --since 0s "supabase_rest_${project}" &
+  wait
+}
+
+# ---------------------------------------------------------------------------
+# print_setup_env_vars — prints env vars in dotenv format (KEY=value).
+#   Service-derived vars come from a running Supabase instance (requires jq).
+#   Manually managed vars (e.g. ANTHROPIC_API_KEY) are passed through from
+#   the current environment if set, or emitted as empty placeholders.
 #   Usage: cd web && npm run setup:env
 # ---------------------------------------------------------------------------
 print_setup_env_vars() {
@@ -213,13 +366,6 @@ print_setup_env_vars() {
   local encryption_key
   encryption_key=$(openssl rand -base64 32)
 
-  # Check if web app is running (non-blocking warning)
-  local web_url="http://localhost:3000"
-  if ! curl -sf --connect-timeout 2 "${web_url}/api/health" >/dev/null 2>&1; then
-    echo "Warning: Next.js web app not running at ${web_url}. Start with: cd web && npm run dev" >&2
-    echo "         CLI 'sitemgr login' requires the web app. Other commands work without it." >&2
-  fi
-
   cat <<EOF
 NEXT_PUBLIC_SUPABASE_URL=${api_url}
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=${anon_key}
@@ -238,7 +384,16 @@ ENCRYPTION_KEY_CURRENT=${encryption_key}
 WEBHOOK_SERVICE_ACCOUNT_EMAIL=webhook@sitemgr.internal
 WEBHOOK_SERVICE_ACCOUNT_PASSWORD=unused-password-webhook-uses-service-token
 SUPABASE_SERVICE_ROLE_KEY=${service_role}
+ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
 EOF
+
+  if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+    echo "" >&2
+    echo "Warning: ANTHROPIC_API_KEY is not set." >&2
+    echo "  The web agent and E2E tests require it. Add it to web/.env.local:" >&2
+    echo "    ANTHROPIC_API_KEY=sk-ant-..." >&2
+    echo "  See web/.env.example for details." >&2
+  fi
 }
 
 # ---------------------------------------------------------------------------

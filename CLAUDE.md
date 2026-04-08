@@ -24,13 +24,11 @@ This applies to error objects too — preserve the full object (`code`, `details
 - `ENCRYPTION_KEY_CURRENT` - Active key for new encryptions (required wherever the Next.js app runs: production, preview, local dev, E2E)
 - `ENCRYPTION_KEY_PREVIOUS` - Old key for decryption during rotation (optional in production)
 - `ENCRYPTION_KEY_NEXT` - Future key for gradual rollout (optional in production)
-- **DO NOT USE**: `ENCRYPTION_KEY`, `ENCRYPTION_KEY_V1`, `ENCRYPTION_KEY_V2`, `ENCRYPTION_KEY_V3` (legacy, removed)
-- **DO NOT USE**: `SUPABASE_SECRET_KEY` (renamed to `SUPABASE_SERVICE_ROLE_KEY`, removed from runtime)
 
 **Supabase Service Role Key (Test/Admin + Device Auth Exception):**
 - Application code (CLI, agent core, health endpoint, webhook handler) **never** uses the service role key
 - **Exception:** `/api/auth/device/approve` uses the service role key for `admin.generateLink()` to generate a magic link token hash during device code approval, and for the `device_codes` table lookup and update (service role bypasses RLS). This endpoint is itself authenticated (user must be logged in via cookie session). This is the only application endpoint with this exception. Evaluating alternatives (service account, edge function) is deferred to a future spec.
-- The service role key only appears in: `.env.local` (for integration tests), integration test setup (`setup.ts`), CI deployment scripts, `scripts/setup/verify.sh`, and the device approve endpoint
+- The service role key only appears in: `.env.local` (for integration tests), integration test setup (`setup.ts`), CI deployment scripts, `npm run setup:verify (from web/)`, and the device approve endpoint
 - The WhatsApp webhook uses a dedicated service account (`webhook@sitemgr.internal`) with narrowly-scoped RLS policies instead of the service role key
 - `WEBHOOK_SERVICE_ACCOUNT_EMAIL` and `WEBHOOK_SERVICE_ACCOUNT_PASSWORD` are Vercel Production runtime secrets for the webhook handler
 

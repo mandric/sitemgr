@@ -221,7 +221,7 @@ describe("sitemgr query", () => {
 // ── query --search (full-text search) ─────────────────────────
 
 describe("sitemgr query --search", () => {
-  const ftsEventId = "cli-fts-test-evt";
+  const ftsEventId = `cli-fts-test-evt-${Date.now()}`;
 
   beforeAll(async () => {
     // Insert an event + enrichment with a unique keyword for FTS
