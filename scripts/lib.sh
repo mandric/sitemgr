@@ -9,6 +9,7 @@
 #   require_supabase_version                # error if CLI too old
 #   install_supabase_cli                    # install CLI binary (Linux)
 #   setup_ollama                            # start server if needed, pull moondream:1.8b model
+#   cleanup_colima [profile]                # unlock stale disk lock after hard crash (limactl disk unlock)
 #   setup_supabase                          # idempotent setup: start, migrate, webhook user (returns)
 #   start_supabase                          # tail Supabase container logs (foreground)
 #   print_setup_env_vars                    # emit .env.local
@@ -235,6 +236,22 @@ stop_ollama() {
     return 0
   fi
   pkill -f "ollama serve" && echo "Ollama stopped." || echo "Error: could not stop Ollama." >&2
+}
+
+# ---------------------------------------------------------------------------
+# cleanup_colima — unlock a stale Colima disk lock left by a hard crash/kill.
+#   Run this when `colima start` fails with "disk in use by instance" error.
+#   Usage: cleanup_colima [profile]  (profile defaults to "colima")
+# ---------------------------------------------------------------------------
+cleanup_colima() {
+  local profile="${1:-colima}"
+  if ! command -v limactl &>/dev/null; then
+    echo "Error: limactl is required (install Colima: brew install colima)." >&2
+    return 1
+  fi
+  echo "Unlocking Lima disk '${profile}'..."
+  limactl disk unlock "${profile}"
+  echo "Done. Run 'colima start' to start Colima."
 }
 
 # ---------------------------------------------------------------------------
