@@ -386,6 +386,14 @@ WEBHOOK_SERVICE_ACCOUNT_PASSWORD=unused-password-webhook-uses-service-token
 SUPABASE_SERVICE_ROLE_KEY=${service_role}
 ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
 EOF
+
+  if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+    echo "" >&2
+    echo "Warning: ANTHROPIC_API_KEY is not set." >&2
+    echo "  The web agent and E2E tests require it. Add it to web/.env.local:" >&2
+    echo "    ANTHROPIC_API_KEY=sk-ant-..." >&2
+    echo "  See web/.env.example for details." >&2
+  fi
 }
 
 # ---------------------------------------------------------------------------
