@@ -277,7 +277,7 @@ jobs:
           print_setup_env_vars > web/.env.local
 
       - name: Run E2E tests
-        run: cd web && npm run test:e2e
+        run: cd web && E2E_PARALLEL=1 npm run test:e2e
         env:
           CI: true
 
