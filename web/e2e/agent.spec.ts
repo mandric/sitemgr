@@ -59,8 +59,8 @@ async function getConfirmationLink(email: string): Promise<string> {
   );
 }
 
-// Use the same test user for all workers
-const testEmail = process.env.CI ? "test@example.com" : "test@example.com";
+// Unique email per test run to avoid conflicts on Playwright retries
+const testEmail = `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@example.com`;
 const testPassword = "test123";
 
 test.describe.configure({ mode: "serial" }); // Run tests serially to share setup
