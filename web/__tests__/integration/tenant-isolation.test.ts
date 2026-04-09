@@ -72,12 +72,6 @@ describe("when querying own data", () => {
     expect(data!.every((e) => e.user_id === aliceId)).toBe(true);
   });
 
-  it("should only return Alice's watched_keys when Alice queries watched_keys", async () => {
-    const { data } = await aliceClient.from("watched_keys").select("*");
-    expect(data).toHaveLength(2);
-    expect(data!.every((e) => e.user_id === aliceId)).toBe(true);
-  });
-
   it("should only return Alice's bucket_configs when Alice queries bucket_configs", async () => {
     const { data } = await aliceClient.from("bucket_configs").select("*");
     expect(data).toHaveLength(1);
@@ -103,7 +97,7 @@ describe("when attempting cross-tenant writes", () => {
       id: "cross-tenant-evt-1",
       timestamp: new Date().toISOString(),
       device_id: "alice-device",
-      type: "photo",
+      op: "s3:put",
       user_id: bobId,
     });
     expect(error).not.toBeNull();
@@ -131,15 +125,15 @@ describe("when attempting cross-tenant writes", () => {
   it("should not affect Bob's events when Alice attempts UPDATE", async () => {
     await aliceClient
       .from("events")
-      .update({ type: "hacked" })
+      .update({ op: "hacked" })
       .eq("user_id", bobId);
 
     const { data } = await admin
       .from("events")
-      .select("type")
+      .select("op")
       .eq("id", bobSeed.eventIds[0])
       .single();
-    expect(data!.type).toBe("create");
+    expect(data!.op).toBe("s3:put");
   });
 
   it("should not affect Bob's bucket_configs when Alice attempts DELETE", async () => {
@@ -160,7 +154,6 @@ describe("when accessing as anonymous user", () => {
   const tables = [
     "events",
     "enrichments",
-    "watched_keys",
     "bucket_configs",
     "conversations",
     "user_profiles",
@@ -179,15 +172,10 @@ describe("when accessing as anonymous user", () => {
           id: "anon-evt",
           timestamp: new Date().toISOString(),
           device_id: "x",
-          type: "x",
+          op: "s3:put",
           user_id: aliceId,
         },
         enrichments: { event_id: "anon-evt", user_id: aliceId },
-        watched_keys: {
-          s3_key: "anon-key",
-          first_seen: new Date().toISOString(),
-          user_id: aliceId,
-        },
         bucket_configs: {
           user_id: aliceId,
           bucket_name: "anon",
@@ -284,7 +272,7 @@ describe("when attempting to modify own events", () => {
   it("should reject UPDATE of own events", async () => {
     const { data } = await aliceClient
       .from("events")
-      .update({ type: "modified" })
+      .update({ op: "modified" })
       .eq("id", aliceSeed.eventIds[0])
       .select();
     expect(data ?? []).toHaveLength(0);
@@ -292,10 +280,10 @@ describe("when attempting to modify own events", () => {
     // Verify original still exists
     const { data: original } = await admin
       .from("events")
-      .select("type")
+      .select("op")
       .eq("id", aliceSeed.eventIds[0])
       .single();
-    expect(original!.type).toBe("create");
+    expect(original!.op).toBe("s3:put");
   });
 
   it("should reject DELETE of own events", async () => {

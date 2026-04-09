@@ -16,7 +16,6 @@ import {
 import {
   insertEvent,
   insertEnrichment,
-  upsertWatchedKey,
   queryEvents,
   getStats,
   getEnrichStatus,
@@ -87,7 +86,6 @@ afterAll(async () => {
 
   // Clean up primary user data
   await admin.from("enrichments").delete().eq("user_id", userId);
-  await admin.from("watched_keys").delete().eq("user_id", userId);
   await admin.from("events").delete().eq("user_id", userId);
   await admin.from("bucket_configs").delete().eq("user_id", userId);
   await admin.from("conversations").delete().eq("user_id", userId);
@@ -117,11 +115,11 @@ describe("when uploading and searching for media", () => {
     await uploadS3Object(s3, bucketName, key, TINY_JPEG, "image/jpeg");
     uploadedKeys.push(key);
 
-    // Insert event (type: "create" matches what search_events SQL function filters)
+    // Insert event (op: "s3:put" matches what search_events SQL function filters)
     const { error: evtErr } = await insertEvent(admin, {
       id: eventId,
       device_id: "test-device",
-      type: "create",
+      op: "s3:put",
       content_type: CONTENT_TYPE_PHOTO,
       content_hash: `hash-search-${Date.now()}`,
       local_path: null,
@@ -168,11 +166,11 @@ describe("when requesting statistics", () => {
   const evtVideo = `lifecycle-stats-video-1`;
 
   beforeAll(async () => {
-    // Seed additional events for stats (type: "create" for content type stats)
+    // Seed additional events for stats (op: "s3:put" for content type stats)
     const { error: e1 } = await insertEvent(admin, {
       id: evtPhoto2,
       device_id: "test-device",
-      type: "create",
+      op: "s3:put",
       content_type: CONTENT_TYPE_PHOTO,
       content_hash: `hash-stats-photo2-${Date.now()}`,
       local_path: null,
@@ -186,7 +184,7 @@ describe("when requesting statistics", () => {
     const { error: e2 } = await insertEvent(admin, {
       id: evtVideo,
       device_id: "test-device",
-      type: "create",
+      op: "s3:put",
       content_type: CONTENT_TYPE_VIDEO,
       content_hash: `hash-stats-video-${Date.now()}`,
       local_path: null,
@@ -219,12 +217,12 @@ describe("when requesting statistics", () => {
     expect(Number(data!.by_content_type[CONTENT_TYPE_PHOTO])).toBeGreaterThanOrEqual(2);
   });
 
-  it("should return correct counts by event type", async () => {
+  it("should return correct counts by op", async () => {
     const { data, error } = await getStats(admin, { userId });
     expect(error).toBeNull();
     expect(data).toBeDefined();
-    expect(data!.by_event_type).toBeDefined();
-    expect(Number(data!.by_event_type["create"])).toBeGreaterThanOrEqual(3);
+    expect(data!.by_op).toBeDefined();
+    expect(Number(data!.by_op["s3:put"])).toBeGreaterThanOrEqual(3);
   });
 });
 
@@ -238,29 +236,6 @@ describe("when checking enrichment progress", () => {
     expect(data!.enriched).toBeGreaterThanOrEqual(2);
     expect(data!.pending).toBe(0);
     expect(data!.total_media).toBe(data!.enriched + data!.pending);
-  });
-});
-
-describe("when re-scanning a watched key", () => {
-  it("should update etag on re-scan without creating duplicate", async () => {
-    const testKey = `${userId.slice(0, 8)}/watched-upsert-test.jpg`;
-
-    // First upsert
-    const { error: u1 } = await upsertWatchedKey(admin, testKey, null, "etag-abc", 1000, userId);
-    expect(u1).toBeNull();
-
-    // Re-upsert with new etag
-    const { error: u2 } = await upsertWatchedKey(admin, testKey, null, "etag-def", 2000, userId);
-    expect(u2).toBeNull();
-
-    // Verify only one row with updated etag
-    const { data } = await admin
-      .from("watched_keys")
-      .select("*")
-      .eq("s3_key", testKey);
-    expect(data).toHaveLength(1);
-    expect(data![0].etag).toBe("etag-def");
-    expect(data![0].size_bytes).toBe(2000);
   });
 });
 

@@ -353,13 +353,12 @@ export async function executeAction(
           );
           break;
 
-        case "index_bucket":
-          result = await indexBucketAction(
+        case "scan_bucket":
+          result = await scanBucketAction(
             client,
             phoneNumber,
             plan.params?.bucket_name as string,
             plan.params?.prefix as string | undefined,
-            (plan.params?.batch_size as number) ?? 10,
             userId,
           );
           break;
@@ -673,12 +672,11 @@ async function countObjects(
   }
 }
 
-async function indexBucketAction(
+async function scanBucketAction(
   client: SupabaseClient,
   phoneNumber: string,
   bucketName: string,
   prefix?: string,
-  batchSize = 10,
   userId?: string | null,
 ): Promise<string> {
   const s3 = await requireS3Client(client, phoneNumber, bucketName, userId);
@@ -687,24 +685,23 @@ async function indexBucketAction(
   try {
     const result = await scanBucket(client, s3.client, s3.config, userId!, {
       prefix,
-      batch_size: batchSize,
-      auto_enrich: true,
-      device_id: `whatsapp:${phoneNumber}`,
     });
 
+    // Truncate untracked/modified lists in the agent response to keep the
+    // summary compact — the full lists are available via the CLI.
+    const PREVIEW_LIMIT = 10;
     return JSON.stringify({
       bucket: result.bucket,
       total_objects: result.total_objects,
-      already_indexed: result.already_indexed,
-      remaining: Math.max(0, result.new_objects - result.per_object.length),
-      batch_size: result.per_object.length,
-      batch_indexed: result.created_events,
-      batch_enriched: result.batch_enriched,
-      per_object: result.per_object,
+      synced_count: result.synced_count,
+      untracked_count: result.untracked_count,
+      modified_count: result.modified_count,
+      untracked_preview: result.untracked.slice(0, PREVIEW_LIMIT),
+      modified_preview: result.modified.slice(0, PREVIEW_LIMIT),
     });
   } catch (err) {
     return errorResponse(
-      `Failed to index bucket: ${(err as Error).message}`,
+      `Failed to scan bucket: ${(err as Error).message}`,
       "internal",
     );
   }

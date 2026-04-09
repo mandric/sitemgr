@@ -1,13 +1,14 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { EVENT_OP_S3_PUT } from "@/lib/media/constants";
 import { redirect } from "next/navigation";
 
 export type MediaEvent = {
   id: string;
   timestamp: string;
   device_id: string;
-  type: string;
+  op: string;
   content_type: string | null;
   content_hash: string | null;
   remote_path: string | null;
@@ -72,7 +73,7 @@ export async function getMediaEvents(opts: {
     .from("events")
     .select("*", { count: "exact" })
     .eq("user_id", user.id)
-    .eq("type", "create")
+    .eq("op", EVENT_OP_S3_PUT)
     .order("timestamp", { ascending: false })
     .range(offset, offset + limit - 1);
 

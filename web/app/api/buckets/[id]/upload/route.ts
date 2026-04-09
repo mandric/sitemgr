@@ -9,7 +9,8 @@ import {
   createS3ClientFromConfig,
 } from "@/lib/media/bucket-service";
 import { uploadS3Object } from "@/lib/media/s3";
-import { insertEvent, upsertWatchedKey } from "@/lib/media/db";
+import { insertEvent } from "@/lib/media/db";
+import { EVENT_OP_S3_PUT } from "@/lib/media/constants";
 import {
   newEventId,
   detectContentType,
@@ -74,7 +75,7 @@ export async function POST(
   const { error: insertError } = await insertEvent(auth.supabase, {
     id: eventId,
     device_id: deviceId,
-    type: "create",
+    op: EVENT_OP_S3_PUT,
     content_type: contentType,
     content_hash: contentHash,
     local_path: null,
@@ -92,10 +93,6 @@ export async function POST(
   if (insertError) {
     return NextResponse.json({ error: insertError }, { status: 500 });
   }
-
-  await upsertWatchedKey(
-    auth.supabase, s3Key, eventId, etag, fileBuffer.length, auth.user.id, config.id,
-  );
 
   return NextResponse.json(
     { data: { event_id: eventId, s3_key: s3Key, content_type: contentType } },

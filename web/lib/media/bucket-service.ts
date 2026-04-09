@@ -21,19 +21,12 @@ import {
   downloadS3Object,
 } from "@/lib/media/s3";
 import {
-  insertEvent,
   insertEnrichment,
-  upsertWatchedKey,
-  getWatchedKeys,
   getPendingEnrichments,
   getModelConfig,
 } from "@/lib/media/db";
-import {
-  newEventId,
-  detectContentType,
-  getMimeType,
-  s3Metadata,
-} from "@/lib/media/utils";
+import { getMimeType } from "@/lib/media/utils";
+import { EVENT_OP_S3_PUT } from "@/lib/media/constants";
 import { enrichImage } from "@/lib/media/enrichment";
 import { createLogger, LogComponent } from "@/lib/logger";
 
@@ -57,14 +50,32 @@ export type BucketConfigResult = {
   error?: Error;
 };
 
+export type ScanObjectEntry = {
+  key: string;
+  remote_path: string;
+  size: number;
+  etag: string;
+};
+
+export type ScanModifiedEntry = ScanObjectEntry & {
+  previous_hash: string;
+};
+
+/**
+ * Diff report produced by scanBucket. Compares S3 listing (source of truth
+ * for remote state) against events table (source of truth for what sitemgr
+ * has recorded). No database writes are made by scan.
+ */
 export type ScanResult = {
   bucket: string;
   total_objects: number;
-  already_indexed: number;
-  new_objects: number;
-  created_events: number;
-  batch_enriched: number;
-  per_object: Array<{ key: string; status: ObjectStatus; error?: string }>;
+  synced_count: number;
+  untracked_count: number;
+  modified_count: number;
+  /** S3 objects that have no matching event (never recorded by sitemgr) */
+  untracked: ScanObjectEntry[];
+  /** S3 objects whose ETag differs from the latest recorded event */
+  modified: ScanModifiedEntry[];
 };
 
 export type EnrichResult = {
@@ -73,15 +84,6 @@ export type EnrichResult = {
   skipped: number;
   total: number;
 };
-
-type ObjectStatus = "enriched" | "indexed" | "enrich_failed" | "error";
-
-const IMAGE_MIME_PREFIXES = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-];
 
 // ── Bucket Config ──────────────────────────────────────────────
 
@@ -211,7 +213,27 @@ export async function testBucketConnectivity(
 }
 
 /**
- * Scan an S3 bucket for new objects, insert events + watched_keys.
+ * Strip the dedup hash prefix (`etag:`) to get the raw S3 ETag.
+ * Events before spec 19 may have bare ETags; events after have `etag:<etag>`.
+ */
+function hashToEtag(hash: string | null): string | null {
+  if (!hash) return null;
+  return hash.startsWith("etag:") ? hash.slice(5) : hash;
+}
+
+/**
+ * Page size when paginating through events for a bucket. PostgREST's default
+ * row cap is 1000; explicitly paging lets us process buckets with more than
+ * 1000 events without silently missing any.
+ */
+const SCAN_EVENTS_PAGE_SIZE = 1000;
+
+/**
+ * Produce a read-only diff report comparing the S3 listing against recorded
+ * events. Scan does NOT create events — events represent state changes and
+ * discovering an S3 object is an observation, not a change. Use
+ * `sitemgr sync` to write local files to S3 (which creates `s3:put` events
+ * as a side effect).
  */
 export async function scanBucket(
   client: SupabaseClient,
@@ -220,117 +242,86 @@ export async function scanBucket(
   userId: string,
   opts: {
     prefix?: string;
-    batch_size?: number;
-    auto_enrich?: boolean;
-    device_id?: string;
   } = {},
 ): Promise<ScanResult> {
-  const batchSize = opts.batch_size ?? 100;
-  const deviceId = opts.device_id ?? "api";
   const prefix = opts.prefix ?? "";
-  const autoEnrich = opts.auto_enrich ?? false;
 
-  const allObjects = await listS3Objects(s3, config.bucket_name, prefix);
-
-  // Get already-watched keys to find new ones
-  const watchedResult = await getWatchedKeys(client, userId);
-  if (watchedResult.error) {
-    throw watchedResult.error;
-  }
-  const watchedKeys = new Set(
-    (watchedResult.data ?? []).map((r: { s3_key: string }) => r.s3_key),
-  );
-  const newObjects = allObjects.filter((o) => !watchedKeys.has(o.key));
-  const batch = newObjects.slice(0, batchSize);
-
-  const limit = pLimit(3);
-
-  const perObject = await Promise.all(
-    batch.map((obj) =>
-      limit(async (): Promise<{ key: string; status: ObjectStatus; error?: string }> => {
-        try {
-          const eventId = newEventId();
-          const contentType = detectContentType(obj.key);
-          const mimeType = getMimeType(obj.key);
-
-          const insertResult = await insertEvent(client, {
-            id: eventId,
-            device_id: deviceId,
-            type: "create",
-            content_type: contentType,
-            content_hash: `etag:${obj.etag}`,
-            local_path: null,
-            remote_path: `s3://${config.bucket_name}/${obj.key}`,
-            metadata: s3Metadata(obj.key, obj.size, obj.etag),
-            parent_id: null,
-            bucket_config_id: config.id,
-            user_id: userId,
-          });
-          if (insertResult.error) throw insertResult.error;
-
-          const upsertResult = await upsertWatchedKey(
-            client, obj.key, eventId, obj.etag, obj.size, userId, config.id,
-          );
-          if (upsertResult.error) {
-            logger.warn("upsertWatchedKey failed", {
-              key: obj.key,
-              error: (upsertResult.error as Error).message ?? String(upsertResult.error),
-            });
+  // S3 listing and the events query are independent — run them in parallel.
+  // Events are paged (PostgREST caps responses at ~1000 rows), ordered by
+  // timestamp DESC so that Map.set keeps only the latest hash per remote_path
+  // on first insertion.
+  const [allObjects, latestHashByPath] = await Promise.all([
+    listS3Objects(s3, config.bucket_name, prefix),
+    (async (): Promise<Map<string, string | null>> => {
+      const map = new Map<string, string | null>();
+      let offset = 0;
+      for (;;) {
+        const { data, error } = await client
+          .from("events")
+          .select("remote_path, content_hash")
+          .eq("user_id", userId)
+          .eq("bucket_config_id", config.id)
+          .eq("op", EVENT_OP_S3_PUT)
+          .order("timestamp", { ascending: false })
+          .range(offset, offset + SCAN_EVENTS_PAGE_SIZE - 1);
+        if (error) throw error;
+        const rows = data ?? [];
+        for (const row of rows) {
+          if (!row.remote_path) continue;
+          if (!map.has(row.remote_path)) {
+            map.set(row.remote_path, row.content_hash);
           }
-
-          // Enrich if it's an image and auto-enrich is on
-          if (autoEnrich && IMAGE_MIME_PREFIXES.includes(mimeType)) {
-            try {
-              const imageBytes = await downloadS3Object(s3, config.bucket_name, obj.key);
-              const result = await enrichImage(imageBytes, mimeType);
-              const enrichInsert = await insertEnrichment(client, eventId, result, userId);
-              if (enrichInsert.error) throw enrichInsert.error;
-              return { key: obj.key, status: "enriched" };
-            } catch (enrichErr) {
-              logger.warn("enrichment failed", {
-                key: obj.key,
-                error: enrichErr instanceof Error ? enrichErr.message : String(enrichErr),
-              });
-              return {
-                key: obj.key,
-                status: "enrich_failed",
-                error: enrichErr instanceof Error ? enrichErr.message : String(enrichErr),
-              };
-            }
-          }
-
-          return { key: obj.key, status: "indexed" };
-        } catch (err) {
-          return {
-            key: obj.key,
-            status: "error",
-            error: err instanceof Error ? err.message : String(err),
-          };
         }
-      }),
-    ),
-  );
+        if (rows.length < SCAN_EVENTS_PAGE_SIZE) break;
+        offset += SCAN_EVENTS_PAGE_SIZE;
+      }
+      return map;
+    })(),
+  ]);
 
-  const createdEvents = perObject.filter(
-    (r) => r.status === "indexed" || r.status === "enriched" || r.status === "enrich_failed",
-  ).length;
-  const batchEnriched = perObject.filter((r) => r.status === "enriched").length;
+  const untracked: ScanObjectEntry[] = [];
+  const modified: ScanModifiedEntry[] = [];
+  let syncedCount = 0;
+
+  for (const obj of allObjects) {
+    const remotePath = `s3://${config.bucket_name}/${obj.key}`;
+    const entry: ScanObjectEntry = {
+      key: obj.key,
+      remote_path: remotePath,
+      size: obj.size,
+      etag: obj.etag,
+    };
+
+    if (!latestHashByPath.has(remotePath)) {
+      untracked.push(entry);
+      continue;
+    }
+
+    const recordedHash = latestHashByPath.get(remotePath) ?? null;
+    const recordedEtag = hashToEtag(recordedHash);
+    if (recordedEtag === obj.etag) {
+      syncedCount++;
+    } else {
+      modified.push({ ...entry, previous_hash: recordedHash ?? "" });
+    }
+  }
 
   logger.info("scanBucket complete", {
     bucket: config.bucket_name,
-    created_events: createdEvents,
-    batch_enriched: batchEnriched,
-    errors: perObject.filter((r) => r.status === "error").length,
+    total_objects: allObjects.length,
+    synced: syncedCount,
+    untracked: untracked.length,
+    modified: modified.length,
   });
 
   return {
     bucket: config.bucket_name,
     total_objects: allObjects.length,
-    already_indexed: allObjects.length - newObjects.length,
-    new_objects: newObjects.length,
-    created_events: createdEvents,
-    batch_enriched: batchEnriched,
-    per_object: perObject,
+    synced_count: syncedCount,
+    untracked_count: untracked.length,
+    modified_count: modified.length,
+    untracked,
+    modified,
   };
 }
 

@@ -12,7 +12,7 @@
 import { createClient as createSupabaseClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createLogger, LogComponent } from "@/lib/logger";
 import { withRetry } from "@/lib/retry";
-import { CONTENT_TYPE_PHOTO } from "@/lib/media/constants";
+import { CONTENT_TYPE_PHOTO, EVENT_OP_S3_PUT } from "@/lib/media/constants";
 
 const logger = createLogger(LogComponent.DB);
 
@@ -76,7 +76,7 @@ export interface EventRow {
   id: string;
   timestamp: string;
   device_id: string;
-  type: string;
+  op: string;
   content_type: string | null;
   content_hash: string | null;
   local_path: string | null;
@@ -138,7 +138,7 @@ export async function queryEvents(client: SupabaseClient, opts: QueryOptions) {
   let query = client
     .from("events")
     .select("*, enrichments(description, objects, context, tags)", { count: "exact" })
-    .eq("type", "create")
+    .eq("op", EVENT_OP_S3_PUT)
     .order("timestamp", { ascending: false })
     .range(opts.offset ?? 0, (opts.offset ?? 0) + effectiveLimit - 1);
 
@@ -207,29 +207,25 @@ export async function getStats(client: SupabaseClient, opts?: { userId?: string;
 
   let eventsQuery = client.from("events").select("*", { count: "exact", head: true });
   let enrichmentsQuery = client.from("enrichments").select("*", { count: "exact", head: true });
-  let watchedQuery = client.from("watched_keys").select("*", { count: "exact", head: true });
 
   if (userId) {
     eventsQuery = eventsQuery.eq("user_id", userId);
     enrichmentsQuery = enrichmentsQuery.eq("user_id", userId);
-    watchedQuery = watchedQuery.eq("user_id", userId);
   }
   if (bucketConfigId) {
     eventsQuery = eventsQuery.eq("bucket_config_id", bucketConfigId);
-    watchedQuery = watchedQuery.eq("bucket_config_id", bucketConfigId);
   }
 
-  const [byContentType, byEventType, totalRes, enrichedRes, watchedRes] =
+  const [byContentType, byOp, totalRes, enrichedRes] =
     await Promise.all([
       client.rpc("stats_by_content_type", { p_user_id: userId }),
       client.rpc("stats_by_event_type", { p_user_id: userId }),
       eventsQuery,
       enrichmentsQuery,
-      watchedQuery,
     ]);
 
   // Return first error if any sub-query failed
-  const firstError = [byContentType, byEventType, totalRes, enrichedRes, watchedRes]
+  const firstError = [byContentType, byOp, totalRes, enrichedRes]
     .find(r => r.error)?.error ?? null;
   if (firstError) {
     return { data: null, error: firstError };
@@ -240,14 +236,13 @@ export async function getStats(client: SupabaseClient, opts?: { userId?: string;
     contentTypeCounts[row.content_type ?? "unknown"] = Number(row.count);
   }
 
-  const eventTypeCounts: Record<string, number> = {};
-  for (const row of byEventType.data ?? []) {
-    eventTypeCounts[row.type] = Number(row.count);
+  const opCounts: Record<string, number> = {};
+  for (const row of byOp.data ?? []) {
+    opCounts[row.op] = Number(row.count);
   }
 
   const total = totalRes.count ?? 0;
   const enriched = enrichedRes.count ?? 0;
-  const watched = watchedRes.count ?? 0;
 
   // Count "photo" content type as media for pending enrichment calculation
   const photoCount = contentTypeCounts[CONTENT_TYPE_PHOTO] ?? 0;
@@ -256,8 +251,7 @@ export async function getStats(client: SupabaseClient, opts?: { userId?: string;
     data: {
       total_events: total,
       by_content_type: contentTypeCounts,
-      by_event_type: eventTypeCounts,
-      watched_s3_keys: watched,
+      by_op: opCounts,
       enriched,
       pending_enrichment: Math.max(0, photoCount - enriched),
       device_id: opts?.deviceId ?? "default",
@@ -272,7 +266,7 @@ export async function getEnrichStatus(client: SupabaseClient, userId?: string, c
   let eventsQuery = client
     .from("events")
     .select("*", { count: "exact", head: true })
-    .eq("type", "create")
+    .eq("op", EVENT_OP_S3_PUT)
     .eq("content_type", contentType);
   let enrichmentsQuery = client
     .from("enrichments")
@@ -349,54 +343,13 @@ export async function insertEnrichment(
   return dbResult;
 }
 
-// ── Upsert Watched Key ────────────────────────────────────────
-
-export async function upsertWatchedKey(
-  client: SupabaseClient,
-  s3Key: string,
-  eventId: string | null,
-  etag: string,
-  sizeBytes: number,
-  userId?: string,
-  bucketConfigId?: string,
-) {
-  const result = await withRetryDb(async () => {
-    return client.from("watched_keys").upsert(
-      {
-        s3_key: s3Key,
-        first_seen: new Date().toISOString(),
-        event_id: eventId,
-        etag,
-        size_bytes: sizeBytes,
-        ...(userId ? { user_id: userId } : {}),
-        ...(bucketConfigId !== undefined ? { bucket_config_id: bucketConfigId } : {}),
-      },
-      { onConflict: "s3_key" },
-    );
-  });
-
-  if (!result.error) {
-    logger.debug("upsertWatchedKey", { s3_key: s3Key, etag });
-  }
-
-  return result;
-}
-
-// ── Get Watched Keys ──────────────────────────────────────────
-
-export async function getWatchedKeys(client: SupabaseClient, userId?: string) {
-  let query = client.from("watched_keys").select("s3_key");
-  if (userId) query = query.eq("user_id", userId);
-  return query;
-}
-
 // ── Check Duplicate by Hash ───────────────────────────────────
 
 export async function findEventByHash(client: SupabaseClient, hash: string, userId?: string) {
   let query = client
     .from("events")
     .select("id")
-    .eq("type", "create")
+    .eq("op", EVENT_OP_S3_PUT)
     .eq("content_hash", hash);
   if (userId) query = query.eq("user_id", userId);
   return query
@@ -434,7 +387,7 @@ export async function getPendingEnrichments(client: SupabaseClient, userId?: str
   let photosQuery = client
     .from("events")
     .select("id, content_hash, content_type, local_path, remote_path, metadata")
-    .eq("type", "create")
+    .eq("op", EVENT_OP_S3_PUT)
     .eq("content_type", CONTENT_TYPE_PHOTO)
     .order("timestamp", { ascending: false });
   if (userId) photosQuery = photosQuery.eq("user_id", userId);

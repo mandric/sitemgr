@@ -60,13 +60,17 @@ describe("database tables", () => {
     for (const expected of [
       "events",
       "enrichments",
-      "watched_keys",
       "bucket_configs",
       "conversations",
       "user_profiles",
     ]) {
       expect(tableNames).toContain(expected);
     }
+  });
+
+  it("should NOT have watched_keys table (removed in spec 21)", () => {
+    const tableNames = schema.tables.map((t) => t.table_name);
+    expect(tableNames).not.toContain("watched_keys");
   });
 });
 
@@ -78,7 +82,7 @@ describe("table columns", () => {
         "id",
         "timestamp",
         "device_id",
-        "type",
+        "op",
         "content_type",
         "content_hash",
         "local_path",
@@ -89,6 +93,11 @@ describe("table columns", () => {
       ]) {
         expect(cols).toContain(expected);
       }
+    });
+
+    it("should NOT have legacy 'type' column (renamed to 'op' in spec 21)", () => {
+      const cols = columnNames("events");
+      expect(cols).not.toContain("type");
     });
 
     it("should have user_id as NOT NULL", () => {
@@ -154,30 +163,6 @@ describe("table columns", () => {
     });
   });
 
-  describe("watched_keys", () => {
-    it("should have all expected columns", () => {
-      const cols = columnNames("watched_keys");
-      for (const expected of [
-        "s3_key",
-        "first_seen",
-        "event_id",
-        "etag",
-        "size_bytes",
-        "user_id",
-      ]) {
-        expect(cols).toContain(expected);
-      }
-    });
-
-    it("should have user_id as NOT NULL", () => {
-      const col = columnsFor("watched_keys").find(
-        (c) => c.column_name === "user_id",
-      );
-      expect(col).toBeDefined();
-      expect(col!.is_nullable).toBe(false);
-    });
-  });
-
   describe("conversations", () => {
     it("should have user_id as NOT NULL", () => {
       const col = columnsFor("conversations").find(
@@ -226,9 +211,9 @@ describe("database indexes", () => {
     expect(indexNames).toContain("bucket_configs_user_id_bucket_name_key");
   });
 
-  it("should have user_id index on watched_keys", () => {
+  it("should have op index on events", () => {
     const indexNames = schema.indexes.map((i) => i.index_name);
-    expect(indexNames).toContain("idx_watched_keys_user_id");
+    expect(indexNames).toContain("idx_events_op");
   });
 });
 
@@ -237,7 +222,6 @@ describe("row level security", () => {
     const rlsTables = [
       "events",
       "enrichments",
-      "watched_keys",
       "bucket_configs",
       "conversations",
       "user_profiles",
@@ -258,7 +242,7 @@ describe("NOT NULL constraints", () => {
       id: "null-test-evt",
       timestamp: new Date().toISOString(),
       device_id: "test",
-      type: "photo",
+      op: "s3:put",
       user_id: null,
     });
     expect(error).not.toBeNull();
@@ -267,15 +251,6 @@ describe("NOT NULL constraints", () => {
   it("should reject enrichments with null user_id", async () => {
     const { error } = await admin.from("enrichments").insert({
       event_id: "nonexistent-evt",
-      user_id: null,
-    });
-    expect(error).not.toBeNull();
-  });
-
-  it("should reject watched_keys with null user_id", async () => {
-    const { error } = await admin.from("watched_keys").insert({
-      s3_key: "null-test-key",
-      first_seen: new Date().toISOString(),
       user_id: null,
     });
     expect(error).not.toBeNull();
@@ -321,11 +296,11 @@ describe("RPC functions", () => {
 });
 
 describe("RLS policy structure", () => {
-  it("should have policies defined on watched_keys", () => {
-    const wkPolicies = schema.policies.filter(
-      (p) => p.table_name === "watched_keys",
+  it("should have policies defined on events", () => {
+    const evtPolicies = schema.policies.filter(
+      (p) => p.table_name === "events",
     );
-    expect(wkPolicies.length).toBeGreaterThan(0);
+    expect(evtPolicies.length).toBeGreaterThan(0);
   });
 
   it("should have policies defined on enrichments", () => {

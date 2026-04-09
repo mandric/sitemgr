@@ -32,7 +32,6 @@ describe("API events routes", () => {
     seed = await seedUserData(admin, user1.userId, {
       eventCount: 3,
       withEnrichments: true,
-      withWatchedKeys: false,
       withBucketConfig: true,
       withConversation: false,
       withUserProfile: true,

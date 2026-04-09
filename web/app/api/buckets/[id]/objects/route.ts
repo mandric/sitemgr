@@ -1,6 +1,9 @@
 /**
- * POST /api/buckets/[id]/scan — Read-only diff report comparing S3 listing
- * against recorded events. No database writes. Use `sitemgr sync` to upload.
+ * GET /api/buckets/[id]/objects — List objects in the S3 bucket.
+ *
+ * Returns the raw S3 listing (key, etag, size, lastModified) that the
+ * `sitemgr sync` CLI uses to diff local files against S3. S3 is the source
+ * of truth for remote state; sync does not read the events table.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -8,10 +11,10 @@ import { authenticateRequest, isAuthenticated } from "@/lib/supabase/api-auth";
 import {
   getBucketConfig,
   createS3ClientFromConfig,
-  scanBucket,
 } from "@/lib/media/bucket-service";
+import { listS3Objects } from "@/lib/media/s3";
 
-export async function POST(
+export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
@@ -19,7 +22,7 @@ export async function POST(
   if (!isAuthenticated(auth)) return auth;
 
   const { id } = await params;
-  const body = await request.json().catch(() => ({}));
+  const prefix = request.nextUrl.searchParams.get("prefix") ?? "";
 
   const result = await getBucketConfig(auth.supabase, auth.user.id, id);
   if (!result.exists) {
@@ -29,14 +32,12 @@ export async function POST(
     return NextResponse.json({ error: result.error.message }, { status: 500 });
   }
 
-  const s3 = createS3ClientFromConfig(result.config!);
+  const config = result.config!;
+  const s3 = createS3ClientFromConfig(config);
 
   try {
-    const scanResult = await scanBucket(auth.supabase, s3, result.config!, auth.user.id, {
-      prefix: body.prefix,
-    });
-
-    return NextResponse.json({ data: scanResult });
+    const objects = await listS3Objects(s3, config.bucket_name, prefix);
+    return NextResponse.json({ data: objects });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },

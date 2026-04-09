@@ -7,15 +7,21 @@
  *   npx tsx bin/sitemgr.ts bucket list
  *   npx tsx bin/sitemgr.ts bucket add --bucket-name B --endpoint-url URL --access-key-id K --secret-access-key S
  *   npx tsx bin/sitemgr.ts query --search "beach" --format json
- *   npx tsx bin/sitemgr.ts watch <bucket> --once
+ *   npx tsx bin/sitemgr.ts scan <bucket>
+ *   npx tsx bin/sitemgr.ts sync <local-dir> <bucket> [--dry-run]
  *   npx tsx bin/sitemgr.ts add <bucket> <file>
  *   npx tsx bin/sitemgr.ts enrich <bucket> --pending
  */
 
 import { parseArgs } from "node:util";
-import { readFileSync, statSync } from "node:fs";
-import { resolve, basename } from "node:path";
+import { readFileSync, statSync, readdirSync } from "node:fs";
+import { resolve, basename, relative, join, posix } from "node:path";
+import { createHash } from "node:crypto";
+import pLimit from "p-limit";
 import { createLogger, LogComponent } from "../lib/logger";
+import { humanSize } from "../lib/media/utils";
+import type { ScanResult } from "../lib/media/bucket-service";
+import type { S3Object } from "../lib/media/s3";
 
 import { runWithRequestId } from "../lib/request-context";
 import { login, clearCredentials, loadCredentials, refreshSession, resolveApiConfig } from "../lib/auth/cli-auth";
@@ -520,19 +526,15 @@ async function cmdEnrich(args: string[]) {
   cliError("Specify a bucket name, --status, or an event ID.");
 }
 
-async function cmdWatch(args: string[]) {
+// ── Scan (read-only diff) ──────────────────────────────────────
+
+async function cmdScan(args: string[]) {
   const { values, positionals } = parseArgs({
     args,
     options: {
-      once: { type: "boolean", default: false },
-      interval: { type: "string" },
-      "max-errors": { type: "string" },
-      verbose: { type: "boolean", default: false },
       prefix: { type: "string" },
-      "auto-enrich": { type: "boolean" },
-      "no-auto-enrich": { type: "boolean" },
-      "batch-size": { type: "string" },
-      "device-id": { type: "string" },
+      format: { type: "string", default: "table" },
+      verbose: { type: "boolean", default: false },
     },
     allowPositionals: true,
   });
@@ -540,79 +542,233 @@ async function cmdWatch(args: string[]) {
   if (values.verbose) verboseMode = true;
 
   const bucketName = positionals[0];
-  if (!bucketName) cliError("Usage: sitemgr watch <bucket> [--once] [--prefix P] [--interval N]");
+  if (!bucketName) {
+    cliError("Usage: sitemgr scan <bucket> [--prefix P] [--format json]");
+  }
 
   requireUserId();
 
   const bucketId = await resolveBucketId(bucketName);
   const prefix = (values.prefix as string) ?? "";
-  const intervalSecs = parseInt(
-    (values.interval as string) ?? process.env.SITEMGR_WATCH_INTERVAL ?? "60",
-    10,
-  );
-  const maxErrors = parseInt((values["max-errors"] as string) ?? "5", 10);
-  const autoEnrich = values["no-auto-enrich"]
-    ? false
-    : values["auto-enrich"] ?? true;
-  const batchSize = parseInt((values["batch-size"] as string) ?? "100", 10);
-  const deviceId = (values["device-id"] as string) ?? process.env.SITEMGR_DEVICE_ID ?? "default";
 
-  console.error(`Watching bucket "${bucketName}" (prefix: "${prefix}")`);
-  console.error(`Poll interval: ${intervalSecs}s | Auto-enrich: ${autoEnrich} | Max errors: ${maxErrors}`);
+  try {
+    const { data: report } = await apiPost<{ data: ScanResult }>(
+      `/api/buckets/${bucketId}/scan`,
+      { prefix: prefix || undefined },
+    );
 
-  let running = true;
-  const shutdown = () => {
-    running = false;
-    console.error("\nShutting down...");
-  };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+    if (values.format === "json") {
+      printJson(report);
+      return;
+    }
 
-  let consecutiveErrors = 0;
+    console.log();
+    console.log(`Bucket: ${report.bucket}`);
+    console.log(`  Total S3 objects: ${report.total_objects}`);
+    console.log(`  Synced:     ${report.synced_count} files`);
+    console.log(`  Untracked:  ${report.untracked_count} files`);
+    console.log(`  Modified:   ${report.modified_count} files`);
 
-  while (running) {
-    try {
-      const { data: scanResult } = await apiPost<{ data: Record<string, unknown> }>(
-        `/api/buckets/${bucketId}/scan`,
-        {
-          prefix,
-          batch_size: batchSize,
-          auto_enrich: autoEnrich,
-          device_id: deviceId,
-        },
-      );
-
-      consecutiveErrors = 0;
-
-      const ts = new Date().toLocaleTimeString();
-      console.error(
-        `[${ts}] Scanned: ${scanResult.total_objects} objects, ${scanResult.new_objects} new, ${scanResult.created_events} indexed`,
-      );
-    } catch (err) {
-      consecutiveErrors++;
-      logger.error("watch scan failed", {
-        error: String(err),
-        consecutive_errors: consecutiveErrors,
-        max_errors: maxErrors,
-      });
-      console.error(`Poll error (${consecutiveErrors}/${maxErrors}): ${err}`);
-
-      if (consecutiveErrors >= maxErrors) {
-        cliError(
-          `Stopping: ${maxErrors} consecutive scan failures`,
-          EXIT.SERVICE,
-          String(err),
-        );
+    if (report.untracked.length > 0) {
+      console.log("\nUntracked (in S3 but no event recorded):");
+      for (const e of report.untracked) {
+        console.log(`  ${e.key}  (${humanSize(e.size)})`);
       }
     }
+    if (report.modified.length > 0) {
+      console.log("\nModified (S3 content changed since last sync):");
+      for (const e of report.modified) {
+        console.log(`  ${e.key}  (${humanSize(e.size)})`);
+      }
+    }
+  } catch (err) {
+    cliError(`Scan failed: ${(err as Error).message ?? err}`, EXIT.SERVICE);
+  }
+}
 
-    if (values.once) break;
+// ── Sync (local → S3) ──────────────────────────────────────────
 
-    // Sleep in 1s increments for graceful shutdown
-    for (let i = 0; i < intervalSecs && running; i++) {
-      await new Promise((r) => setTimeout(r, 1000));
+function walkLocalDir(root: string): Array<{ absPath: string; relPath: string; size: number }> {
+  const out: Array<{ absPath: string; relPath: string; size: number }> = [];
+  const walk = (dir: string) => {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isFile()) {
+        const stat = statSync(full);
+        // S3 uses forward slashes regardless of host OS
+        const rel = relative(root, full).split(/[\\/]/).join(posix.sep);
+        out.push({ absPath: full, relPath: rel, size: stat.size });
+      }
+    }
+  };
+  walk(root);
+  return out;
+}
+
+function md5OfFile(absPath: string): string {
+  const hash = createHash("md5");
+  hash.update(readFileSync(absPath));
+  return hash.digest("hex");
+}
+
+async function cmdSync(args: string[]) {
+  const { values, positionals } = parseArgs({
+    args,
+    options: {
+      prefix: { type: "string", default: "" },
+      "dry-run": { type: "boolean", default: false },
+      concurrency: { type: "string", default: "3" },
+      "device-id": { type: "string" },
+      verbose: { type: "boolean", default: false },
+    },
+    allowPositionals: true,
+  });
+
+  if (values.verbose) verboseMode = true;
+
+  const localDir = positionals[0];
+  const bucketName = positionals[1];
+  if (!localDir || !bucketName) {
+    cliError(
+      "Usage: sitemgr sync <local-dir> <bucket> [--prefix path/] [--dry-run] [--concurrency N]",
+    );
+  }
+
+  requireUserId();
+
+  const absLocal = resolve(localDir);
+  const stat = statSync(absLocal);
+  if (!stat.isDirectory()) {
+    cliError(`Not a directory: ${absLocal}`, EXIT.USER);
+  }
+
+  const bucketId = await resolveBucketId(bucketName);
+  const prefix = values.prefix ?? "";
+  const dryRun = values["dry-run"] ?? false;
+  const concurrency = Math.max(1, parseInt(values.concurrency ?? "3", 10));
+
+  // 1. Walk local directory
+  console.error(`Scanning local directory ${absLocal}...`);
+  const localFiles = walkLocalDir(absLocal);
+  console.error(`Found ${localFiles.length} local file(s).`);
+
+  // 2. List S3 objects under the prefix
+  console.error(`Listing S3 bucket "${bucketName}"${prefix ? ` (prefix: ${prefix})` : ""}...`);
+  const listingParams = new URLSearchParams();
+  if (prefix) listingParams.set("prefix", prefix);
+  const qs = listingParams.toString();
+  const { data: s3Objects } = await apiGet<{ data: S3Object[] }>(
+    `/api/buckets/${bucketId}/objects${qs ? `?${qs}` : ""}`,
+  );
+
+  // Build a map: s3 key -> etag
+  const s3ByKey = new Map<string, S3Object>();
+  for (const obj of s3Objects ?? []) {
+    s3ByKey.set(obj.key, obj);
+  }
+
+  // 3. Diff local vs S3
+  type PendingUpload = { absPath: string; relPath: string; s3Key: string; size: number };
+  const uploads: PendingUpload[] = [];
+  let skipped = 0;
+
+  for (const file of localFiles) {
+    const s3Key = prefix ? `${prefix}${file.relPath}` : file.relPath;
+    const s3Obj = s3ByKey.get(s3Key);
+
+    if (!s3Obj) {
+      uploads.push({ ...file, s3Key });
+      continue;
+    }
+
+    // Multipart ETags (contain "-") cannot be compared against local MD5.
+    // If size matches, assume the file is unchanged; otherwise re-upload.
+    const isMultipart = s3Obj.etag.includes("-");
+    if (isMultipart) {
+      if (s3Obj.size === file.size) {
+        skipped++;
+      } else {
+        uploads.push({ ...file, s3Key });
+      }
+      continue;
+    }
+
+    const localMd5 = md5OfFile(file.absPath);
+    if (localMd5 === s3Obj.etag) {
+      skipped++;
+    } else {
+      uploads.push({ ...file, s3Key });
     }
   }
+
+  console.error(
+    `Diff: ${uploads.length} to upload, ${skipped} unchanged, ${localFiles.length} local total.`,
+  );
+
+  if (dryRun) {
+    console.log();
+    console.log("Dry run — no uploads performed.");
+    if (uploads.length > 0) {
+      console.log("\nWould upload:");
+      for (const u of uploads) {
+        console.log(`  ${u.s3Key}  (${humanSize(u.size)})`);
+      }
+    }
+    return;
+  }
+
+  if (uploads.length === 0) {
+    console.log("Nothing to upload — bucket is in sync.");
+    return;
+  }
+
+  // 4. Upload pending files via the upload API
+  const limit = pLimit(concurrency);
+  let done = 0;
+  let failed = 0;
+  let completed = 0;
+
+  await Promise.all(
+    uploads.map((u) =>
+      limit(async () => {
+        try {
+          const fileBytes = readFileSync(u.absPath);
+          const formData = new FormData();
+          formData.append("file", new Blob([fileBytes]), basename(u.relPath));
+          // Recreate the directory prefix so the upload route concatenates
+          // prefix + basename back into the original s3 key.
+          const dirPrefix = u.s3Key.slice(0, u.s3Key.length - basename(u.relPath).length);
+          if (dirPrefix) formData.append("prefix", dirPrefix);
+          if (values["device-id"]) formData.append("device_id", values["device-id"]);
+
+          const res = await apiFetch(`/api/buckets/${bucketId}/upload`, {
+            method: "POST",
+            body: formData,
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({ error: res.statusText }));
+            throw new Error(body.error ?? `upload ${res.status}`);
+          }
+          done++;
+          const idx = ++completed;
+          console.error(`[${idx}/${uploads.length}] ${u.s3Key}`);
+        } catch (err) {
+          failed++;
+          const idx = ++completed;
+          console.error(
+            `[${idx}/${uploads.length}] FAIL ${u.s3Key}: ${(err as Error).message ?? err}`,
+          );
+        }
+      }),
+    ),
+  );
+
+  console.log();
+  console.log(`Uploaded: ${done}  Skipped: ${skipped}  Failed: ${failed}`);
+  if (failed > 0) process.exit(EXIT.SERVICE);
 }
 
 async function cmdAdd(args: string[]) {
@@ -713,7 +869,8 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   stats: cmdStats,
   dedup: cmdDedup,
   enrich: cmdEnrich,
-  watch: cmdWatch,
+  scan: cmdScan,
+  sync: cmdSync,
   add: cmdAdd,
 };
 
@@ -733,12 +890,14 @@ Usage:
   sitemgr query [--search Q] [--type TYPE] [--format json] [--limit N] [--bucket B]
   sitemgr show <event_id>
   sitemgr stats [--bucket B]
-  sitemgr dedup <bucket>             Find duplicate files in a bucket
+  sitemgr dedup <bucket>                        Find duplicate files in a bucket
   sitemgr enrich <bucket> [--pending] [--dry-run] [--concurrency N] [<event_id>]
   sitemgr enrich --status
-  sitemgr watch <bucket> [--prefix P] [--once] [--interval N] [--max-errors N]
-             [--auto-enrich | --no-auto-enrich] [--batch-size N]
-  sitemgr add <bucket> <file> [--prefix path/]
+  sitemgr scan <bucket> [--prefix P] [--format json]
+                                                Read-only diff: S3 vs recorded events
+  sitemgr sync <local-dir> <bucket> [--prefix P] [--dry-run] [--concurrency N]
+                                                Upload local files to S3 (local \u2192 S3)
+  sitemgr add <bucket> <file> [--prefix path/]  Upload a single file
 
 Authentication:
   Run 'sitemgr login' to authenticate. A browser window will open for you to approve
@@ -754,14 +913,11 @@ Bucket add flags:
   --access-key-id K       S3 access key (required)
   --secret-access-key S   S3 secret key (required)
 
-Watch flags:
-  --prefix P             Key prefix filter
-  --auto-enrich          Enable auto-enrichment (default: true)
-  --no-auto-enrich       Disable auto-enrichment
-  --interval N           Poll interval in seconds (default: 60)
-  --max-errors N         Stop after N consecutive scan failures (default: 5)
-  --batch-size N         Max objects to process per scan (default: 100)
-  --device-id D          Device identifier (default: default)
+Sync flags:
+  --prefix P             S3 key prefix to upload under
+  --dry-run              Print what would be uploaded, don't upload
+  --concurrency N        Parallel upload workers (default: 3)
+  --device-id D          Device identifier recorded in events
 
 Exit codes:
   0  Success
@@ -771,8 +927,7 @@ Exit codes:
 
 Environment:
   SITEMGR_WEB_URL           Web API URL (required, e.g. http://localhost:3000)
-  SITEMGR_DEVICE_ID         Device identifier (default: default)
-  SITEMGR_WATCH_INTERVAL    Poll interval in seconds (default: 60)`);
+  SITEMGR_DEVICE_ID         Device identifier (default: default)`);
   process.exit(command ? 1 : 0);
 }
 
