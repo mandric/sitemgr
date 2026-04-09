@@ -180,6 +180,50 @@ test.describe("Site Manager Agent", () => {
     await expect(bucketsLink).toHaveAttribute("href", "/buckets");
   });
 
+  test("should answer media library questions via tool use", async ({
+    page,
+  }) => {
+    // This verifies the tool-use loop end-to-end: the agent must call
+    // `get_stats` (or `query_media`) against real Supabase and incorporate
+    // the result into its response. The test user was just created with no
+    // seeded media, so the live stats call should return 0 events — the
+    // assistant's reply must mention that the library is empty or contains 0.
+    await page.goto("/agent");
+
+    // Snapshot the initial message count (just the greeting).
+    await page.waitForSelector(".rounded-lg.px-4.py-2", { timeout: 5000 });
+    const initialMessageCount = await page
+      .locator(".rounded-lg.px-4.py-2")
+      .count();
+
+    const input = page.locator('input[placeholder="Ask me anything..."]');
+    await input.fill("How many media items are in my library right now?");
+    await page.click('button[type="submit"]');
+
+    // Wait for the agent to finish responding. The tool-use loop involves
+    // an Anthropic round-trip plus a Supabase query, so give it up to 60s.
+    // isLoading=false flips the input back to enabled, which is the cleanest
+    // signal that the server action returned — avoids racing against the
+    // intermediate loading-indicator .bg-muted bubble.
+    await expect(input).toBeEnabled({ timeout: 60000 });
+
+    // Two new bubbles should exist: the user's message and the assistant's reply.
+    await expect(page.locator(".rounded-lg.px-4.py-2")).toHaveCount(
+      initialMessageCount + 2,
+      { timeout: 5000 },
+    );
+
+    // Read the latest assistant bubble (last .bg-muted on the page) and
+    // assert it grounds its answer in live data. If the tool was actually
+    // invoked, Claude has ground-truth data (0 events for this fresh user).
+    // Accept common phrasings: "0", "zero", "empty", "no media", "don't have".
+    const lastAssistantBubble = page.locator(".bg-muted").last();
+    const responseText = (await lastAssistantBubble.textContent()) ?? "";
+    expect(responseText).toMatch(
+      /\b(0|zero|empty|no media|don't have|haven't)\b/i,
+    );
+  });
+
   test("should navigate to buckets page from agent link", async ({
     page,
   }) => {

@@ -7,7 +7,6 @@ import {
   saveConversationHistory,
   type Message,
 } from "@/lib/agent/core";
-import { getStats } from "@/lib/media/db";
 
 export async function sendMessage(
   message: string,
@@ -21,32 +20,13 @@ export async function sendMessage(
     return { error: "Not authenticated" };
   }
 
-  // Fetch conversation history
+  // Fetch conversation history scoped to this user
   const history = await getConversationHistory(supabase, "web", user.id);
 
-  // Build user context
-  const { data: buckets } = await supabase
-    .from("bucket_configs")
-    .select("id, bucket_name, endpoint_url, region, created_at")
-    .eq("user_id", user.id);
-
-  const { data: stats } = await getStats(supabase, { userId: user.id });
-
-  const contextPrefix = [
-    `[User context]`,
-    `Buckets: ${buckets?.length ?? 0} configured${buckets?.length ? ` (${buckets.map((b) => b.bucket_name).join(", ")})` : ""}`,
-    `Media: ${stats?.total_events ?? 0} events, ${stats?.enriched ?? 0} enriched, ${stats?.pending_enrichment ?? 0} pending enrichment`,
-    stats?.by_content_type
-      ? `Types: ${Object.entries(stats.by_content_type).map(([k, v]) => `${k}: ${v}`).join(", ")}`
-      : "",
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const enrichedMessage = `${contextPrefix}\n\n${message}`;
-
-  // Send with history
-  const response = await sendMessageToAgent(enrichedMessage, history);
+  // Send with history and tool context. The agent will call tools
+  // (query_media, get_stats, show_media) against Supabase as needed —
+  // no static context prefix is injected.
+  const response = await sendMessageToAgent(message, supabase, user.id, history);
 
   // Save updated history
   if (response.content) {

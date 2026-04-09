@@ -8,6 +8,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { AGENT_SYSTEM_PROMPT, WHATSAPP_PLANNER_PROMPT } from "./system-prompt";
+import { AGENT_TOOLS, executeTool } from "./tools";
 import {
   queryEvents,
   showEvent,
@@ -79,10 +80,24 @@ function generateRequestId(): string {
   return crypto.randomUUID();
 }
 
-// ── Web chat (simple) ──────────────────────────────────────────
+// ── Web chat (tool-use loop) ───────────────────────────────────
 
+const MAX_TOOL_ITERATIONS = 5;
+
+/**
+ * Send a message to the web chat agent with tool use enabled.
+ *
+ * Runs a synchronous loop: call Claude → execute any tool_use blocks →
+ * feed tool_result back → repeat until Claude returns a final text response
+ * (or MAX_TOOL_ITERATIONS is hit to guard against runaway chaining).
+ *
+ * Tools are executed with the provided Supabase client, scoped to `userId`
+ * so all queries respect tenant isolation.
+ */
 export async function sendMessageToAgent(
   message: string,
+  client: SupabaseClient,
+  userId: string,
   conversationHistory?: Message[],
 ): Promise<AgentResponse> {
   try {
@@ -104,21 +119,62 @@ export async function sendMessageToAgent(
       },
     ];
 
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 2048,
-      system: AGENT_SYSTEM_PROMPT,
-      messages,
-    });
+    for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+      const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 2048,
+        system: AGENT_SYSTEM_PROMPT,
+        tools: AGENT_TOOLS,
+        messages,
+      });
 
-    const content = response.content[0];
-    if (content.type === "text") {
-      return { content: content.text };
+      // Collect any tool_use blocks from this response.
+      const toolUses = response.content.filter(
+        (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
+      );
+
+      if (response.stop_reason !== "tool_use" || toolUses.length === 0) {
+        // Final response — extract text from content blocks.
+        const textBlocks = response.content
+          .filter((block): block is Anthropic.TextBlock => block.type === "text")
+          .map((block) => block.text);
+        const text = textBlocks.join("\n").trim();
+        if (text) return { content: text };
+        return { error: "Empty response from model" };
+      }
+
+      // Execute all tool calls in parallel and collect results.
+      const toolResults = await Promise.all(
+        toolUses.map(async (toolUse) => {
+          const result = await executeTool(
+            toolUse.name,
+            (toolUse.input as Record<string, unknown>) ?? {},
+            { client, userId },
+          );
+          const resultBlock: Anthropic.ToolResultBlockParam = {
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: result,
+          };
+          return resultBlock;
+        }),
+      );
+
+      // Append the assistant turn and the tool_result user turn, then loop.
+      messages.push({ role: "assistant", content: response.content });
+      messages.push({ role: "user", content: toolResults });
     }
 
-    return { error: "Unexpected response type" };
+    logger.warn("agent tool loop exceeded max iterations", {
+      max: MAX_TOOL_ITERATIONS,
+    });
+    return {
+      error: `Tool use exceeded max iterations (${MAX_TOOL_ITERATIONS})`,
+    };
   } catch (error) {
-    console.error("Failed to send message to Claude:", error);
+    logger.error("sendMessageToAgent failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return { error: "Failed to get response from Claude" };
   }
 }
