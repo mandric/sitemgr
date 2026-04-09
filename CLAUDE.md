@@ -34,7 +34,7 @@ This applies to error objects too — preserve the full object (`code`, `details
 
 **Where Secrets Live:**
 - **Vercel Production**: All runtime secrets for deployed app (includes `SUPABASE_SERVICE_ROLE_KEY` — used only by `/api/auth/device/approve` for `admin.generateLink()`)
-- **GitHub Production Environment**: Only deployment secrets (VERCEL_TOKEN, SUPABASE_ACCESS_TOKEN, SUPABASE_SERVICE_ROLE_KEY for storage bucket creation)
+- **GitHub Production Environment**: Only deployment secrets (VERCEL_TOKEN, SUPABASE_ACCESS_TOKEN)
 - **NO GitHub secrets for tests**: Tests use `vi.stubEnv()` with fixture values, not real secrets
 - **NO repository secrets**: GitHub repository-level secrets NOT used (only environment-level)
 

@@ -378,18 +378,6 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
 
-      - name: Create storage bucket
-        run: |
-          echo "Creating media bucket..."
-          PROJECT_REF="${{ vars.SUPABASE_PROJECT_REF }}"
-          SUPABASE_URL="https://${PROJECT_REF}.supabase.co"
-
-          curl -X POST "${SUPABASE_URL}/storage/v1/bucket" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
-            -H "Content-Type: application/json" \
-            -d '{"id":"media","name":"media","public":false}' \
-            || echo "Bucket already exists"
-
       - name: Wait for Vercel deployment
         run: |
           source scripts/lib.sh
