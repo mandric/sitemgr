@@ -256,7 +256,52 @@ describe("sitemgr e2e pipeline", () => {
     }
   }, 60_000);
 
-  // ── Test 2: enrich --dry-run lists all pending ────────────
+  // ── Test 2: scan reports all files as synced after sync ───
+
+  it("scan after sync reports all fixtures as synced", async () => {
+    // Sync and scan are the two sides of the same coin: sync writes
+    // local → S3 and records events, scan diffs S3 against events.
+    // After sync succeeds, scan should classify every fixture as
+    // "synced" — nothing untracked, nothing modified.
+    const result = await runCli(
+      ["scan", "media", "--prefix", S3_PREFIX + "/", "--format", "json"],
+      E2E_ENV,
+    );
+    expect(result.exitCode).toBe(0);
+
+    const report = JSON.parse(result.stdout);
+    expect(report.bucket).toBe("media");
+    expect(report.total_objects).toBe(FIXTURES.length);
+    expect(report.synced_count).toBe(FIXTURES.length);
+    expect(report.untracked_count).toBe(0);
+    expect(report.modified_count).toBe(0);
+    expect(report.untracked).toEqual([]);
+    expect(report.modified).toEqual([]);
+  }, 30_000);
+
+  // ── Test 3: sync is idempotent — re-running skips unchanged files ──
+
+  it("sync is idempotent — re-running uploads nothing", async () => {
+    // With no local changes, sync should detect every file is already
+    // in S3 with a matching MD5 and skip all uploads. --dry-run makes
+    // the assertion deterministic without touching the DB.
+    const result = await runCli(
+      ["sync", syncDir, "media", "--prefix", S3_PREFIX + "/", "--dry-run"],
+      E2E_ENV,
+    );
+    expect(result.exitCode).toBe(0);
+    // Dry-run prints "Dry run — no uploads performed." and no "Would upload:" section.
+    expect(result.stdout).toContain("Dry run");
+    expect(result.stdout).not.toContain("Would upload:");
+
+    // Event count must not have changed from Test 1.
+    const statsResult = await runCli(["stats"], E2E_ENV);
+    expect(statsResult.exitCode).toBe(0);
+    const stats = JSON.parse(statsResult.stdout);
+    expect(stats.total_events).toBe(FIXTURES.length);
+  }, 30_000);
+
+  // ── Test 4: enrich --dry-run lists all pending ────────────
 
   it("enrich --dry-run lists all pending", async () => {
     const result = await runCli(["enrich", "media", "--dry-run"], E2E_ENV);
@@ -266,7 +311,7 @@ describe("sitemgr e2e pipeline", () => {
     expect(parsed.total).toBeGreaterThanOrEqual(3);
   }, 30_000);
 
-  // ── Test 3: enrich --pending processes all images ─────────
+  // ── Test 5: enrich --pending processes all images ─────────
 
   it("enrich --pending processes all images", async () => {
     // moondream on CPU can take 60-90s per image; allow 5 min for 3 images
@@ -291,7 +336,7 @@ describe("sitemgr e2e pipeline", () => {
     }
   }, 300_000);
 
-  // ── Test 4: FTS search returns results using enrichment terms ──
+  // ── Test 6: FTS search returns results using enrichment terms ──
 
   it("FTS search returns results using enrichment description words", async () => {
     // Instead of assuming the model uses specific words ("pineapple"),
@@ -334,7 +379,7 @@ describe("sitemgr e2e pipeline", () => {
     }
   }, 30_000);
 
-  // ── Test 5: FTS search for nonsense returns no results ────
+  // ── Test 7: FTS search for nonsense returns no results ────
 
   it("FTS search for nonsense returns no results", async () => {
     const result = await runCli(
@@ -347,7 +392,7 @@ describe("sitemgr e2e pipeline", () => {
     expect(parsed.data).toHaveLength(0);
   }, 30_000);
 
-  // ── Test 6: final stats show all enriched ─────────────────
+  // ── Test 8: final stats show all enriched ─────────────────
 
   it("final stats show all enriched", async () => {
     const result = await runCli(["stats"], E2E_ENV);
