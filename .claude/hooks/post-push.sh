@@ -11,5 +11,4 @@ cat <<EOF
 POST-PUSH CHECKLIST — You just pushed to "$branch". Do these now:
 1. Update the PR description to reflect the current state (what changed, open questions).
 2. Subscribe to PR activity (subscribe_pr_activity) if not already subscribed.
-3. Wait for CI to pass before pushing more commits.
 EOF
