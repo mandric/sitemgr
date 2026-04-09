@@ -268,6 +268,38 @@ describe("importBucket — modified objects", () => {
   });
 });
 
+describe("importBucket — edge cases", () => {
+  it("batch_size: 0 is clamped to 1 (no infinite loop)", async () => {
+    const prefix = `edge-batch-${Date.now()}`;
+    const key = `${prefix}/zero.jpg`;
+    await uploadS3Object(s3, bucketName, key, TINY_JPEG, "image/jpeg");
+    uploadedKeys.push(key);
+
+    const result = await importBucket(admin, s3, bucketConfig, userId, {
+      prefix: `${prefix}/`,
+      batch_size: 0,
+    });
+
+    expect(result.imported).toBe(1);
+    expect(result.errors).toBe(0);
+  });
+
+  it("concurrency: 0 is clamped to 1 (no deadlock)", async () => {
+    const prefix = `edge-conc-${Date.now()}`;
+    const key = `${prefix}/zero.jpg`;
+    await uploadS3Object(s3, bucketName, key, TINY_JPEG, "image/jpeg");
+    uploadedKeys.push(key);
+
+    const result = await importBucket(admin, s3, bucketConfig, userId, {
+      prefix: `${prefix}/`,
+      concurrency: 0,
+    });
+
+    expect(result.imported).toBe(1);
+    expect(result.errors).toBe(0);
+  });
+});
+
 describe("importBucket — enrich compatibility", () => {
   it("imported image events appear in getPendingEnrichments", async () => {
     const prefix = `enrich-compat-${Date.now()}`;
