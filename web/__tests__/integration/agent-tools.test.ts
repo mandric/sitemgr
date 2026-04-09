@@ -32,7 +32,6 @@ describe("web agent tools", () => {
     seedA = await seedUserData(admin, userA.userId, {
       eventCount: 3,
       withEnrichments: true,
-      withWatchedKeys: false,
       withBucketConfig: false,
       withConversation: false,
       withUserProfile: false,
@@ -42,7 +41,6 @@ describe("web agent tools", () => {
     await seedUserData(admin, userB.userId, {
       eventCount: 1,
       withEnrichments: false,
-      withWatchedKeys: false,
       withBucketConfig: false,
       withConversation: false,
       withUserProfile: false,

@@ -80,7 +80,6 @@ export async function cleanupTestData(userId: string): Promise<void> {
 
   // Delete in dependency order
   await admin.from("enrichments").delete().eq("user_id", userId);
-  await admin.from("watched_keys").delete().eq("user_id", userId);
   await admin.from("events").delete().eq("user_id", userId);
   await admin.from("bucket_configs").delete().eq("user_id", userId);
   await admin.from("conversations").delete().eq("user_id", userId);
@@ -113,7 +112,6 @@ export const TINY_JPEG = Buffer.from([
 export interface SeedOptions {
   eventCount?: number;
   withEnrichments?: boolean;
-  withWatchedKeys?: boolean;
   withBucketConfig?: boolean;
   withConversation?: boolean;
   withUserProfile?: boolean;
@@ -123,7 +121,6 @@ export interface SeedResult {
   userId: string;
   eventIds: string[];
   enrichmentIds: string[];
-  watchedKeyIds: string[];
   bucketConfigId: string | null;
   conversationUserId: string | null;
 }
@@ -152,7 +149,6 @@ export async function seedUserData(
 ): Promise<SeedResult> {
   const eventCount = opts?.eventCount ?? 2;
   const withEnrichments = opts?.withEnrichments ?? true;
-  const withWatchedKeys = opts?.withWatchedKeys ?? true;
   const withBucketConfig = opts?.withBucketConfig ?? true;
   const withConversation = opts?.withConversation ?? true;
   const withUserProfile = opts?.withUserProfile ?? true;
@@ -162,7 +158,6 @@ export async function seedUserData(
     userId,
     eventIds: [],
     enrichmentIds: [],
-    watchedKeyIds: [],
     bucketConfigId: null,
     conversationUserId: null,
   };
@@ -187,7 +182,7 @@ export async function seedUserData(
         id: eventId,
         timestamp: new Date().toISOString(),
         device_id: `device-${prefix}`,
-        type: "create",
+        op: "s3:put",
         content_type: CONTENT_TYPE_PHOTO,
         content_hash: `hash-${prefix}-${i}`,
         user_id: userId,
@@ -214,26 +209,7 @@ export async function seedUserData(
     }
   }
 
-  // 4. watched_keys (one per event)
-  if (withWatchedKeys && eventCount > 0) {
-    for (let i = 0; i < result.eventIds.length; i++) {
-      const keyId = `${prefix}/media/file-${i + 1}.jpg`;
-      assertInsert(
-        `watched_keys[${keyId}]`,
-        await admin.from("watched_keys").insert({
-          s3_key: keyId,
-          first_seen: new Date().toISOString(),
-          event_id: result.eventIds[i],
-          etag: `etag-${prefix}-${i + 1}`,
-          size_bytes: 1024 * (i + 1),
-          user_id: userId,
-        }),
-      );
-      result.watchedKeyIds.push(keyId);
-    }
-  }
-
-  // 5. bucket_configs
+  // 4. bucket_configs
   if (withBucketConfig) {
     const bcResult = await admin
       .from("bucket_configs")
@@ -250,7 +226,7 @@ export async function seedUserData(
     result.bucketConfigId = bcResult.data?.id ?? null;
   }
 
-  // 6. conversations
+  // 5. conversations
   if (withConversation) {
     assertInsert(
       "conversations",
@@ -275,7 +251,6 @@ export async function cleanupUserData(
 ): Promise<void> {
   const tables = [
     { name: "enrichments", column: "user_id" },
-    { name: "watched_keys", column: "user_id" },
     { name: "model_configs", column: "user_id" },
     { name: "events", column: "user_id" },
     { name: "bucket_configs", column: "user_id" },

@@ -99,11 +99,10 @@ beforeAll(async () => {
     { mode: 0o600 },
   );
 
-  // Seed data: 3 events with enrichments, watched keys, etc.
+  // Seed data: 3 events with enrichments.
   seed = await seedUserData(admin, userId, {
     eventCount: 3,
     withEnrichments: true,
-    withWatchedKeys: true,
     withBucketConfig: false,
     withConversation: false,
   });
@@ -150,12 +149,12 @@ describe("sitemgr stats", () => {
     const stats = JSON.parse(result.stdout);
     expect(stats).toHaveProperty("total_events");
     expect(stats).toHaveProperty("by_content_type");
-    expect(stats).toHaveProperty("by_event_type");
+    expect(stats).toHaveProperty("by_op");
     expect(stats).toHaveProperty("enriched");
     expect(stats).toHaveProperty("pending_enrichment");
-    expect(stats).toHaveProperty("watched_s3_keys");
+    expect(stats).not.toHaveProperty("watched_s3_keys");
     expect(stats.total_events).toBeGreaterThanOrEqual(3);
-    expect(stats.watched_s3_keys).toBeGreaterThanOrEqual(3);
+    expect(Number(stats.by_op["s3:put"])).toBeGreaterThanOrEqual(3);
   });
 
   it("should fail with exit 1 when not logged in", async () => {
@@ -228,7 +227,7 @@ describe("sitemgr query --search", () => {
     const { error: evtErr } = await insertEvent(admin, {
       id: ftsEventId,
       device_id: "test-cli",
-      type: "create",
+      op: "s3:put",
       content_type: "photo",
       content_hash: `fts-hash-${Date.now()}`,
       local_path: null,
@@ -284,7 +283,7 @@ describe("sitemgr show", () => {
     expect(event.id).toBe(eventId);
     expect(event.user_id).toBe(userId);
     expect(event).toHaveProperty("device_id");
-    expect(event).toHaveProperty("type");
+    expect(event).toHaveProperty("op");
     expect(event).toHaveProperty("timestamp");
   });
 
@@ -342,7 +341,7 @@ describe("sitemgr enrich --dry-run", () => {
     const { error } = await insertEvent(admin, {
       id: unenrichedEventId,
       device_id: "test-cli",
-      type: "create",
+      op: "s3:put",
       content_type: "photo",
       content_hash: `dryrun-hash-${Date.now()}`,
       local_path: null,

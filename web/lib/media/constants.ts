@@ -17,6 +17,13 @@ export const CONTENT_TYPE_VIDEO = "video";
 export const CONTENT_TYPE_AUDIO = "audio";
 export const CONTENT_TYPE_FILE = "file";
 
+/**
+ * Event op values. Namespaced (`kind:verb`) so the schema is extensible to
+ * future operations (e.g. `s3:delete`, `enrich:complete`) without ambiguous
+ * labels. Spec 21 replaced the vague `type='create'` with these.
+ */
+export const EVENT_OP_S3_PUT = "s3:put";
+
 export const CONTENT_TYPE_MAP: Record<string, string> = {
   image: CONTENT_TYPE_PHOTO,
   video: CONTENT_TYPE_VIDEO,

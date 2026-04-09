@@ -51,7 +51,7 @@ describe("API enrichment routes", () => {
           id: eventId,
           timestamp: new Date().toISOString(),
           device_id: `device-${prefix}`,
-          type: "create",
+          op: "s3:put",
           content_type: CONTENT_TYPE_PHOTO,
           content_hash: `enr-hash-${prefix}-${i}`,
           user_id: user1.userId,
