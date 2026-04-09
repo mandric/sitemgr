@@ -65,16 +65,6 @@ jobs:
       - name: Run unit tests with coverage
         run: cd web && npx vitest run --project unit --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=html --coverage.include='lib/**' --coverage.include='components/**' --coverage.include='bin/**'
 
-      - name: Report unit test coverage on PR
-        if: always() && github.event_name == 'pull_request'
-        uses: davelosert/vitest-coverage-report-action@v2
-        with:
-          working-directory: web
-          name: Unit Tests
-          json-summary-path: coverage/coverage-summary.json
-          json-final-path: coverage/coverage-final.json
-          file-coverage-mode: all
-
       - name: Upload unit coverage artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -152,16 +142,6 @@ jobs:
       # so route handler coverage is captured when the server exits.
       - name: Run integration tests with coverage
         run: cd web && npx vitest run --project integration --coverage --coverage.reporter=text --coverage.reporter=json-summary --coverage.reporter=json --coverage.reporter=lcov --coverage.include='lib/**'
-
-      - name: Report integration test coverage on PR
-        if: always() && github.event_name == 'pull_request'
-        uses: davelosert/vitest-coverage-report-action@v2
-        with:
-          working-directory: web
-          name: Integration Tests
-          json-summary-path: coverage/coverage-summary.json
-          json-final-path: coverage/coverage-final.json
-          file-coverage-mode: all
 
       - name: Upload integration coverage artifact
         if: always()
