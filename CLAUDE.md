@@ -236,15 +236,6 @@ This is the end-to-end process for implementing any spec. It runs without stoppi
 
 **Keep the PR description current** — update it after each chunk of work. The description is the living record for human reviewers and future agents.
 
-### After Pushing to a PR
-
-Whenever you push commits to a branch that has an open PR:
-
-1. **Update the PR description** to reflect the current state — what's been implemented, what changed since the last push, and any open questions.
-2. **Subscribe to PR activity** using `subscribe_pr_activity` to monitor CI results and review comments. If already subscribed, skip this step.
-3. **Wait for CI to pass before pushing more commits.** Don't stack up commits while CI is running — if an earlier commit broke the pipeline, subsequent pushes make it harder to identify the cause. The only exception is a targeted fix for a known CI failure.
-4. **When CI fails, investigate immediately** — read the failure logs, determine if it's caused by your changes or pre-existing, and fix before pushing unrelated work.
-
 ### Compaction Recovery
 
 If context compaction occurs mid-task, **immediately re-orient before continuing:**

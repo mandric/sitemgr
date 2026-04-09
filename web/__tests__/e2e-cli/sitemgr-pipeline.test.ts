@@ -12,7 +12,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
-import { mkdirSync, writeFileSync, rmSync, copyFileSync, readdirSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync, rmSync, copyFileSync, readdirSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -22,6 +22,7 @@ import {
   cleanupUserData,
   getS3Config,
 } from "../integration/setup";
+import { createS3Client, uploadS3Object } from "../../lib/media/s3";
 
 const execFile = promisify(execFileCb);
 
@@ -402,4 +403,59 @@ describe("sitemgr e2e pipeline", () => {
     expect(stats.enriched).toBe(3);
     expect(stats.pending_enrichment).toBe(0);
   }, 30_000);
+
+  // ── Test 9: import discovers pre-existing S3 objects ──────
+
+  it("import creates an event for an object uploaded directly to S3", async () => {
+    // Simulate pre-existing bucket content: upload a fixture straight to
+    // S3, bypassing sitemgr, so there is no s3:put event for it. Then run
+    // `sitemgr import` on a narrow prefix and verify a new event appears.
+    const importPrefix = `test-import-${Date.now()}`;
+    const importKey = `${importPrefix}/pineapple.jpg`;
+    const s3 = createS3Client({
+      endpoint: s3Config.endpoint,
+      region: s3Config.region,
+      accessKeyId: s3Config.accessKeyId,
+      secretAccessKey: s3Config.secretAccessKey,
+    });
+    const bytes = readFileSync(resolve(FIXTURES_DIR, "pineapple.jpg"));
+    await uploadS3Object(s3, "media", importKey, bytes, "image/jpeg");
+    uploadedKeys.push(importKey);
+
+    const result = await runCli(
+      ["import", "media", "--prefix", importPrefix + "/", "--format", "json"],
+      E2E_ENV,
+      60_000,
+    );
+    expect(result.exitCode).toBe(0);
+
+    const report = JSON.parse(result.stdout);
+    expect(report.bucket).toBe("media");
+    expect(report.untracked_count).toBe(1);
+    expect(report.imported).toBe(1);
+    expect(report.errors).toBe(0);
+
+    // The imported event should be visible via query and carry the
+    // `s3-import` source in its metadata so enrich treats it like any
+    // other unenriched image.
+    const query = await runCli(["query", "--format", "json"], E2E_ENV);
+    expect(query.exitCode).toBe(0);
+    const events = JSON.parse(query.stdout).data as Array<Record<string, unknown>>;
+    const imported = events.find(
+      (e) => e.remote_path === `s3://media/${importKey}`,
+    );
+    expect(imported).toBeDefined();
+    expect((imported!.metadata as Record<string, unknown>).source).toBe("s3-import");
+
+    // Re-running import is a no-op (idempotency check).
+    const second = await runCli(
+      ["import", "media", "--prefix", importPrefix + "/", "--format", "json"],
+      E2E_ENV,
+      60_000,
+    );
+    expect(second.exitCode).toBe(0);
+    const secondReport = JSON.parse(second.stdout);
+    expect(secondReport.untracked_count).toBe(0);
+    expect(secondReport.imported).toBe(0);
+  }, 60_000);
 });

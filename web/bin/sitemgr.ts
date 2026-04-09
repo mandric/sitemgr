@@ -9,6 +9,7 @@
  *   npx tsx bin/sitemgr.ts query --search "beach" --format json
  *   npx tsx bin/sitemgr.ts scan <bucket>
  *   npx tsx bin/sitemgr.ts sync <local-dir> <bucket> [--dry-run]
+ *   npx tsx bin/sitemgr.ts import <bucket> [--prefix]
  *   npx tsx bin/sitemgr.ts add <bucket> <file>
  *   npx tsx bin/sitemgr.ts enrich <bucket> --pending
  */
@@ -20,7 +21,7 @@ import { createHash } from "node:crypto";
 import pLimit from "p-limit";
 import { createLogger, LogComponent } from "../lib/logger";
 import { humanSize } from "../lib/media/utils";
-import type { ScanResult } from "../lib/media/bucket-service";
+import type { ScanResult, ImportResult } from "../lib/media/bucket-service";
 import type { S3Object } from "../lib/media/s3";
 
 import { runWithRequestId } from "../lib/request-context";
@@ -771,6 +772,84 @@ async function cmdSync(args: string[]) {
   if (failed > 0) process.exit(EXIT.SERVICE);
 }
 
+// ── Import (ingest pre-existing S3 objects) ──────────────────
+
+async function cmdImport(args: string[]) {
+  const { values, positionals } = parseArgs({
+    args,
+    options: {
+      prefix: { type: "string" },
+      "dry-run": { type: "boolean", default: false },
+      concurrency: { type: "string" },
+      "batch-size": { type: "string" },
+      format: { type: "string", default: "table" },
+      verbose: { type: "boolean", default: false },
+    },
+    allowPositionals: true,
+  });
+
+  if (values.verbose) verboseMode = true;
+
+  const bucketName = positionals[0];
+  if (!bucketName) {
+    cliError(
+      "Usage: sitemgr import <bucket> [--prefix P] [--dry-run] [--concurrency N] [--batch-size N]",
+    );
+  }
+
+  requireUserId();
+
+  const bucketId = await resolveBucketId(bucketName);
+  const prefix = values.prefix ?? "";
+  const dryRun = values["dry-run"] ?? false;
+  const concurrency = values.concurrency ? parseInt(values.concurrency, 10) : undefined;
+  const batchSize = values["batch-size"] ? parseInt(values["batch-size"], 10) : undefined;
+
+  if (concurrency !== undefined && (!Number.isFinite(concurrency) || concurrency < 1)) {
+    cliError("--concurrency must be a positive integer");
+  }
+  if (batchSize !== undefined && (!Number.isFinite(batchSize) || batchSize < 1)) {
+    cliError("--batch-size must be a positive integer");
+  }
+
+  console.error(
+    `Importing untracked objects from "${bucketName}"${prefix ? ` (prefix: ${prefix})` : ""}${dryRun ? " [dry run]" : ""}...`,
+  );
+
+  try {
+    const { data: report } = await apiPost<{ data: ImportResult }>(
+      `/api/buckets/${bucketId}/import`,
+      {
+        prefix: prefix || undefined,
+        dry_run: dryRun,
+        ...(concurrency !== undefined ? { concurrency } : {}),
+        ...(batchSize !== undefined ? { batch_size: batchSize } : {}),
+      },
+    );
+
+    if (values.format === "json") {
+      printJson(report);
+      return;
+    }
+
+    console.log();
+    console.log(`Bucket: ${report.bucket}`);
+    console.log(`  Untracked: ${report.untracked_count} objects`);
+    if (report.dry_run) {
+      console.log();
+      console.log(`Dry run — would import ${report.untracked_count} events.`);
+      return;
+    }
+    console.log(`  Imported:  ${report.imported}`);
+    console.log(`  Errors:    ${report.errors}`);
+    if (report.errors > 0) {
+      process.exit(EXIT.SERVICE);
+    }
+  } catch (err) {
+    cliError(`Import failed: ${(err as Error).message ?? err}`, EXIT.SERVICE);
+  }
+}
+
 async function cmdAdd(args: string[]) {
   const { values, positionals } = parseArgs({
     args,
@@ -871,6 +950,7 @@ const commands: Record<string, (args: string[]) => Promise<void>> = {
   enrich: cmdEnrich,
   scan: cmdScan,
   sync: cmdSync,
+  import: cmdImport,
   add: cmdAdd,
 };
 
@@ -897,6 +977,8 @@ Usage:
                                                 Read-only diff: S3 vs recorded events
   sitemgr sync <local-dir> <bucket> [--prefix P] [--dry-run] [--concurrency N]
                                                 Upload local files to S3 (local \u2192 S3)
+  sitemgr import <bucket> [--prefix P] [--dry-run] [--concurrency N] [--batch-size N]
+                                                Create s3:put events for untracked S3 objects
   sitemgr add <bucket> <file> [--prefix path/]  Upload a single file
 
 Authentication:
@@ -918,6 +1000,13 @@ Sync flags:
   --dry-run              Print what would be uploaded, don't upload
   --concurrency N        Parallel upload workers (default: 3)
   --device-id D          Device identifier recorded in events
+
+Import flags:
+  --prefix P             Only import objects under this S3 key prefix
+  --dry-run              Print the untracked count without writing events
+  --concurrency N        Parallel insert batches (default: 3)
+  --batch-size N         Rows per insert batch (default: 500)
+  --format json          Emit the import report as JSON instead of a table
 
 Exit codes:
   0  Success
