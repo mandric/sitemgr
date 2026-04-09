@@ -25,7 +25,7 @@ import {
   getPendingEnrichments,
   getModelConfig,
 } from "@/lib/media/db";
-import { getMimeType } from "@/lib/media/utils";
+import { getMimeType, newEventId, detectContentType, s3Metadata } from "@/lib/media/utils";
 import { EVENT_OP_S3_PUT } from "@/lib/media/constants";
 import { enrichImage } from "@/lib/media/enrichment";
 import { createLogger, LogComponent } from "@/lib/logger";
@@ -84,6 +84,22 @@ export type EnrichResult = {
   skipped: number;
   total: number;
 };
+
+/**
+ * Result of `importBucket`. `untracked_count` is what scan reported before
+ * any inserts; `imported` is how many rows were actually written.
+ */
+export type ImportResult = {
+  bucket: string;
+  untracked_count: number;
+  imported: number;
+  skipped: number;
+  errors: number;
+  dry_run: boolean;
+};
+
+const IMPORT_DEFAULT_BATCH_SIZE = 500;
+const IMPORT_DEFAULT_CONCURRENCY = 3;
 
 // ── Bucket Config ──────────────────────────────────────────────
 
@@ -322,6 +338,119 @@ export async function scanBucket(
     modified_count: modified.length,
     untracked,
     modified,
+  };
+}
+
+/**
+ * Ingest pre-existing S3 objects into the events table.
+ *
+ * Reuses `scanBucket` to identify objects that live in S3 but have no
+ * matching event, then creates one `s3:put` event per untracked object so
+ * that `enrich --pending` can process them.
+ *
+ * Import is the write-side counterpart of scan's read-only diff. Modified
+ * objects (S3 ETag differs from the latest recorded event) are left alone —
+ * those need sync to resolve.
+ *
+ * Idempotent: re-running after a successful import classifies the same
+ * objects as `synced` (not `untracked`) and imports nothing.
+ */
+export async function importBucket(
+  client: SupabaseClient,
+  s3: S3Client,
+  config: BucketConfig,
+  userId: string,
+  opts: {
+    prefix?: string;
+    dry_run?: boolean;
+    batch_size?: number;
+    concurrency?: number;
+  } = {},
+): Promise<ImportResult> {
+  const dryRun = opts.dry_run ?? false;
+  const batchSize = opts.batch_size ?? IMPORT_DEFAULT_BATCH_SIZE;
+  const concurrency = opts.concurrency ?? IMPORT_DEFAULT_CONCURRENCY;
+
+  const scan = await scanBucket(client, s3, config, userId, {
+    prefix: opts.prefix,
+  });
+
+  const untrackedCount = scan.untracked.length;
+
+  if (dryRun || untrackedCount === 0) {
+    return {
+      bucket: config.bucket_name,
+      untracked_count: untrackedCount,
+      imported: 0,
+      skipped: 0,
+      errors: 0,
+      dry_run: dryRun,
+    };
+  }
+
+  // Build event rows from the untracked scan entries. Content type is
+  // derived from the key alone — import does not download objects.
+  const rows = scan.untracked.map((entry) => ({
+    id: newEventId(),
+    timestamp: new Date().toISOString(),
+    device_id: "api",
+    op: EVENT_OP_S3_PUT,
+    content_type: detectContentType(entry.key),
+    content_hash: `etag:${entry.etag}`,
+    local_path: null,
+    remote_path: entry.remote_path,
+    metadata: {
+      ...s3Metadata(entry.key, entry.size, entry.etag),
+      source: "s3-import",
+    },
+    parent_id: null,
+    bucket_config_id: config.id,
+    user_id: userId,
+  }));
+
+  // Chunk into batches so each HTTP round-trip inserts many rows.
+  const batches: (typeof rows)[] = [];
+  for (let i = 0; i < rows.length; i += batchSize) {
+    batches.push(rows.slice(i, i + batchSize));
+  }
+
+  const limit = pLimit(concurrency);
+  let imported = 0;
+  let errors = 0;
+
+  await Promise.all(
+    batches.map((batch) =>
+      limit(async () => {
+        const { error } = await client.from("events").insert(batch);
+        if (error) {
+          errors += batch.length;
+          logger.error("importBucket batch insert failed", {
+            bucket: config.bucket_name,
+            batch_size: batch.length,
+            error: error.message,
+            code: error.code,
+          });
+        } else {
+          imported += batch.length;
+        }
+      }),
+    ),
+  );
+
+  logger.info("importBucket complete", {
+    bucket: config.bucket_name,
+    untracked: untrackedCount,
+    imported,
+    errors,
+  });
+
+  return {
+    bucket: config.bucket_name,
+    untracked_count: untrackedCount,
+    imported,
+    skipped: 0,
+    errors,
+    dry_run: false,
   };
 }
 
