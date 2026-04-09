@@ -368,8 +368,8 @@ export async function importBucket(
   } = {},
 ): Promise<ImportResult> {
   const dryRun = opts.dry_run ?? false;
-  const batchSize = opts.batch_size ?? IMPORT_DEFAULT_BATCH_SIZE;
-  const concurrency = opts.concurrency ?? IMPORT_DEFAULT_CONCURRENCY;
+  const batchSize = Math.max(1, opts.batch_size ?? IMPORT_DEFAULT_BATCH_SIZE);
+  const concurrency = Math.max(1, opts.concurrency ?? IMPORT_DEFAULT_CONCURRENCY);
 
   const scan = await scanBucket(client, s3, config, userId, {
     prefix: opts.prefix,
