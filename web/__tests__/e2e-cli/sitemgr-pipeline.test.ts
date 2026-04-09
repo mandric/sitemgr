@@ -1,8 +1,8 @@
 /**
  * End-to-end integration test for the sitemgr pipeline.
  *
- * Uploads real images to S3 → discovers them via `sitemgr watch --once` →
- * enriches with Ollama moondream:1.8b → verifies semantic search.
+ * Uploads local fixture images via `sitemgr sync` → enriches with Ollama
+ * moondream:1.8b → verifies semantic search.
  *
  * Requires:
  *   - `supabase start` running locally
@@ -12,7 +12,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
-import { readFileSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, copyFileSync, readdirSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -22,11 +22,6 @@ import {
   cleanupUserData,
   getS3Config,
 } from "../integration/setup";
-import {
-  createS3Client,
-  listS3Objects,
-  uploadS3Object,
-} from "../../lib/media/s3";
 
 const execFile = promisify(execFileCb);
 
@@ -40,6 +35,7 @@ let admin: SupabaseClient;
 let userId: string;
 let userClient: SupabaseClient;
 let tempHome: string;
+let syncDir: string;
 const eventIds = new Map<string, string>(); // filename → event ID
 const uploadedKeys: string[] = [];
 
@@ -159,7 +155,7 @@ describe("sitemgr e2e pipeline", () => {
       );
     }
 
-    // 5. Create bucket config via CLI so watch/enrich can use it
+    // 5. Create bucket config via CLI so sync/enrich can use it
     const addResult = await runCli([
       "bucket", "add",
       "--bucket-name", "media",
@@ -172,29 +168,14 @@ describe("sitemgr e2e pipeline", () => {
       throw new Error(`Failed to add bucket config: ${addResult.stderr}`);
     }
 
-    // 6. Upload fixture images to S3 (still uses S3 client directly for setup)
-    const s3 = createS3Client({
-      endpoint: s3Config.endpoint,
-      region: s3Config.region,
-      accessKeyId: s3Config.accessKeyId,
-      secretAccessKey: s3Config.secretAccessKey,
-    });
-
-    for (const filename of FIXTURES) {
-      const filePath = resolve(FIXTURES_DIR, filename);
-      const bytes = readFileSync(filePath);
-      const key = `${S3_PREFIX}/${filename}`;
-      await uploadS3Object(s3, "media", key, bytes, "image/jpeg");
-      uploadedKeys.push(key);
+    // 6. Copy fixture images to an isolated temp dir so `sitemgr sync` only
+    //    sees the files we want to upload for this test run.
+    syncDir = mkdtempSync(resolve(tmpdir(), "sitemgr-e2e-sync-"));
+    for (const filename of readdirSync(FIXTURES_DIR)) {
+      copyFileSync(resolve(FIXTURES_DIR, filename), resolve(syncDir, filename));
     }
-
-    // 6. Verify uploads are visible
-    const objects = await listS3Objects(s3, "media", `${S3_PREFIX}/`);
-    const foundKeys = objects.map((o) => o.key);
-    for (const key of uploadedKeys) {
-      if (!foundKeys.includes(key)) {
-        throw new Error(`Upload verification failed: ${key} not found in S3`);
-      }
+    for (const filename of FIXTURES) {
+      uploadedKeys.push(`${S3_PREFIX}/${filename}`);
     }
   }, 30_000);
 
@@ -224,13 +205,18 @@ describe("sitemgr e2e pipeline", () => {
     if (tempHome) {
       rmSync(tempHome, { recursive: true, force: true });
     }
+
+    // 5. Clean up temp sync directory
+    if (syncDir) {
+      rmSync(syncDir, { recursive: true, force: true });
+    }
   }, 30_000);
 
-  // ── Test 1: watch --once discovers uploaded images ────────
+  // ── Test 1: sync uploads local fixtures and creates events ────
 
-  it("watch --once discovers uploaded images", async () => {
+  it("sync uploads local fixtures and creates events", async () => {
     const result = await runCli(
-      ["watch", "media", "--once", "--prefix", S3_PREFIX + "/", "--no-auto-enrich"],
+      ["sync", syncDir, "media", "--prefix", S3_PREFIX + "/"],
       E2E_ENV,
       60_000,
     );
