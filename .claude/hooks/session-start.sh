@@ -66,23 +66,11 @@ cd "$CLAUDE_PROJECT_DIR/web"
 npm install
 
 # ---------------------------------------------------------------------------
-# Phase 3: Playwright — skip download if chromium is already cached
-#   Parse the expected install path from --dry-run and check if it exists.
-# ---------------------------------------------------------------------------
-
-PW_CHROMIUM_DIR=$(npx playwright install --dry-run chromium 2>/dev/null \
-  | grep -oP 'Install location:\s+\K.*' | head -1)
-
-if [ -n "$PW_CHROMIUM_DIR" ] && [ -d "$PW_CHROMIUM_DIR" ]; then
-  echo "Playwright chromium already cached at $PW_CHROMIUM_DIR, skipping download"
-  # Still install system deps if needed (fast, idempotent)
-  npx playwright install-deps chromium 2>/dev/null || true
-else
-  npx playwright install --with-deps chromium
-fi
-
-# ---------------------------------------------------------------------------
-# Phase 4: Wait for Docker + tools, then start Supabase
+# Phase 3: Wait for Docker + tools, then start Supabase
+#
+# NOTE: Playwright chromium is NOT installed here — it's ~200MB and only
+# needed for E2E web tests. It installs lazily via the pretest:e2e script
+# in package.json when `npm run test:e2e` is first run.
 # ---------------------------------------------------------------------------
 
 # Wait for all background tool installs
@@ -104,7 +92,7 @@ if [ ! -f "$CLAUDE_PROJECT_DIR/.env.local" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Phase 5: Plugin installation
+# Phase 4: Plugin installation
 # ---------------------------------------------------------------------------
 (
   set +e  # Disable exit-on-error for this block

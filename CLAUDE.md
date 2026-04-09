@@ -288,7 +288,7 @@ Integration and E2E tests are **not optional**. If infra isn't ready, fix the in
 **E2E tests** (`npm run test:e2e`) use Playwright and require:
 - Local Supabase running (`supabase start`)
 - Next.js dev server running (globalSetup auto-spawns it)
-- Chromium installed (session-start hook runs `npx playwright install --with-deps chromium`)
+- Chromium installed (auto-installs lazily via `pretest:e2e` hook on first `npm run test:e2e`)
 
 **Note:** CLI subprocess tests (`sitemgr-cli.test.ts`, `sitemgr-e2e.test.ts`) are currently in the integration suite but are conceptually E2E — they exercise the system through the user-facing CLI binary. See spec 20 for planned reclassification.
 

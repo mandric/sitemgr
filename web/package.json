@@ -14,6 +14,7 @@
     "start:ollama": ". ../scripts/lib.sh && start_ollama",
     "stop:ollama": ". ../scripts/lib.sh && stop_ollama",
     "test:e2e:cli": "vitest run --project e2e-cli",
+    "pretest:e2e": "../scripts/ensure-playwright.sh",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test": "vitest run --project unit",
