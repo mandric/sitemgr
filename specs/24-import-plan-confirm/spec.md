@@ -21,37 +21,48 @@ Two-phase import: plan then execute. Before importing objects from an S3 bucket,
 
 ### Two-Phase Import
 
-**Phase 1 — Plan:** Scan the bucket, compute the diff, and return a summary (the "import plan"). No database writes. The plan includes enough information for the user to decide whether to proceed, scope down with `--prefix`, or abort.
+**Phase 1 — Plan:** Scan the bucket, compute the diff, and persist the plan as an event (`op: "import:plan"`). The plan event includes enough information for the user to decide whether to proceed, scope down with `--prefix`, or abort.
 
-**Phase 2 — Execute:** User confirms, the plan is executed. The plan carries an opaque token so the server can skip re-scanning if the plan is still fresh (optimization, not required — falling back to re-scan is fine).
+**Phase 2 — Execute:** User confirms by referencing the plan event's ID. The execute phase reads the plan event, verifies it's recent enough (10-minute window), and imports the untracked objects. If the plan has expired, the user re-plans.
 
-### Import Plan Shape
+### Plans as Events
 
-```typescript
-type ImportPlan = {
-  plan_id: string;               // opaque token (e.g. UUID)
-  bucket: string;                // bucket name
-  prefix: string;                // prefix filter used (empty string if none)
-  created_at: string;            // ISO 8601 timestamp
-  expires_at: string;            // plan validity window (e.g. 10 minutes)
+Import plans are stored as events in the existing `events` table. This gives us:
+- **Persistence** — plans survive server restarts, agent context compaction
+- **Audit trail** — when was each bucket scanned, what was found, was it executed
+- **No new table** — no migration, no in-memory cache with TTL
+- **Consistency** — same append-only log pattern used throughout the system
 
-  // Counts
-  total_objects: number;         // total S3 objects found
-  synced: number;                // already tracked, hash matches
-  untracked: number;             // new objects to import
-  modified: number;              // ETag changed (skipped by import)
-
-  // Breakdown by content type (derived from file extension)
-  untracked_by_type: Record<string, number>;  // e.g. { "photo": 312, "video": 18, "document": 5 }
-
-  // Size
-  untracked_total_bytes: number; // sum of untracked object sizes
-
-  // Scale warning (if applicable)
-  warning?: string;              // e.g. "Listing was truncated at 1M objects. Use --prefix to scope."
-  truncated: boolean;            // true if MAX_PAGES was hit
-};
+A plan event:
 ```
+id:              <uuid>
+timestamp:       <now>
+device_id:       "api" | "cli"
+op:              "import:plan"
+content_type:    null
+content_hash:    null
+local_path:      null
+remote_path:     null
+bucket_config_id: <bucket uuid>
+user_id:         <user uuid>
+metadata: {
+  source:              "import-plan",
+  prefix:              "photos/2024/",
+  total_objects:       142308,
+  synced:              130000,
+  untracked:           12308,
+  modified:            0,
+  untracked_by_type:   { "photo": 11200, "video": 980, "document": 128 },
+  untracked_total_bytes: 51781427200,
+  truncated:           false,
+  warning:             null,
+  expires_at:          "2026-04-09T12:10:00Z"
+}
+```
+
+When import executes, the resulting `s3:put` events use `parent_id` pointing to the plan event — linking the plan to its execution.
+
+An expired plan is just an old event — no cleanup needed. The `expires_at` is in metadata, checked at execute time.
 
 ### API Changes
 
@@ -62,16 +73,11 @@ Request body:
 { "prefix": "photos/2024/" }
 ```
 
-Response:
-```json
-{
-  "data": { /* ImportPlan */ }
-}
-```
+Response: the plan event (standard event shape with metadata containing the summary).
 
 **Modify existing:** `POST /api/buckets/{id}/import`
 
-Add optional `plan_id` field. If provided and the plan is still cached/valid, skip re-scan. If expired or missing, re-scan (the existing behavior).
+Add optional `plan_id` field. If provided, looks up the plan event, verifies it's not expired, and re-scans with the same prefix. If expired or not found, returns an error (user must re-plan).
 
 ```json
 {
@@ -183,23 +189,44 @@ This is a natural two-turn tool-use pattern. The agent never auto-executes — i
 - Batching already works well (500 rows/batch, concurrency 3).
 - For 1M objects: ~2000 batches, ~667 concurrent rounds. This is fine — each batch is a single Supabase insert.
 
+### Progress Output
+
+For large imports, users need feedback during execution. Both CLI and API support progress reporting.
+
+**CLI progress (stderr):**
+```
+Importing 12,308 objects...
+  [=====>                    ] 2,500 / 12,308  (20%)
+  [===========>              ] 6,000 / 12,308  (49%)
+  [=========================>] 12,308 / 12,308 (100%)
+
+Done — imported 12,308 objects (3 errors).
+```
+
+Progress writes to stderr so stdout remains clean for `--format json`. The progress bar updates after each batch completes (500 objects default).
+
+**API progress:** The `POST /api/buckets/{id}/import` response includes the final counts as today. Real-time progress for the API is out of scope — the CLI gets progress because it controls the execution loop directly (it could call a streaming endpoint in the future, but for now the CLI calls the library function directly rather than going through the API for the execute phase).
+
+**Agent progress:** The agent tool returns the final result. For long imports, the agent can tell the user "This may take a moment — importing 12,308 objects..." before calling the tool. Real-time streaming progress to the agent is out of scope.
+
 ## Scope
 
 ### In Scope
-- `POST /api/buckets/{id}/import/plan` endpoint
+- `POST /api/buckets/{id}/import/plan` endpoint (persists plan as event)
 - Modify `POST /api/buckets/{id}/import` to accept optional `plan_id`
-- `ImportPlan` type with content type breakdown and size totals
+- Plan events (`op: "import:plan"`) with summary metadata
+- Imported events link to plan via `parent_id`
 - CLI two-phase flow with confirmation prompt
+- CLI progress bar (stderr) during execution
 - `--yes`, `--plan-only` flags; deprecate `--dry-run`
 - `import_bucket` agent tool with plan/confirm pattern
 - `listS3Objects` returns `truncated` flag instead of throwing at MAX_PAGES
-- Plan caching (in-memory, short TTL) so execute phase can skip re-scan
 
 ### Out of Scope
 - Streaming/cursor-based S3 listing (future spec if needed)
 - Importing modified objects (existing design decision — sync handles these)
-- Progress reporting during execution (nice-to-have, not this spec)
-- Persistent plan storage (in-memory with TTL is sufficient)
+- Real-time progress streaming via API or agent (CLI progress only in this spec)
+- Plan cleanup/garbage collection (old plan events are harmless)
 
 ## Dependencies
 
@@ -216,8 +243,10 @@ This is a natural two-turn tool-use pattern. The agent never auto-executes — i
 - `web/lib/agent/tools.ts` — new `import_bucket` tool
 
 ## Key Decisions
-- Plan caching is in-memory (Map with TTL), not database. Plans are ephemeral — if the server restarts, the user just re-plans. This avoids a migration.
-- Plan expiry is 10 minutes. Long enough for a human to read and decide, short enough that the bucket state hasn't drifted much.
+- **Plans are events.** Stored in the existing `events` table with `op: "import:plan"`. No new table, no migration, no in-memory cache. Plans persist across server restarts and agent context compaction. Old plans are just old events — no cleanup needed.
+- **Plan expiry is 10 minutes** (checked via `metadata.expires_at`). Long enough for a human to read and decide, short enough that the bucket state hasn't drifted much.
+- **Imported events link to plan via `parent_id`.** This creates an audit chain: plan event → imported s3:put events.
 - The agent tool uses a single tool name with an optional `confirm_plan_id` parameter rather than two separate tools. This keeps the tool list small and the flow is clear: no plan_id = plan, with plan_id = execute.
 - `--dry-run` is kept as a hidden alias for backwards compatibility but `--plan-only` is the documented flag going forward.
 - Content type breakdown uses the existing `detectContentType()` function, which works from file extensions. No new detection logic needed.
+- CLI progress writes to stderr so `--format json` stdout remains clean.
