@@ -60,10 +60,9 @@ fi
 # pretest:e2e hook in package.json.
 # ---------------------------------------------------------------------------
 
-# Docker is required (Supabase depends on it). Tool installs are best-effort
-# — wait for all background jobs, only fail on Docker.
+# Docker is required (Supabase depends on it); wait before starting Supabase.
+# npm install and tool installs run independently — wait for everything at the end.
 wait $DOCKER_PID
-wait $NPM_PID
 
 # setup_supabase (not start_supabase which tails logs and blocks forever)
 setup_supabase
@@ -91,3 +90,6 @@ else
   claude plugin install deep-implement@piercelamb-plugins --scope project 2>&1 || echo "Error: failed to install deep-implement" >&2
   claude plugin install code-review@claude-plugins-official --scope project 2>&1 || echo "Error: failed to install code-review" >&2
 fi
+
+# Wait for any remaining background jobs (npm install, tool installs)
+wait
