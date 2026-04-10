@@ -288,12 +288,13 @@ Integration and E2E tests are **not optional**. If infra isn't ready, fix the in
 **E2E tests** (`npm run test:e2e`) use Playwright and require:
 - Local Supabase running (`supabase start`)
 - Next.js dev server running (globalSetup auto-spawns it)
-- Chromium installed (session-start hook runs `npx playwright install --with-deps chromium`)
+- Chromium installed (auto-installs lazily via `pretest:e2e` hook on first `npm run test:e2e`)
 
 **Note:** CLI subprocess tests (`sitemgr-cli.test.ts`, `sitemgr-e2e.test.ts`) are currently in the integration suite but are conceptually E2E — they exercise the system through the user-facing CLI binary. See spec 20 for planned reclassification.
 
 **Infrastructure notes:**
 - The session-start hook starts Supabase automatically. The minimum version constant (`SUPABASE_MIN_VERSION`) and install/start helpers live in `scripts/lib.sh`.
+- **Session-start log:** If something seems broken (missing tools, Supabase down, no `.env.local`), check `cat /tmp/session-start.log`. Lines are prefixed with `[MM:SS] label:` for readability. Report any FAILED lines to the user.
 - Docker and Supabase are always available in web sessions — both can be installed and started.
 - **Docker proxy (web sessions):** Docker needs the egress proxy. The session-start hook handles this with `sudo -E dockerd` (the `-E` flag passes `HTTP_PROXY`/`HTTPS_PROXY`). If Docker pulls fail, ensure `sudo -E`.
 - **Next.js dev server:** Some integration tests need the Next.js dev server. The globalSetup auto-spawns it. If it fails, start manually: `npx next dev --port 3000 &>/tmp/next-dev.log &` with env vars (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_KEY_CURRENT`).
