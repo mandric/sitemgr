@@ -1,5 +1,4 @@
 #!/bin/bash
-set -euo pipefail
 
 # Only run in remote (Claude Code on the web) environments
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
@@ -16,41 +15,20 @@ source "$CLAUDE_PROJECT_DIR/scripts/init.sh"
 #   detection all run concurrently while it starts.
 # ---------------------------------------------------------------------------
 
-# Start Docker in background (Supabase depends on it)
 start_docker &
 DOCKER_PID=$!
 
-# Install gh CLI if not present (background)
-(
-  if ! command -v gh &>/dev/null; then
-    mkdir -p /tmp/gh-install && cd /tmp/gh-install
-    curl -sL https://github.com/cli/cli/releases/download/v2.65.0/gh_2.65.0_linux_amd64.tar.gz -o gh.tar.gz
-    tar xzf gh.tar.gz
-    cp gh_2.65.0_linux_amd64/bin/gh /usr/local/bin/gh 2>/dev/null \
-      || { mkdir -p "$HOME/.local/bin" && cp gh_2.65.0_linux_amd64/bin/gh "$HOME/.local/bin/gh" && echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"; }
-    rm -rf /tmp/gh-install
-  fi
-) &
-GH_PID=$!
-
-# Install jq, shellcheck, supabase CLI, vercel CLI in parallel
+install_gh &
 install_jq &
-JQ_PID=$!
-
 install_shellcheck &
-SC_PID=$!
-
 install_supabase_cli &
-SB_PID=$!
 
-(
-  if ! command -v vercel &>/dev/null; then
-    npm install -g vercel
-  fi
-) &
-VERCEL_PID=$!
+# Vercel CLI uses npm (no lib.sh function needed for a one-liner)
+if ! command -v vercel &>/dev/null; then
+  npm install -g vercel &
+fi
 
-# npm install — independent of Docker, runs concurrently with everything
+# npm install — independent of Docker
 (cd "$CLAUDE_PROJECT_DIR/web" && npm install) &
 NPM_PID=$!
 
@@ -67,24 +45,18 @@ fi
 # Phase 2: Wait for Docker + tools, then start Supabase
 #
 # NOTE: Playwright chromium is NOT installed here — it's ~200MB and only
-# needed for E2E web tests. It installs lazily via the pretest:e2e script
-# in package.json when `npm run test:e2e` is first run.
+# needed for E2E web tests. It installs lazily via setup:playwright / the
+# pretest:e2e hook in package.json.
 # ---------------------------------------------------------------------------
 
-# Docker is required (Supabase depends on it); tools are best-effort.
-wait $DOCKER_PID
-for pid in $GH_PID $JQ_PID $SC_PID $SB_PID $VERCEL_PID; do
-  wait "$pid" || echo "Warning: background install (PID $pid) failed" >&2
-done
+# Docker is required (Supabase depends on it). Tool installs are best-effort
+# — wait for all background jobs, only fail on Docker.
+wait $DOCKER_PID || { echo "Error: Docker failed to start" >&2; exit 1; }
+wait $NPM_PID || echo "Warning: npm install failed" >&2
 
-# Start Supabase and npm install in parallel — setup_supabase needs Docker
-# (done above) but not npm; npm install needs nothing from Supabase.
-# Uses setup_supabase (not start_supabase which tails logs and blocks forever)
-cd "$CLAUDE_PROJECT_DIR"
-setup_supabase
-
-# Wait for npm install to finish before generating .env.local
-wait $NPM_PID
+# setup_supabase (not start_supabase which tails logs and blocks forever)
+cd "$CLAUDE_PROJECT_DIR" || exit 1
+setup_supabase || echo "Warning: Supabase setup failed" >&2
 
 # Generate .env.local from running Supabase (needed for integration tests)
 if [ ! -f "$CLAUDE_PROJECT_DIR/.env.local" ]; then
@@ -93,23 +65,19 @@ if [ ! -f "$CLAUDE_PROJECT_DIR/.env.local" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Phase 4: Plugin installation
+# Phase 3: Plugin installation (best-effort)
 # ---------------------------------------------------------------------------
-(
-  set +e  # Disable exit-on-error for this block
 
-  # Skip if plugins already installed
-  if claude plugin list 2>/dev/null | grep -q "deep-plan"; then
-    echo "Plugins already installed, skipping"
-  else
-    claude plugin marketplace add piercelamb/deep-project --scope project
-    claude plugin marketplace add piercelamb/deep-plan --scope project
-    claude plugin marketplace add piercelamb/deep-implement --scope project
-    claude plugin marketplace add anthropics/claude-plugins-official --scope project
+if claude plugin list 2>/dev/null | grep -q "deep-plan"; then
+  echo "Plugins already installed, skipping"
+else
+  claude plugin marketplace add piercelamb/deep-project --scope project || true
+  claude plugin marketplace add piercelamb/deep-plan --scope project || true
+  claude plugin marketplace add piercelamb/deep-implement --scope project || true
+  claude plugin marketplace add anthropics/claude-plugins-official --scope project || true
 
-    claude plugin install deep-project@piercelamb-plugins --scope project
-    claude plugin install deep-plan@piercelamb-deep-plan --scope project
-    claude plugin install deep-implement@piercelamb-plugins --scope project
-    claude plugin install code-review@claude-plugins-official --scope project
-  fi
-) || true  # Ensure subshell failure doesn't kill the hook
+  claude plugin install deep-project@piercelamb-plugins --scope project || true
+  claude plugin install deep-plan@piercelamb-deep-plan --scope project || true
+  claude plugin install deep-implement@piercelamb-plugins --scope project || true
+  claude plugin install code-review@claude-plugins-official --scope project || true
+fi

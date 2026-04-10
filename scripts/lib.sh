@@ -72,6 +72,33 @@ SUPABASE_MIN_VERSION="2.76.4"
 SUPABASE_PINNED_VERSION="2.83.0"
 
 # ---------------------------------------------------------------------------
+# install_gh — install GitHub CLI if not present (Linux only)
+#   Downloads binary from GitHub Releases.
+#   No-op if gh is already installed.
+# ---------------------------------------------------------------------------
+install_gh() {
+  if command -v gh &>/dev/null; then
+    return 0
+  fi
+
+  local tmp
+  tmp=$(mktemp -d)
+  curl -sL https://github.com/cli/cli/releases/download/v2.65.0/gh_2.65.0_linux_amd64.tar.gz -o "$tmp/gh.tar.gz"
+  tar xzf "$tmp/gh.tar.gz" -C "$tmp"
+  if [ -w /usr/local/bin ]; then
+    cp "$tmp/gh_2.65.0_linux_amd64/bin/gh" /usr/local/bin/gh
+  else
+    mkdir -p "$HOME/.local/bin"
+    cp "$tmp/gh_2.65.0_linux_amd64/bin/gh" "$HOME/.local/bin/gh"
+    export PATH="$HOME/.local/bin:$PATH"
+    if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+      echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$CLAUDE_ENV_FILE"
+    fi
+  fi
+  rm -rf "$tmp"
+}
+
+# ---------------------------------------------------------------------------
 # install_shellcheck — install shellcheck if not present (Linux only)
 #   Downloads static binary from GitHub Releases.
 #   No-op if shellcheck is already installed.
@@ -293,6 +320,24 @@ install_supabase_cli() {
 }
 
 # ---------------------------------------------------------------------------
+# install_playwright — install Playwright chromium if not already cached
+#   Checks dry-run output for expected install path and skips if present.
+#   No-op if the correct chromium version is already cached.
+# ---------------------------------------------------------------------------
+install_playwright() {
+  local chromium_dir
+  chromium_dir=$(npx playwright install --dry-run chromium 2>/dev/null \
+    | sed -n 's/.*Install location:[[:space:]]*//p' | head -1 || true)
+
+  if [ -n "$chromium_dir" ] && [ -d "$chromium_dir" ]; then
+    echo "Playwright chromium already cached at $chromium_dir"
+    return 0
+  fi
+
+  echo "Installing Playwright chromium..."
+  npx playwright install --with-deps chromium
+}
+
 # ---------------------------------------------------------------------------
 # setup_supabase — check prereqs, start if needed, apply migrations, create
 #   webhook user. Returns when complete.
