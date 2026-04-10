@@ -17,7 +17,31 @@ fi
 
 # Log all output for debugging (read with: cat /tmp/session-start.log)
 exec > >(tee -a /tmp/session-start.log) 2>&1
-echo "=== session-start.sh $(date -Iseconds) ==="
+
+# Timestamped, prefixed logging for readable parallel output.
+# Usage: log <label> <message>
+#   log docker "started"        → [00:03] docker: started
+#   log npm "install failed"    → [01:42] npm: install failed
+HOOK_START=$SECONDS
+log() {
+  local elapsed=$(( SECONDS - HOOK_START ))
+  printf "[%02d:%02d] %s: %s\n" $((elapsed/60)) $((elapsed%60)) "$1" "$2"
+}
+
+# Wraps a command with start/done/FAILED logging. Captures the label from $1,
+# runs the rest as a command.
+# Usage: run <label> <command> [args...]
+run() {
+  local label="$1"; shift
+  log "$label" "started"
+  if "$@"; then
+    log "$label" "done"
+  else
+    log "$label" "FAILED (exit $?)"
+  fi
+}
+
+log "hook" "=== session-start $(date -Iseconds) ==="
 
 # Source shared shell library and .env.local (if it exists from a previous session)
 # shellcheck source=../../../scripts/init.sh
@@ -29,19 +53,15 @@ source "$CLAUDE_PROJECT_DIR/scripts/init.sh"
 #   detection all run concurrently while it starts.
 # ---------------------------------------------------------------------------
 
-start_docker &
+run docker start_docker &
 DOCKER_PID=$!
 
-install_gh &
-install_jq &
-install_shellcheck &
-install_supabase_cli &
-
-install_vercel &
-
-# npm install — independent of Docker
-(cd "$CLAUDE_PROJECT_DIR/web" && npm install) &
-NPM_PID=$!
+run gh install_gh &
+run jq install_jq &
+run shellcheck install_shellcheck &
+run supabase-cli install_supabase_cli &
+run vercel install_vercel &
+run npm bash -c "cd '$CLAUDE_PROJECT_DIR/web' && npm install" &
 
 # Set GH_REPO so gh works through the git proxy (can't infer repo from proxy URL)
 GH_REPO_DETECTED=$(git -C "$CLAUDE_PROJECT_DIR" remote get-url origin 2>/dev/null \
@@ -50,25 +70,23 @@ GH_REPO_DETECTED=$(git -C "$CLAUDE_PROJECT_DIR" remote get-url origin 2>/dev/nul
 if [ -n "${GH_REPO_DETECTED:-}" ]; then
   echo "export GH_REPO=\"${GH_REPO_DETECTED}\"" >> "$CLAUDE_ENV_FILE"
   export GH_REPO="$GH_REPO_DETECTED"
+  log gh-repo "set GH_REPO=$GH_REPO_DETECTED"
 fi
 
 # ---------------------------------------------------------------------------
-# Phase 2: Wait for Docker + tools, then start Supabase
+# Phase 2: Wait for Docker, then start Supabase (backgrounded)
 #
 # NOTE: Playwright chromium is NOT installed here — it's ~200MB and only
-# needed for E2E web tests. It installs lazily via setup:playwright / the
-# pretest:e2e hook in package.json.
+# needed for E2E web tests. It installs lazily via npm run setup:playwright.
 # ---------------------------------------------------------------------------
 
-# Supabase depends on Docker — wait for it, then background the rest.
-# setup_supabase (not start_supabase which tails logs and blocks forever)
 wait $DOCKER_PID
 (
-  setup_supabase
+  run supabase setup_supabase
   # Generate .env.local from running Supabase (needed for integration tests)
   if [ ! -f "$CLAUDE_PROJECT_DIR/.env.local" ]; then
     print_setup_env_vars > "$CLAUDE_PROJECT_DIR/.env.local" \
-      && echo "Generated .env.local from Supabase"
+      && log env "generated .env.local"
   fi
 ) &
 
@@ -77,18 +95,21 @@ wait $DOCKER_PID
 # ---------------------------------------------------------------------------
 
 if claude plugin list 2>/dev/null | grep -q "deep-plan"; then
-  echo "Plugins already installed, skipping"
+  log plugins "already installed, skipping"
 else
-  claude plugin marketplace add piercelamb/deep-project --scope project 2>&1 || echo "Error: failed to add deep-project marketplace" >&2
-  claude plugin marketplace add piercelamb/deep-plan --scope project 2>&1 || echo "Error: failed to add deep-plan marketplace" >&2
-  claude plugin marketplace add piercelamb/deep-implement --scope project 2>&1 || echo "Error: failed to add deep-implement marketplace" >&2
-  claude plugin marketplace add anthropics/claude-plugins-official --scope project 2>&1 || echo "Error: failed to add claude-plugins-official marketplace" >&2
+  log plugins "installing"
+  claude plugin marketplace add piercelamb/deep-project --scope project 2>&1 || log plugins "FAILED: add deep-project marketplace"
+  claude plugin marketplace add piercelamb/deep-plan --scope project 2>&1 || log plugins "FAILED: add deep-plan marketplace"
+  claude plugin marketplace add piercelamb/deep-implement --scope project 2>&1 || log plugins "FAILED: add deep-implement marketplace"
+  claude plugin marketplace add anthropics/claude-plugins-official --scope project 2>&1 || log plugins "FAILED: add claude-plugins-official marketplace"
 
-  claude plugin install deep-project@piercelamb-plugins --scope project 2>&1 || echo "Error: failed to install deep-project" >&2
-  claude plugin install deep-plan@piercelamb-deep-plan --scope project 2>&1 || echo "Error: failed to install deep-plan" >&2
-  claude plugin install deep-implement@piercelamb-plugins --scope project 2>&1 || echo "Error: failed to install deep-implement" >&2
-  claude plugin install code-review@claude-plugins-official --scope project 2>&1 || echo "Error: failed to install code-review" >&2
+  claude plugin install deep-project@piercelamb-plugins --scope project 2>&1 || log plugins "FAILED: install deep-project"
+  claude plugin install deep-plan@piercelamb-deep-plan --scope project 2>&1 || log plugins "FAILED: install deep-plan"
+  claude plugin install deep-implement@piercelamb-plugins --scope project 2>&1 || log plugins "FAILED: install deep-implement"
+  claude plugin install code-review@claude-plugins-official --scope project 2>&1 || log plugins "FAILED: install code-review"
+  log plugins "done"
 fi
 
-# Wait for any remaining background jobs (npm install, tool installs)
+# Wait for any remaining background jobs (npm install, tool installs, supabase)
 wait
+log "hook" "=== done ==="

@@ -294,6 +294,7 @@ Integration and E2E tests are **not optional**. If infra isn't ready, fix the in
 
 **Infrastructure notes:**
 - The session-start hook starts Supabase automatically. The minimum version constant (`SUPABASE_MIN_VERSION`) and install/start helpers live in `scripts/lib.sh`.
+- **Session-start log:** If something seems broken (missing tools, Supabase down, no `.env.local`), check `cat /tmp/session-start.log`. Lines are prefixed with `[MM:SS] label:` for readability. Report any FAILED lines to the user.
 - Docker and Supabase are always available in web sessions — both can be installed and started.
 - **Docker proxy (web sessions):** Docker needs the egress proxy. The session-start hook handles this with `sudo -E dockerd` (the `-E` flag passes `HTTP_PROXY`/`HTTPS_PROXY`). If Docker pulls fail, ensure `sudo -E`.
 - **Next.js dev server:** Some integration tests need the Next.js dev server. The globalSetup auto-spawns it. If it fails, start manually: `npx next dev --port 3000 &>/tmp/next-dev.log &` with env vars (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_KEY_CURRENT`).
