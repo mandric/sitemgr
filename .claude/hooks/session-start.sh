@@ -6,13 +6,14 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
 fi
 
-# Source shared shell library (Supabase version constants, install/start helpers)
-# shellcheck source=../../../scripts/lib.sh
-source "$CLAUDE_PROJECT_DIR/scripts/lib.sh"
+# Source shared shell library and .env.local (if it exists from a previous session)
+# shellcheck source=../../../scripts/init.sh
+source "$CLAUDE_PROJECT_DIR/scripts/init.sh"
 
 # ---------------------------------------------------------------------------
-# Phase 1: Start Docker + parallel tool installs
-#   Docker takes up to 30s. Install tools concurrently while it starts.
+# Phase 1: Start Docker + all independent work in parallel
+#   Docker takes up to 30s. Tool installs, npm install, and GH_REPO
+#   detection all run concurrently while it starts.
 # ---------------------------------------------------------------------------
 
 # Start Docker in background (Supabase depends on it)
@@ -49,6 +50,10 @@ SB_PID=$!
 ) &
 VERCEL_PID=$!
 
+# npm install — independent of Docker, runs concurrently with everything
+(cd "$CLAUDE_PROJECT_DIR/web" && npm install) &
+NPM_PID=$!
+
 # Set GH_REPO so gh works through the git proxy (can't infer repo from proxy URL)
 GH_REPO_DETECTED=$(git -C "$CLAUDE_PROJECT_DIR" remote get-url origin 2>/dev/null \
   | sed -n 's|.*/git/\(.*\)$|\1|p' \
@@ -59,31 +64,27 @@ if [ -n "${GH_REPO_DETECTED:-}" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Phase 2: npm install (can run while Docker + tools are still installing)
-# ---------------------------------------------------------------------------
-
-cd "$CLAUDE_PROJECT_DIR/web"
-npm install
-
-# ---------------------------------------------------------------------------
-# Phase 3: Wait for Docker + tools, then start Supabase
+# Phase 2: Wait for Docker + tools, then start Supabase
 #
 # NOTE: Playwright chromium is NOT installed here — it's ~200MB and only
 # needed for E2E web tests. It installs lazily via the pretest:e2e script
 # in package.json when `npm run test:e2e` is first run.
 # ---------------------------------------------------------------------------
 
-# Wait for all background tool installs
 # Docker is required (Supabase depends on it); tools are best-effort.
 wait $DOCKER_PID
 for pid in $GH_PID $JQ_PID $SC_PID $SB_PID $VERCEL_PID; do
   wait "$pid" || echo "Warning: background install (PID $pid) failed" >&2
 done
 
-# Start local Supabase — uses setup_supabase (not start_supabase which tails
-# logs and blocks forever)
+# Start Supabase and npm install in parallel — setup_supabase needs Docker
+# (done above) but not npm; npm install needs nothing from Supabase.
+# Uses setup_supabase (not start_supabase which tails logs and blocks forever)
 cd "$CLAUDE_PROJECT_DIR"
 setup_supabase
+
+# Wait for npm install to finish before generating .env.local
+wait $NPM_PID
 
 # Generate .env.local from running Supabase (needed for integration tests)
 if [ ! -f "$CLAUDE_PROJECT_DIR/.env.local" ]; then

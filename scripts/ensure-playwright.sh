@@ -5,7 +5,7 @@
 set -euo pipefail
 
 CHROMIUM_DIR=$(npx playwright install --dry-run chromium 2>/dev/null \
-  | grep -oP 'Install location:\s+\K.*' | head -1 || true)
+  | sed -n 's/.*Install location:[[:space:]]*//p' | head -1 || true)
 
 if [ -n "$CHROMIUM_DIR" ] && [ -d "$CHROMIUM_DIR" ]; then
   echo "Playwright chromium already cached at $CHROMIUM_DIR"
