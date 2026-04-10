@@ -1,5 +1,15 @@
 #!/bin/bash
 
+# SessionStart hook — sets up the full dev environment for Claude Code web sessions.
+#
+# EXIT CODE POLICY: Always exit 0.
+#   SessionStart hooks are non-blocking — a non-zero exit code doesn't prevent
+#   the session from starting, it just adds noise to the transcript.
+#   See: https://docs.anthropic.com/en/docs/claude-code/hooks
+#   Everything in this script is a dev dependency. Log errors so they surface
+#   in /tmp/session-start.log, but let the session proceed. Failures will show
+#   up naturally when something tries to use a missing service.
+
 # Only run in remote (Claude Code on the web) environments
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
@@ -55,12 +65,12 @@ fi
 
 # Docker is required (Supabase depends on it). Tool installs are best-effort
 # — wait for all background jobs, only fail on Docker.
-wait $DOCKER_PID || { echo "Error: Docker failed to start" >&2; exit 1; }
-wait $NPM_PID || echo "Warning: npm install failed" >&2
+wait $DOCKER_PID || echo "Error: Docker failed to start" >&2
+wait $NPM_PID || echo "Error: npm install failed" >&2
 
 # setup_supabase (not start_supabase which tails logs and blocks forever)
-cd "$CLAUDE_PROJECT_DIR" || exit 1
-setup_supabase || echo "Warning: Supabase setup failed" >&2
+cd "$CLAUDE_PROJECT_DIR" || true
+setup_supabase || echo "Error: Supabase setup failed" >&2
 
 # Generate .env.local from running Supabase (needed for integration tests)
 if [ ! -f "$CLAUDE_PROJECT_DIR/.env.local" ]; then
@@ -75,13 +85,13 @@ fi
 if claude plugin list 2>/dev/null | grep -q "deep-plan"; then
   echo "Plugins already installed, skipping"
 else
-  claude plugin marketplace add piercelamb/deep-project --scope project || true
-  claude plugin marketplace add piercelamb/deep-plan --scope project || true
-  claude plugin marketplace add piercelamb/deep-implement --scope project || true
-  claude plugin marketplace add anthropics/claude-plugins-official --scope project || true
+  claude plugin marketplace add piercelamb/deep-project --scope project 2>&1 || echo "Error: failed to add deep-project marketplace" >&2
+  claude plugin marketplace add piercelamb/deep-plan --scope project 2>&1 || echo "Error: failed to add deep-plan marketplace" >&2
+  claude plugin marketplace add piercelamb/deep-implement --scope project 2>&1 || echo "Error: failed to add deep-implement marketplace" >&2
+  claude plugin marketplace add anthropics/claude-plugins-official --scope project 2>&1 || echo "Error: failed to add claude-plugins-official marketplace" >&2
 
-  claude plugin install deep-project@piercelamb-plugins --scope project || true
-  claude plugin install deep-plan@piercelamb-deep-plan --scope project || true
-  claude plugin install deep-implement@piercelamb-plugins --scope project || true
-  claude plugin install code-review@claude-plugins-official --scope project || true
+  claude plugin install deep-project@piercelamb-plugins --scope project 2>&1 || echo "Error: failed to install deep-project" >&2
+  claude plugin install deep-plan@piercelamb-deep-plan --scope project 2>&1 || echo "Error: failed to install deep-plan" >&2
+  claude plugin install deep-implement@piercelamb-plugins --scope project 2>&1 || echo "Error: failed to install deep-implement" >&2
+  claude plugin install code-review@claude-plugins-official --scope project 2>&1 || echo "Error: failed to install code-review" >&2
 fi
