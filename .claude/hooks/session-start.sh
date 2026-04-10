@@ -60,18 +60,17 @@ fi
 # pretest:e2e hook in package.json.
 # ---------------------------------------------------------------------------
 
-# Docker is required (Supabase depends on it); wait before starting Supabase.
-# npm install and tool installs run independently — wait for everything at the end.
-wait $DOCKER_PID
-
+# Supabase depends on Docker — wait for it, then background the rest.
 # setup_supabase (not start_supabase which tails logs and blocks forever)
-setup_supabase
-
-# Generate .env.local from running Supabase (needed for integration tests)
-if [ ! -f "$CLAUDE_PROJECT_DIR/.env.local" ]; then
-  print_setup_env_vars > "$CLAUDE_PROJECT_DIR/.env.local" \
-    && echo "Generated .env.local from Supabase"
-fi
+wait $DOCKER_PID
+(
+  setup_supabase
+  # Generate .env.local from running Supabase (needed for integration tests)
+  if [ ! -f "$CLAUDE_PROJECT_DIR/.env.local" ]; then
+    print_setup_env_vars > "$CLAUDE_PROJECT_DIR/.env.local" \
+      && echo "Generated .env.local from Supabase"
+  fi
+) &
 
 # ---------------------------------------------------------------------------
 # Phase 3: Plugin installation (best-effort)
