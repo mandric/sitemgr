@@ -69,7 +69,6 @@ wait $DOCKER_PID || echo "Error: Docker failed to start" >&2
 wait $NPM_PID || echo "Error: npm install failed" >&2
 
 # setup_supabase (not start_supabase which tails logs and blocks forever)
-cd "$CLAUDE_PROJECT_DIR" || true
 setup_supabase || echo "Error: Supabase setup failed" >&2
 
 # Generate .env.local from running Supabase (needed for integration tests)
