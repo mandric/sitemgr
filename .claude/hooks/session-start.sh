@@ -65,11 +65,11 @@ fi
 
 # Docker is required (Supabase depends on it). Tool installs are best-effort
 # — wait for all background jobs, only fail on Docker.
-wait $DOCKER_PID || echo "Error: Docker failed to start" >&2
-wait $NPM_PID || echo "Error: npm install failed" >&2
+wait $DOCKER_PID
+wait $NPM_PID
 
 # setup_supabase (not start_supabase which tails logs and blocks forever)
-setup_supabase || echo "Error: Supabase setup failed" >&2
+setup_supabase
 
 # Generate .env.local from running Supabase (needed for integration tests)
 if [ ! -f "$CLAUDE_PROJECT_DIR/.env.local" ]; then
