@@ -37,10 +37,7 @@ install_jq &
 install_shellcheck &
 install_supabase_cli &
 
-# Vercel CLI uses npm (no lib.sh function needed for a one-liner)
-if ! command -v vercel &>/dev/null; then
-  npm install -g vercel &
-fi
+install_vercel &
 
 # npm install — independent of Docker
 (cd "$CLAUDE_PROJECT_DIR/web" && npm install) &

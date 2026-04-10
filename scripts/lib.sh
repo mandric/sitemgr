@@ -320,6 +320,18 @@ install_supabase_cli() {
 }
 
 # ---------------------------------------------------------------------------
+# install_vercel — install Vercel CLI globally if not present
+#   No-op if vercel is already installed.
+# ---------------------------------------------------------------------------
+install_vercel() {
+  if command -v vercel &>/dev/null; then
+    return 0
+  fi
+
+  npm install -g vercel
+}
+
+# ---------------------------------------------------------------------------
 # install_playwright — install Playwright chromium if not already cached
 #   Checks dry-run output for expected install path and skips if present.
 #   No-op if the correct chromium version is already cached.
