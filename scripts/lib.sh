@@ -1,25 +1,6 @@
 #!/usr/bin/env bash
 # Reusable shell functions for CI/CD and local admin tasks.
-# Source this file, then call functions with the required env vars or arguments.
-#
-# Usage:
-#   source scripts/lib.sh
-#   install_shellcheck                      # install shellcheck (Linux)
-#   install_jq                              # install jq (Linux)
-#   require_supabase_version                # error if CLI too old
-#   install_supabase_cli                    # install CLI binary (Linux)
-#   setup_ollama                            # start server if needed, pull moondream:1.8b model
-#   cleanup_colima [profile]                # unlock stale disk lock after hard crash (limactl disk unlock)
-#   setup_supabase                          # idempotent setup: start, migrate, webhook user (returns)
-#   start_supabase                          # tail Supabase container logs (foreground)
-#   print_setup_env_vars                    # emit .env.local
-#   source_dotenv .env.local                # load and export vars from a .env file
-#   verify_supabase_env                     # check required fields in supabase status
-#   verify_gotrue <url> <key>               # probe GoTrue with service role key
-#   smoke_test                              # uses $VERCEL_APP_URL
-#   smoke_test "https://my-app.vercel.app"  # or pass explicitly
-#   vercel_log_check "dpl_abc123"
-#   wait_for_vercel_deployment --sha abc123 --target production
+# Source this file, then call individual functions as needed.
 
 # NOTE: Do NOT set -euo pipefail here. This file is sourced by other scripts
 # and setting shell options would affect the caller. Each calling script should
