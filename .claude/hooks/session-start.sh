@@ -5,6 +5,10 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0
 fi
 
+# Log all output for debugging (read with: cat /tmp/session-start.log)
+exec > >(tee -a /tmp/session-start.log) 2>&1
+echo "=== session-start.sh $(date -Iseconds) ==="
+
 # Source shared shell library and .env.local (if it exists from a previous session)
 # shellcheck source=../../../scripts/init.sh
 source "$CLAUDE_PROJECT_DIR/scripts/init.sh"
