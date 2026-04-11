@@ -175,7 +175,13 @@ start_docker() {
   fi
   if [[ "$(uname)" == "Linux" ]]; then
     echo "Starting Docker daemon..."
-    sudo -E dockerd &
+    if [[ "$EUID" -eq 0 ]]; then
+      dockerd --host=unix:///var/run/docker.sock --log-level=error \
+        &>/tmp/dockerd.log &
+    else
+      sudo -E dockerd --host=unix:///var/run/docker.sock --log-level=error \
+        &>/tmp/dockerd.log &
+    fi
     for i in $(seq 1 30); do
       if docker info &>/dev/null 2>&1; then
         echo "Docker daemon started"
@@ -741,4 +747,446 @@ wait_for_vercel_deployment() {
 
   echo "ERROR: Deployment did not become ready after $((max_attempts * delay))s" >&2
   return 1
+}
+
+# =============================================================================
+# RunPod / Remote Dev Environment
+#
+# Single-user setup for a sitemgr dev environment on an Ubuntu host:
+# RunPod CPU pod, Hetzner VPS, local VM, etc.
+#
+# Bootstrap (one-time per pod, run as root):
+#   scp scripts/lib.sh root@<host>:/tmp/
+#   ssh root@<host>
+#   source /tmp/lib.sh
+#   server_bootstrap
+#
+# Daily workflow (after pod restart):
+#   source /workspace/sitemgr/scripts/lib.sh
+#   server_bootstrap        # no-op for already-running services
+#   new_session main
+#   service_status
+# =============================================================================
+
+SITEMGR_REPO="${SITEMGR_REPO:-https://github.com/mandric/sitemgr}"
+SITEMGR_DIR="${SITEMGR_DIR:-/workspace/sitemgr}"
+OLLAMA_MODEL="${OLLAMA_MODEL:-moondream:1.8b}"
+SITEMGR_ORCHESTRATOR="${SITEMGR_ORCHESTRATOR:-claude}"
+
+# ── Colors ────────────────────────────────────────────────────────────────────
+_info()  { echo -e "\033[0;34m[sitemgr]\033[0m $*"; }
+_ok()    { echo -e "\033[0;32m[sitemgr]\033[0m $*"; }
+_warn()  { echo -e "\033[0;33m[sitemgr]\033[0m $*" >&2; }
+_error() { echo -e "\033[0;31m[sitemgr]\033[0m $*" >&2; }
+
+# ---------------------------------------------------------------------------
+# runpod_install_deps — install system dependencies on a bare Ubuntu pod
+#   Installs: git, curl, tmux, Node.js 20, Ollama, Claude Code
+#   Safe to call multiple times — skips already-installed tools.
+# ---------------------------------------------------------------------------
+runpod_install_deps() {
+  _info "Installing system dependencies..."
+
+  apt-get update -qq
+
+  # Core tools + Docker
+  local pkgs=()
+  for pkg in git curl tmux jq unzip zstd; do
+    command -v "$pkg" &>/dev/null || pkgs+=("$pkg")
+  done
+  command -v dockerd &>/dev/null || pkgs+=("docker.io")
+  if [[ ${#pkgs[@]} -gt 0 ]]; then
+    apt-get install -y -qq "${pkgs[@]}"
+    _ok "Installed: ${pkgs[*]}"
+  else
+    _ok "Core tools already installed."
+  fi
+
+  # Node.js 20
+  if ! command -v node &>/dev/null; then
+    _info "Installing Node.js 20..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - >/dev/null
+    apt-get install -y -qq nodejs
+    _ok "Node.js $(node --version) installed."
+  else
+    _ok "Node.js $(node --version) already installed."
+  fi
+
+  # Ollama
+  if ! command -v ollama &>/dev/null; then
+    _info "Installing Ollama..."
+    curl -fsSL https://ollama.ai/install.sh | sh
+    _ok "Ollama installed."
+  else
+    _ok "Ollama already installed."
+  fi
+
+  # GitHub CLI
+  if ! command -v gh &>/dev/null; then
+    _info "Installing GitHub CLI..."
+    install_gh
+    _ok "GitHub CLI installed."
+  else
+    _ok "GitHub CLI already installed."
+  fi
+
+  # Claude Code
+  if ! command -v claude &>/dev/null; then
+    _info "Installing Claude Code..."
+    npm install -g @anthropic-ai/claude-code --quiet
+    _ok "Claude Code installed."
+  else
+    _ok "Claude Code already installed."
+  fi
+}
+
+# ── Orchestrator resolution ───────────────────────────────────────────────────
+_resolve_orchestrator_cmd() {
+  case "$SITEMGR_ORCHESTRATOR" in
+    claude)
+      # Max subscription via OAuth — no ANTHROPIC_API_KEY needed
+      echo "claude --remote-control"
+      ;;
+    claude-api)
+      # API key billing — requires ANTHROPIC_API_KEY in environment
+      echo "claude"
+      ;;
+    opencode)
+      # Open-source, multi-backend. Install: npm install -g opencode-ai
+      echo "opencode"
+      ;;
+    aider)
+      # Free, local Ollama models. Install: pip install aider-chat
+      echo "aider --model ollama/qwen2.5-coder:7b"
+      ;;
+    custom)
+      echo "${SITEMGR_ORCHESTRATOR_CMD:?SITEMGR_ORCHESTRATOR_CMD must be set for custom}"
+      ;;
+    *)
+      # Treat value as command directly (e.g. SITEMGR_ORCHESTRATOR="goose")
+      echo "$SITEMGR_ORCHESTRATOR"
+      ;;
+  esac
+}
+
+# ---------------------------------------------------------------------------
+# runpod_setup_workspace — clone repo and run npm install
+#   Safe to call multiple times (no-ops if already done).
+# ---------------------------------------------------------------------------
+runpod_setup_workspace() {
+  if [[ ! -d "$SITEMGR_DIR" ]]; then
+    _info "Cloning sitemgr..."
+    mkdir -p "$(dirname "$SITEMGR_DIR")"
+    if [[ -n "${GH_TOKEN:-}" ]]; then
+      git clone "https://oauth2:${GH_TOKEN}@github.com/mandric/sitemgr" "$SITEMGR_DIR"
+    else
+      _error "GH_TOKEN not set — cannot clone private repo."
+      return 1
+    fi
+    _ok "Repo cloned to $SITEMGR_DIR"
+  else
+    _ok "Repo already present at $SITEMGR_DIR"
+  fi
+
+  if [[ ! -d "$SITEMGR_DIR/web/node_modules" ]]; then
+    _info "Running npm install..."
+    (cd "$SITEMGR_DIR/web" && npm install)
+    _ok "npm install complete."
+  else
+    _ok "node_modules already present."
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# runpod_setup_ollama — start Ollama server and pull model
+#   Model cache lives at /workspace/.ollama on the network volume.
+#   Safe to call multiple times.
+# ---------------------------------------------------------------------------
+runpod_setup_ollama() {
+  # Ensure /usr/local/bin is in PATH (may be absent in non-interactive SSH shells)
+  export PATH="/usr/local/bin:$PATH"
+
+  if ! command -v ollama &>/dev/null; then
+    _error "Ollama not installed. Install: curl -fsSL https://ollama.ai/install.sh | sh"
+    return 1
+  fi
+
+  # Symlink model cache to network volume so it persists across pod restarts
+  mkdir -p /workspace/.ollama
+  if [[ ! -L "$HOME/.ollama" ]]; then
+    ln -sf /workspace/.ollama "$HOME/.ollama"
+    _ok "Linked $HOME/.ollama → /workspace/.ollama"
+  fi
+
+  if pgrep -x ollama &>/dev/null; then
+    _ok "Ollama already running (port 11434)."
+  else
+    _info "Starting Ollama..."
+    OLLAMA_HOST=0.0.0.0 ollama serve &>/tmp/ollama.log &
+    sleep 2
+    if ! pgrep -x ollama &>/dev/null; then
+      _error "Ollama failed to start. Check /tmp/ollama.log"
+      return 1
+    fi
+    _ok "Ollama ready (port 11434)."
+  fi
+
+  if ollama list 2>/dev/null | grep -q "${OLLAMA_MODEL%%:*}"; then
+    _ok "Model $OLLAMA_MODEL already cached."
+  else
+    _info "Pulling $OLLAMA_MODEL in background..."
+    ollama pull "$OLLAMA_MODEL" &>/tmp/ollama-pull.log &
+    _info "Track: tail -f /tmp/ollama-pull.log"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# runpod_setup_supabase — start Supabase using the repo's config.toml
+#   Requires Docker to be running. Safe to call multiple times.
+# ---------------------------------------------------------------------------
+runpod_setup_supabase() {
+  if ! command -v supabase &>/dev/null; then
+    _error "Supabase CLI not installed. Run: install_supabase_cli"
+    return 1
+  fi
+  if ! docker info &>/dev/null 2>&1; then
+    _error "Docker is not running. Run: start_docker"
+    return 1
+  fi
+
+  if docker ps 2>/dev/null | grep -q supabase; then
+    _ok "Supabase already running (port 54321)."
+    return 0
+  fi
+
+  _info "Starting Supabase..."
+  (cd "$SITEMGR_DIR" && supabase start) &>/tmp/supabase.log &
+
+  local attempts=0
+  while ! curl -sf http://localhost:54321/health &>/dev/null; do
+    sleep 2
+    attempts=$((attempts + 1))
+    if [[ $attempts -ge 60 ]]; then
+      _warn "Supabase taking longer than expected. Check /tmp/supabase.log"
+      _warn "First run pulls Docker images — this can take a few minutes."
+      return 0
+    fi
+    [[ $((attempts % 5)) -eq 0 ]] && \
+      _info "Waiting for Supabase... (${attempts}s)"
+  done
+
+  _ok "Supabase ready (port 54321, Studio: 54323)."
+}
+
+# ---------------------------------------------------------------------------
+# server_bootstrap — full one-command setup for a fresh or restarted pod
+#   Safe to run multiple times — each step is a no-op if already done.
+#
+# Usage:
+#   source /tmp/lib.sh
+#   server_bootstrap                  # cloud Supabase (default, works on RunPod)
+#   server_bootstrap --local-supabase # local Supabase via Docker (requires DinD — VPS/Hetzner)
+# ---------------------------------------------------------------------------
+server_bootstrap() {
+  local local_supabase=false
+  for arg in "$@"; do
+    [[ "$arg" == "--local-supabase" ]] && local_supabase=true
+  done
+
+  echo ""
+  echo "================================================"
+  echo "  sitemgr — server bootstrap"
+  if $local_supabase; then
+    echo "  mode: local Supabase (Docker)"
+  else
+    echo "  mode: cloud Supabase"
+  fi
+  echo "================================================"
+  echo ""
+
+  # Persist RunPod-injected env vars so tmux/SSH sessions inherit them.
+  # RunPod sets vars in PID 1's environment but SSH sessions don't inherit them,
+  # so we read from /proc/1/environ and write to /etc/environment.
+  _info "Persisting env vars to /etc/environment..."
+  # GH_TOKEN is required; ANTHROPIC_API_KEY is optional (not needed for Max/OAuth)
+  local env_vars=(GH_TOKEN ANTHROPIC_API_KEY)
+  $local_supabase && env_vars+=(SUPABASE_ACCESS_TOKEN)
+  for var in "${env_vars[@]}"; do
+    local val="${!var:-}"
+    if [[ -z "$val" ]] && [[ -f /proc/1/environ ]]; then
+      val=$(tr '\0' '\n' < /proc/1/environ | grep "^${var}=" | cut -d= -f2-)
+    fi
+    if [[ -n "$val" ]]; then
+      sed -i "/^${var}=/d" /etc/environment
+      echo "${var}=${val}" >> /etc/environment
+      export "$var=$val"
+      _ok "  $var persisted."
+    elif [[ "$var" == "GH_TOKEN" ]]; then
+      _warn "  $var not set — set it in pod environment variables."
+    fi
+  done
+
+  runpod_install_deps
+
+  if $local_supabase; then
+    start_docker
+    install_supabase_cli
+    runpod_setup_supabase
+  else
+    _info "Skipping local Supabase (cloud mode) — set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY in pod env vars."
+  fi
+
+  runpod_setup_workspace
+  runpod_setup_ollama
+
+  # Source lib.sh from the repo so all functions are available going forward
+  # shellcheck disable=SC1090
+  source "$SITEMGR_DIR/scripts/lib.sh"
+
+  echo ""
+  echo "================================================"
+  echo "  Bootstrap complete!"
+  echo ""
+  echo "  Next steps:"
+  echo "    new_session main     # start Claude Code in tmux"
+  echo "    service_status       # verify everything is up"
+  echo ""
+  if $local_supabase; then
+    echo "  SSH tunnel for local browser access:"
+    echo "    ssh -L 3000:localhost:3000 \\"
+    echo "        -L 54321:localhost:54321 \\"
+    echo "        -L 54323:localhost:54323 \\"
+    echo "        root@<host> -p <port>"
+  else
+    echo "  Make sure these are set in your pod env vars:"
+    echo "    NEXT_PUBLIC_SUPABASE_URL"
+    echo "    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY"
+    echo ""
+    echo "  SSH tunnel for Next.js:"
+    echo "    ssh -L 3000:localhost:3000 root@<host> -p <port>"
+  fi
+  echo "================================================"
+  echo ""
+}
+
+# ---------------------------------------------------------------------------
+# service_status — show health of all services
+# ---------------------------------------------------------------------------
+service_status() {
+  echo ""
+  echo "=== sitemgr service status ==="
+  echo ""
+
+  if docker info &>/dev/null 2>&1; then
+    echo "  Docker       ✓ running"
+    if docker ps 2>/dev/null | grep -q supabase; then
+      echo "  Supabase     ✓ running      port 54321  Studio: 54323"
+    else
+      echo "  Supabase     ✗ stopped      (runpod_setup_supabase)"
+    fi
+  else
+    echo "  Docker       ✗ not available (cloud Supabase mode)"
+    echo "  Supabase     → cloud         (${NEXT_PUBLIC_SUPABASE_URL:-not set})"
+  fi
+
+  if pgrep -x ollama &>/dev/null; then
+    echo "  Ollama       ✓ running      port 11434"
+    ollama list 2>/dev/null | grep -q "${OLLAMA_MODEL%%:*}" \
+      && echo "  $OLLAMA_MODEL  ✓ cached" \
+      || echo "  $OLLAMA_MODEL  … pulling      (tail -f /tmp/ollama-pull.log)"
+  else
+    echo "  Ollama       ✗ stopped      (runpod_setup_ollama)"
+  fi
+
+  pgrep -f "next dev" &>/dev/null \
+    && echo "  Next.js      ✓ running      port 3000" \
+    || echo "  Next.js      ✗ stopped      (cd $SITEMGR_DIR/web && npm run dev)"
+
+  echo ""
+}
+
+# =============================================================================
+# Session management (tmux)
+# =============================================================================
+
+# new_session <name> [branch]
+# Creates a tmux session running the configured orchestrator.
+new_session() {
+  if [[ "$SITEMGR_ORCHESTRATOR" == "claude-api" ]] \
+      && [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+    _error "ANTHROPIC_API_KEY not set. Required for claude-api orchestrator."
+    return 1
+  fi
+
+  local SESSION="${1:-main}"
+  local BRANCH="${2:-}"
+  local CMD
+  CMD="$(_resolve_orchestrator_cmd)"
+
+  if tmux has-session -t "$SESSION" 2>/dev/null; then
+    _warn "Session '$SESSION' already exists."
+    _info "Attach with: attach_session $SESSION"
+    return 1
+  fi
+
+  _info "Starting session '$SESSION' ($SITEMGR_ORCHESTRATOR)..."
+  tmux new-session -d -s "$SESSION" -c "$SITEMGR_DIR"
+
+  if [[ -n "$BRANCH" ]]; then
+    tmux send-keys -t "$SESSION" \
+      "git checkout $BRANCH 2>/dev/null || git checkout -b $BRANCH" Enter
+    sleep 1
+  fi
+
+  tmux send-keys -t "$SESSION" "cd $SITEMGR_DIR && $CMD" Enter
+
+  _ok "Session '$SESSION' started."
+  _info "Command:  $CMD"
+  _info "Attach:   attach_session $SESSION"
+  [[ "$SITEMGR_ORCHESTRATOR" == "claude" ]] && \
+    _info "Phone:    Claude app → Code tab → scan QR"
+}
+
+# attach_session <name>
+attach_session() {
+  local SESSION="${1:-}"
+  if [[ -z "$SESSION" ]]; then
+    list_sessions
+    return 0
+  fi
+  if tmux has-session -t "$SESSION" 2>/dev/null; then
+    tmux attach-session -t "$SESSION"
+  else
+    _warn "Session '$SESSION' not found."
+    list_sessions
+  fi
+}
+
+# list_sessions
+list_sessions() {
+  local CMD
+  CMD="$(_resolve_orchestrator_cmd)"
+  echo ""
+  echo "=== tmux sessions ==="
+  tmux list-sessions 2>/dev/null || _warn "No active sessions."
+  echo ""
+  echo "Orchestrator: $SITEMGR_ORCHESTRATOR  ($CMD)"
+  echo "Switch:       export SITEMGR_ORCHESTRATOR=claude|claude-api|opencode|aider|custom"
+  echo ""
+  echo "  new_session <n> [branch]  — start session"
+  echo "  attach_session <n>        — attach"
+  echo "  kill_session <n>          — kill"
+  echo ""
+}
+
+# kill_session <name>
+kill_session() {
+  local SESSION="${1:-}"
+  if [[ -z "$SESSION" ]]; then
+    _error "Usage: kill_session <name>"
+    return 1
+  fi
+  tmux kill-session -t "$SESSION" 2>/dev/null \
+    && _ok "Session '$SESSION' killed." \
+    || _warn "Session '$SESSION' not found."
 }
